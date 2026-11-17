@@ -6,7 +6,7 @@
  */
 import type { Seat, SeatPlate } from '../contracts';
 import type { AvatarController } from './avatars';
-import { h, prefersReducedMotion } from './dom';
+import { h, prefersReducedMotion, svgEl } from './dom';
 
 interface PlateEl {
   root: HTMLElement;
@@ -25,6 +25,13 @@ export class SeatPlates {
   private boxes: (SeatPlate | null)[] = [null, null, null, null];
   private center = { x: 0, y: 0 };
   private bubbles: HTMLElement[] = [];
+  /** online: the turn-timer ring of each plate (built on first use) */
+  private rings: (SVGSVGElement | null)[] = [null, null, null, null];
+  private ringAnim: Animation | null = null;
+  private ringSeat: Seat | null = null;
+  private warnTimer: ReturnType<typeof setTimeout> | null = null;
+  /** called after every layout update (online: the quick-phrase button follows the own plate) */
+  onLayout: (() => void) | null = null;
 
   constructor(private avatars: AvatarController) {
     this.el = h('div.plates', { 'aria-hidden': 'true' });
@@ -132,6 +139,57 @@ export class SeatPlates {
     this.center = { x: center.x, y: center.y };
     this.avatars.setPositions(plates, center);
     this.avatars.setVisible(anyVisible && this.avatarsOn);
+    this.onLayout?.();
+  }
+
+  /** the last layout box of a seat's plate (null before the first layout) */
+  box(seat: Seat): SeatPlate | null {
+    return this.boxes[seat];
+  }
+
+  /**
+   * Online: the turn timer as a thin ring round the avatar of the seat to move, emptying until
+   * `endsAt` (Date.now() ms). No numbers. `warnAt` (ms before the end, 0 = never) softly warms the ring
+   * and calls `onWarn` once. `null` removes it.
+   */
+  setTimer(seat: Seat | null, endsAt = 0, total = 30_000, warnAt = 0, onWarn?: () => void): void {
+    if (this.warnTimer) clearTimeout(this.warnTimer);
+    this.warnTimer = null;
+    this.ringAnim?.cancel();
+    this.ringAnim = null;
+    if (this.ringSeat !== null) {
+      const old = this.rings[this.ringSeat];
+      old?.classList.remove('on', 'warn');
+      this.p[this.ringSeat].root.classList.remove('timing');
+    }
+    this.ringSeat = seat;
+    if (seat === null) return;
+    let ring = this.rings[seat];
+    if (!ring) {
+      ring = svgEl('<svg class="plate-timer" viewBox="0 0 100 100" aria-hidden="true"><circle class="pt-track" cx="50" cy="50" r="47"/><circle class="pt-run" cx="50" cy="50" r="47" pathLength="100"/></svg>');
+      this.rings[seat] = ring;
+      this.p[seat].av.append(ring);
+    }
+    const left = Math.max(0, endsAt - Date.now());
+    const elapsed = Math.max(0, total - left);
+    ring.classList.add('on');
+    this.p[seat].root.classList.add('timing');
+    const run = ring.querySelector('.pt-run') as SVGCircleElement;
+    // remaining share as the dash: full ring at the start, empty at the deadline
+    const anim = run.animate([{ strokeDashoffset: '0' }, { strokeDashoffset: '100' }], { duration: Math.max(1, total), fill: 'forwards', easing: 'linear' });
+    anim.currentTime = Math.min(total, elapsed);
+    this.ringAnim = anim;
+    if (warnAt > 0) {
+      const warn = () => {
+        this.warnTimer = null;
+        if (this.ringSeat !== seat) return;
+        ring!.classList.add('warn');
+        onWarn?.();
+      };
+      if (left <= warnAt) {
+        if (left > 0) warn();
+      } else this.warnTimer = setTimeout(warn, left - warnAt);
+    }
   }
 
   /** while the human drags a ficha, the own plate fades out of its way */

@@ -1,6 +1,7 @@
 import './ui/styles.css';
 import type { App } from './app/app';
 import { initAudio } from './audio/sfx';
+import { installErrorLog } from './app/errorLog';
 import { loadSave, saveSummary } from './app/save';
 import { loadEngine, loadTableView } from './app/modules';
 import { loadSettings, saveSettings } from './app/settings';
@@ -9,6 +10,7 @@ import { setLang, t } from './ui/i18n';
 import { buildMenu } from './ui/menu';
 import { Overlay } from './ui/overlay';
 import { setTileTheme } from './ui/tiles';
+import { rememberedRoom } from './net/identity';
 
 /*
  * Start-up order (cheap Android WebViews are slow to parse three.js):
@@ -79,6 +81,17 @@ function animKey(root: HTMLElement, a: Animation): AnimKey | null {
 }
 
 async function boot() {
+  installErrorLog();
+  // dev: main-thread stalls (a hang looks like a frozen UI on a slow phone)
+  if (import.meta.env.DEV && typeof PerformanceObserver !== 'undefined') {
+    try {
+      new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) if (e.duration > 250) console.warn(`[kudominoes] long task ${Math.round(e.duration)} ms`);
+      }).observe({ type: 'longtask', buffered: true });
+    } catch {
+      /* longtask not supported */
+    }
+  }
   lockDownGestures();
   const uiRoot = document.getElementById('ui')!;
   const tableEl = document.getElementById('table')!;
@@ -101,7 +114,7 @@ async function boot() {
     const s = loadSave();
     const save = s ? saveSummary(s) : null;
     const noop = () => {};
-    const early = buildMenu({ save, onPlay: noop, onContinue: noop, onSettings: noop, onHowto: noop, onAbout: noop });
+    const early = buildMenu({ save, onPlay: noop, onContinue: noop, onSettings: noop, onHowto: noop, onAbout: noop, onOnline: noop });
     overlay.showScreen(early);
     hideBootSplash();
     mark('menu');
@@ -115,6 +128,10 @@ async function boot() {
         if (import.meta.env.DEV) (window as unknown as { __kudo: unknown }).__kudo = { app, engine };
         mark('app');
         if (overlay.screen === early) adoptMenu(app);
+        // online: a share link (?sala=XXXX) or a reload inside a room joins it (the online code loads lazily)
+        const link = new URLSearchParams(location.search).get('sala');
+        const sala = link ?? rememberedRoom();
+        if (sala && !waiting) void app.openOnline(sala, !link).catch((e) => console.error('[online] join failed', e));
         // let the canvas paint its first frame, then fade the table (idle ring) in
         requestAnimationFrame(() => requestAnimationFrame(() => tableEl.classList.add('kd-ready')));
         return app;

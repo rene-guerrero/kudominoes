@@ -20,6 +20,10 @@ import { GameSession, type SessionHooks } from './controller';
 import { clearSave, loadSave, saveGame, saveSummary } from './save';
 import { findTarget, RANDOM, rulesFor, sanitizeLineupSetting, saveSettings } from './settings';
 import { QualityGovernor, resolveQuality } from './perf';
+import { errorReport, logError, onErrorLogged, type LoggedError } from './errorLog';
+import { buildCrash } from '../ui/crash';
+import type { OnlineController, OnlineHost } from './online';
+import type { FaceSpec } from '../roster';
 
 type Names = [string, string, string, string];
 
@@ -31,7 +35,7 @@ export interface AppDeps {
   tableEl: HTMLElement;
 }
 
-type ScreenName = 'menu' | 'settings' | 'howto' | 'game' | 'newgame';
+type ScreenName = 'menu' | 'settings' | 'howto' | 'game' | 'newgame' | 'online';
 
 export class App {
   private engine: EngineApi;
@@ -41,6 +45,10 @@ export class App {
   private view!: TableView;
   private viewNames: Names | null = null;
   private session: GameSession | null = null;
+  /** online play (lazy-loaded); names of the online match override the lineup's */
+  private online: OnlineController | null = null;
+  private onlineLoading: Promise<OnlineController> | null = null;
+  private onlineNames: Names | null = null;
   private screen: ScreenName = 'menu';
   private closePause: (() => void) | null = null;
   private returnToPause = false;
@@ -69,7 +77,7 @@ export class App {
     this.lineup = resolveLineup(sanitizeLineupSetting(this.settings.lineup));
     this.applyLineupFaces();
     this.names = this.computeNames();
-    this.hud = new Hud(() => this.pause());
+    this.hud = new Hud(() => (this.screen === 'online' ? this.online?.openMenu() : this.pause()));
     // plates under the HUD (the turn pill and top bar stay on top)
     this.overlay.hudLayer.append(this.plates.el, this.hud.el);
     this.avatars.setHumanFace(this.settings.avatarFace ?? 0);
@@ -77,6 +85,10 @@ export class App {
     this.avatars.setReducedMotion(prefersReducedMotion());
     this.ensureView();
     this.bindGlobal();
+    // an uncaught error while a local match runs: the friendly error screen instead of a frozen table
+    onErrorLogged((e) => {
+      if (this.screen === 'game' && this.session) this.crash(e);
+    });
     // dev only: feed fake frame stats from the console, e.g. __kudoPerf.feed(40) a few times
     if (import.meta.env.DEV)
       (window as unknown as { __kudoPerf: unknown }).__kudoPerf = {
@@ -113,6 +125,7 @@ export class App {
   // ───────────────────────── view ─────────────────────────
 
   private computeNames(): Names {
+    if (this.onlineNames) return [this.settings.playerName || t('seat.you'), this.onlineNames[1], this.onlineNames[2], this.onlineNames[3]];
     const l = this.lineup;
     return [this.settings.playerName || t('seat.you'), character(l[1]).name, character(l[2]).name, character(l[3]).name];
   }
@@ -153,6 +166,7 @@ export class App {
       onImpact: (seat, kind) => this.avatars.onImpact(seat, kind),
       onDrag: (d) => this.plates.setDragging(d),
       onFrameStats: this.onFrameStats,
+      onError: (err) => this.crash(logError('render', err)),
     });
     this.viewNames = names;
   }
@@ -172,8 +186,86 @@ export class App {
         onSettings: () => this.showSettings(),
         onHowto: () => this.showHowto(),
         onAbout: () => this.showAbout(),
+        onOnline: () => void this.openOnline(),
       }),
     );
+  }
+
+  // ───────────────────────── online play ─────────────────────────
+
+  /** "Jugar en línea" (or a share link / a reload inside a room: join that code) */
+  async openOnline(code?: string, quiet = false): Promise<void> {
+    this.onlineLoading ??= import('./online').then((m) => {
+      this.online = new m.OnlineController(this.onlineHost());
+      return this.online;
+    });
+    const ctl = await this.onlineLoading;
+    this.stopSession();
+    this.screen = 'online';
+    ctl.open(code, quiet);
+  }
+
+  private onlineHost(): OnlineHost {
+    return {
+      engine: this.engine,
+      overlay: this.overlay,
+      hud: this.hud,
+      plates: this.plates,
+      avatars: this.avatars,
+      view: () => this.view,
+      settings: () => this.settings,
+      setSetting: (key, v) => {
+        this.settings = { ...this.settings, [key]: v };
+        saveSettings(this.settings);
+        this.applySetting(key);
+      },
+      hooks: () => this.hooks(),
+      beginMatch: (o) => {
+        this.stopSession();
+        this.screen = 'online';
+        this.onlineNames = o.names;
+        this.mode = o.mode;
+        this.seats = o.seats.slice();
+        this.lastDrawSeat = null;
+        this.applyOnlineFaces(o.faces);
+        this.ensureView();
+        this.view.reset();
+        this.overlay.closeAllModals();
+        this.overlay.showScreen(null);
+        this.hud.reset();
+        this.plates.clearBubbles();
+        this.avatars.reset();
+        this.avatars.setPaused(false);
+        this.avatars.setHold(false);
+        this.hud.setScores(o.match.scores);
+        this.hud.setAbajo(o.match.abajo ?? 0);
+        this.hud.setTarget(findTarget(this.engine, o.match.rules));
+        this.setupSoloHud(o.match);
+        if (o.match.hand) this.hud.setHand(o.match.hand.handNo);
+        this.hud.show(true);
+      },
+      setPlayers: (names, faces) => {
+        this.onlineNames = names;
+        this.applyOnlineFaces(faces);
+        this.ensureView();
+        if (this.mode === 'individual' && this.session === null) {
+          const avatarsOn = this.settings.avatars !== false;
+          const i = Math.max(0, this.seats.indexOf(0));
+          const order = [...this.seats.slice(i), ...this.seats.slice(0, i)];
+          this.hud.setPlayers(order.map((s) => ({ seat: s, name: this.names[s], face: avatarsOn ? h('span.face-static', staticFace(faceOfSeat(s), 'idle')) : null })));
+        }
+      },
+      setSfxMuted: (m) => (this.sfxMuted = m),
+      exit: () => {
+        this.onlineNames = null;
+        this.applyLineupFaces();
+        this.toMenu();
+      },
+    };
+  }
+
+  private applyOnlineFaces(faces: FaceSpec[]): void {
+    for (const s of [1, 2, 3] as const) if (faces[s]) this.avatars.setSeatFace(s, faces[s]);
   }
 
   /** Acerca de: a small modal over the menu or Ajustes; Esc / Cerrar / Android back close it */
@@ -410,10 +502,7 @@ export class App {
       })
       .catch((err) => {
         console.error('[kudominoes] game loop crashed', err);
-        if (this.session === session) {
-          this.session = null;
-          this.toMenu();
-        }
+        if (this.session === session) this.crash(logError('game', err));
       });
   }
 
@@ -437,6 +526,40 @@ export class App {
       this.session.cancel();
       this.session = null;
     }
+  }
+
+  /**
+   * An unexpected error stopped the match: stop it, then a friendly card with "Volver al menú" and the
+   * error text under "Detalles" (also in production: the APK has no console). Never a frozen screen.
+   */
+  private crashCard: (() => void) | null = null;
+  private crash(e: LoggedError): void {
+    if (this.crashCard) return;
+    try {
+      this.stopSession();
+      this.closePause?.();
+      this.closePause = null;
+      this.overlay.closeAllModals();
+      this.avatars.setHold(true);
+    } catch (err) {
+      console.error('[kudominoes] cleanup after an error failed', err);
+    }
+    const close = this.overlay.openModal(
+      buildCrash({
+        details: errorReport(e),
+        onMenu: () => {
+          close();
+          this.crashCard = null;
+          try {
+            this.toMenu();
+          } catch (err) {
+            logError('menu', err);
+            this.showMenu();
+          }
+        },
+      }),
+    );
+    this.crashCard = close;
   }
 
   private toMenu(): void {
@@ -731,6 +854,12 @@ export class App {
     });
     window.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape' && e.key !== 'GoBack' && e.key !== 'BrowserBack') return;
+      if (this.screen === 'online') {
+        // a confirm dialog of the online screens handles itself
+        if (this.overlay.modalOpen && this.overlay.modalLayer.querySelector('.dialog:not(.rules-sheet)')) return;
+        this.online?.back();
+        return;
+      }
       if (this.overlay.modalOpen && this.screen !== 'game') return; // a confirm dialog handles itself
       if (this.screen === 'settings' || this.screen === 'howto' || this.screen === 'newgame') {
         (this.overlay.screen?.querySelector('.screen-head .back') as HTMLButtonElement | null)?.click();

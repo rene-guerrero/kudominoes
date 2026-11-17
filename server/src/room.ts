@@ -1,0 +1,572 @@
+/**
+ * One Durable Object per room (SQLite-backed, WebSocket Hibernation API).
+ *
+ * Persistence: the whole room (lobby, MatchState, timer schedule) is one small JSON value under the
+ * storage key 'room'. It is loaded in the constructor (which also runs when the object wakes from
+ * hibernation) and written after every change, so nothing important lives only in memory. Per-socket
+ * identity is in the socket attachment (survives hibernation). Only the phrase rate limiter is
+ * in-memory (losing it on hibernation is harmless).
+ *
+ * Timers: one alarm per object, set to the earliest entry of RoomData.schedule (turn deadline / CPU
+ * think delay / next deal, per-player disconnect grace, idle deletion).
+ */
+import { DurableObject } from 'cloudflare:workers';
+import type { GameEvent, Move, Seat, Team } from '../../src/contracts';
+import { applyMove, chooseStarter, cpuStarter, createMatch, legalMoves, startHand, starterPreference } from '../../src/engine/game';
+import {
+  COVER_LEVEL,
+  PROTOCOL_VERSION,
+  QUICK_PHRASES,
+  type ClientMsg,
+  type ErrorCode,
+  type RoomInfoResponse,
+  type ServerMsg,
+} from '../../src/net/protocol';
+import { character, profileOf } from '../../src/roster';
+import { tunables, type Env, type Tunables } from './config';
+import { cpuMove, drawDelay, markFinishing, matchLegal, maybeCpuSlam, starterDelay, thinkDelay } from './game';
+import {
+  autoSeat,
+  connectedHumans,
+  ensureHost,
+  fillSeats,
+  freeSeats,
+  humanCount,
+  isSeat,
+  isValidPlayerId,
+  LobbyError,
+  MAX_MEMBERS,
+  newRoom,
+  publicRoom,
+  removeMember,
+  sanitizeFace,
+  sanitizeName,
+  seatOf,
+  setCpu,
+  setMode,
+  setRules,
+  sit,
+  type RoomData,
+} from './lobby';
+import { redactEvents, seatView } from './redact';
+import { clearGameTimer, nextAlarm, setGameTimer, takeDue } from './schedule';
+
+interface Attachment {
+  /** playerId from the ?pid= query (null if absent; then hello decides) */
+  pid: string | null;
+  hello: boolean;
+}
+
+type Controller = 'human' | 'cover' | 'cpu';
+
+const MAX_FRAME = 4096;
+/** phrases: at most one per PHRASE_GAP_MS and PHRASE_BURST per PHRASE_WINDOW_MS */
+const PHRASE_GAP_MS = 1200;
+const PHRASE_BURST = 5;
+const PHRASE_WINDOW_MS = 20_000;
+
+export class Room extends DurableObject<Env> {
+  private data: RoomData | null = null;
+  private cfg: Tunables;
+  private phraseLog = new Map<string, number[]>();
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.cfg = tunables(env);
+    ctx.blockConcurrencyWhile(async () => {
+      this.data = (await ctx.storage.get<RoomData>('room')) ?? null;
+    });
+  }
+
+  // ───────────────────────── HTTP (from the Worker) ─────────────────────────
+
+  async fetch(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+    if (req.headers.get('Upgrade')?.toLowerCase() === 'websocket') return this.acceptSocket(url);
+    if (url.pathname === '/init' && req.method === 'POST') {
+      if (this.data) return new Response('exists', { status: 409 });
+      const code = url.searchParams.get('code') ?? '';
+      const host = url.searchParams.get('host');
+      const now = Date.now();
+      this.data = newRoom(code, now, host && isValidPlayerId(host) ? host : '');
+      this.data.schedule.idle = now + this.cfg.idleTtlMs; // nobody ever joins → cleaned up
+      await this.save();
+      return new Response('created', { status: 201 });
+    }
+    if (url.pathname === '/info') {
+      const r = this.data;
+      const body: RoomInfoResponse = r ? { exists: true, phase: r.phase, freeSeats: freeSeats(r) } : { exists: false };
+      return Response.json(body);
+    }
+    return new Response('not found', { status: 404 });
+  }
+
+  private acceptSocket(url: URL): Response {
+    const pair = new WebSocketPair();
+    const [client, server] = [pair[0], pair[1]];
+    this.ctx.acceptWebSocket(server);
+    const pid = url.searchParams.get('pid');
+    const att: Attachment = { pid: pid && isValidPlayerId(pid) ? pid : null, hello: false };
+    server.serializeAttachment(att);
+    if (!this.data) {
+      this.sendTo(server, { t: 'error', code: 'room_not_found' });
+      server.close(4004, 'room_not_found');
+    }
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  // ───────────────────────── WebSocket handlers ─────────────────────────
+
+  async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    if (typeof raw !== 'string' || raw.length > MAX_FRAME) return this.err(ws, 'bad_request', 'frame');
+    let msg: ClientMsg;
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      return this.err(ws, 'bad_request', 'json');
+    }
+    if (!msg || typeof msg !== 'object' || typeof (msg as { t?: unknown }).t !== 'string') return this.err(ws, 'bad_request');
+    if (msg.t === 'ping') {
+      this.sendTo(ws, { t: 'pong', at: typeof msg.at === 'number' ? msg.at : 0, serverNow: Date.now() });
+      return;
+    }
+    const r = this.data;
+    if (!r) {
+      this.sendTo(ws, { t: 'error', code: 'room_not_found' });
+      ws.close(4004, 'room_not_found');
+      return;
+    }
+    const att = ws.deserializeAttachment() as Attachment;
+    try {
+      if (msg.t === 'hello') this.onHello(ws, att, msg);
+      else {
+        if (!att.hello || !att.pid || !r.members[att.pid]) return this.err(ws, 'bad_request', 'say hello first');
+        this.onMessage(ws, att.pid, msg);
+      }
+    } catch (e) {
+      if (e instanceof LobbyError) this.err(ws, e.code, e.message);
+      else {
+        console.error('room error', e);
+        this.err(ws, 'bad_request', 'internal');
+      }
+    }
+    await this.save();
+  }
+
+  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    try {
+      ws.close(code === 1005 || code === 1006 ? 1000 : code, reason);
+    } catch {
+      /* already closed */
+    }
+    this.onSocketGone(ws);
+    await this.save();
+  }
+
+  async webSocketError(ws: WebSocket): Promise<void> {
+    this.onSocketGone(ws);
+    await this.save();
+  }
+
+  // ───────────────────────── alarm ─────────────────────────
+
+  async alarm(): Promise<void> {
+    const r = this.data;
+    if (!r) return;
+    const now = Date.now();
+    const due = takeDue(r.schedule, now);
+    if (due.idle && connectedHumans(r).length === 0 && this.liveSockets().length === 0) {
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+      this.data = null;
+      return;
+    }
+    let roomChanged = false;
+    for (const pid of due.grace) {
+      const m = r.members[pid];
+      if (!m || m.connected) continue;
+      if (r.phase === 'playing' && seatOf(r, pid) !== null) m.cpuCovering = true;
+      roomChanged = true;
+    }
+    if (due.grace.length && ensureHost(r)) roomChanged = true;
+    if (roomChanged) this.broadcastRoom();
+    if (due.game) this.onGameTimer(due.game.kind, due.game.key);
+    this.advance();
+    await this.save();
+  }
+
+  // ───────────────────────── persistence ─────────────────────────
+
+  private async save(): Promise<void> {
+    const r = this.data;
+    if (!r) return;
+    await this.ctx.storage.put('room', r);
+    const at = nextAlarm(r.schedule);
+    if (at === null) await this.ctx.storage.deleteAlarm();
+    else await this.ctx.storage.setAlarm(Math.max(at, Date.now() + 1));
+  }
+
+  // ───────────────────────── sockets ─────────────────────────
+
+  /** sockets that said hello, with their player id */
+  private liveSockets(except?: WebSocket): { ws: WebSocket; pid: string }[] {
+    const out: { ws: WebSocket; pid: string }[] = [];
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === except || ws.readyState !== WebSocket.OPEN) continue;
+      const a = ws.deserializeAttachment() as Attachment | null;
+      if (a?.hello && a.pid) out.push({ ws, pid: a.pid });
+    }
+    return out;
+  }
+
+  private sendTo(ws: WebSocket, msg: ServerMsg): void {
+    try {
+      ws.send(JSON.stringify(msg));
+    } catch {
+      /* socket going away */
+    }
+  }
+
+  private err(ws: WebSocket, code: ErrorCode, message?: string): void {
+    this.sendTo(ws, message ? { t: 'error', code, message } : { t: 'error', code });
+  }
+
+  private broadcast(make: (pid: string, seat: Seat | null) => ServerMsg | null): void {
+    const r = this.data!;
+    for (const { ws, pid } of this.liveSockets()) {
+      const msg = make(pid, seatOf(r, pid));
+      if (msg) this.sendTo(ws, msg);
+    }
+  }
+
+  private broadcastRoom(): void {
+    const room = publicRoom(this.data!);
+    this.broadcast(() => ({ t: 'room', room }));
+  }
+
+  private broadcastEvents(events: GameEvent[]): void {
+    this.broadcast((_pid, seat) => ({ t: 'events', events: redactEvents(events, seat) }));
+  }
+
+  private onSocketGone(ws: WebSocket): void {
+    const r = this.data;
+    if (!r) return;
+    const a = ws.deserializeAttachment() as Attachment | null;
+    if (!a?.hello || !a.pid) return;
+    const pid = a.pid;
+    const m = r.members[pid];
+    if (!m || !m.connected) return;
+    if (this.liveSockets(ws).some((s) => s.pid === pid)) return; // another socket of theirs is open
+    const now = Date.now();
+    m.connected = false;
+    r.schedule.grace[pid] = now + this.cfg.graceMs;
+    if (connectedHumans(r).length === 0) r.schedule.idle = now + this.cfg.idleTtlMs;
+    this.broadcastRoom();
+    this.advance();
+  }
+
+  // ───────────────────────── messages ─────────────────────────
+
+  private onHello(ws: WebSocket, att: Attachment, msg: Extract<ClientMsg, { t: 'hello' }>): void {
+    const r = this.data!;
+    if (msg.v !== PROTOCOL_VERSION) {
+      this.err(ws, 'version_mismatch', `server speaks v${PROTOCOL_VERSION}`);
+      ws.close(4000, 'version_mismatch');
+      return;
+    }
+    const pid = msg.playerId;
+    if (!isValidPlayerId(pid) || (att.pid && att.pid !== pid) || (att.hello && att.pid !== pid)) {
+      this.err(ws, 'bad_request', 'bad playerId');
+      return;
+    }
+    const now = Date.now();
+    let m = r.members[pid];
+    if (!m) {
+      if (Object.keys(r.members).length >= MAX_MEMBERS || freeSeats(r) === 0) {
+        this.err(ws, 'room_full');
+        ws.close(4003, 'room_full');
+        return;
+      }
+      m = { playerId: pid, name: '', face: 0, connected: false, cpuCovering: false, joinedAt: now };
+      r.members[pid] = m;
+      if (autoSeat(r, pid) === null && r.phase === 'playing') {
+        delete r.members[pid];
+        this.err(ws, 'room_full');
+        ws.close(4003, 'room_full');
+        return;
+      }
+    }
+    m.name = sanitizeName(msg.name);
+    m.face = sanitizeFace(msg.face);
+    m.connected = true;
+    m.cpuCovering = false;
+    delete r.schedule.grace[pid];
+    r.schedule.idle = null;
+    if (!r.hostId || !r.members[r.hostId]) r.hostId = pid;
+    ensureHost(r);
+
+    // this socket is now the player's; older sockets of the same player are replaced
+    ws.serializeAttachment({ pid, hello: true } satisfies Attachment);
+    for (const s of this.liveSockets(ws)) if (s.pid === pid) s.ws.close(4001, 'replaced');
+
+    const seat = seatOf(r, pid);
+    const room = publicRoom(r);
+    this.sendTo(ws, { t: 'welcome', you: { playerId: pid, seat, isHost: r.hostId === pid }, room, view: this.viewFor(seat) });
+    for (const s of this.liveSockets(ws)) this.sendTo(s.ws, { t: 'room', room });
+    // a returning player takes their seat back from the covering CPU (new turn clock if it is theirs)
+    if (!this.advance()) {
+      const turn = this.turnMsgFor(pid);
+      if (turn) this.sendTo(ws, turn);
+    }
+  }
+
+  private onMessage(ws: WebSocket, pid: string, msg: ClientMsg): void {
+    const r = this.data!;
+    switch (msg.t) {
+      case 'sit':
+        if (msg.seat !== null && !isSeat(msg.seat)) throw new LobbyError('bad_request');
+        sit(r, pid, msg.seat);
+        this.broadcastRoom();
+        return;
+      case 'setCpu':
+        setCpu(r, pid, msg.seat, msg.characterId ?? null);
+        this.broadcastRoom();
+        return;
+      case 'setMode':
+        setMode(r, pid, msg.mode, msg.playerCount);
+        this.broadcastRoom();
+        return;
+      case 'setRules':
+        setRules(r, pid, msg.rules);
+        this.broadcastRoom();
+        return;
+      case 'start':
+      case 'rematch':
+        this.startMatch(pid);
+        return;
+      case 'move':
+        return this.onMove(ws, pid, msg.move);
+      case 'chooseStarter':
+        return this.onChooseStarter(ws, pid, msg.seat);
+      case 'phrase':
+        return this.onPhrase(ws, pid, msg.id);
+      case 'leave':
+        removeMember(r, pid);
+        delete r.schedule.grace[pid];
+        if (connectedHumans(r).length === 0) r.schedule.idle = Date.now() + this.cfg.idleTtlMs;
+        ws.serializeAttachment({ pid, hello: false } satisfies Attachment);
+        ws.close(1000, 'left');
+        this.broadcastRoom();
+        this.advance();
+        return;
+      default:
+        throw new LobbyError('bad_request', 'unknown message');
+    }
+  }
+
+  private startMatch(pid: string): void {
+    const r = this.data!;
+    if (r.hostId !== pid) throw new LobbyError('not_host');
+    if (r.phase === 'playing') throw new LobbyError('bad_request', 'already playing');
+    if (humanCount(r) === 0 && !seatOf(r, pid)) {
+      // the host stood up and nobody sits: put the host back at the table
+      autoSeat(r, pid);
+    }
+    fillSeats(r);
+    const seed = crypto.getRandomValues(new Uint32Array(1))[0] | 0;
+    r.match = createMatch(r.rules, seed, r.mode === 'individual' ? { mode: 'individual', players: r.playerCount as 2 | 3 | 4 } : undefined);
+    r.phase = 'playing';
+    r.slamStats = { plays: [0, 0, 0, 0], slams: [0, 0, 0, 0] };
+    for (const m of Object.values(r.members)) m.cpuCovering = !m.connected && seatOf(r, m.playerId) !== null;
+    this.broadcastRoom();
+    this.dealNext();
+  }
+
+  private dealNext(): void {
+    const r = this.data!;
+    const res = startHand(r.match!);
+    r.match = res.match;
+    r.step++;
+    this.broadcastEvents(res.events);
+    this.advance();
+  }
+
+  private onMove(ws: WebSocket, pid: string, raw: Move): void {
+    const r = this.data!;
+    const hand = r.match?.hand;
+    if (r.phase !== 'playing' || !hand || hand.over) return this.err(ws, 'not_your_turn');
+    const seat = seatOf(r, pid);
+    if (seat === null || hand.pendingStarterChoice != null || hand.turn !== seat) return this.err(ws, 'not_your_turn');
+    const move = matchLegal(legalMoves(r.match!), raw);
+    if (!move) return this.err(ws, 'bad_move');
+    this.apply(move, null);
+  }
+
+  private onChooseStarter(ws: WebSocket, pid: string, pick: Seat): void {
+    const r = this.data!;
+    const hand = r.match?.hand;
+    const seat = seatOf(r, pid);
+    if (r.phase !== 'playing' || !hand || hand.over || hand.pendingStarterChoice == null || seat === null) return this.err(ws, 'not_your_turn');
+    const team = hand.pendingStarterChoice;
+    if (seat % 2 !== team) return this.err(ws, 'not_your_turn');
+    if (!isSeat(pick) || pick % 2 !== team) return this.err(ws, 'bad_request', 'seat not in your team');
+    r.match = chooseStarter(r.match!, pick);
+    r.step++;
+    this.advance();
+  }
+
+  private onPhrase(ws: WebSocket, pid: string, id: string): void {
+    const r = this.data!;
+    const seat = seatOf(r, pid);
+    if (seat === null || !(QUICK_PHRASES as readonly string[]).includes(id)) return this.err(ws, 'bad_request');
+    const now = Date.now();
+    const log = (this.phraseLog.get(pid) ?? []).filter((t) => now - t < PHRASE_WINDOW_MS);
+    if ((log.length && now - log[log.length - 1] < PHRASE_GAP_MS) || log.length >= PHRASE_BURST) {
+      this.phraseLog.set(pid, log);
+      return this.err(ws, 'rate_limited');
+    }
+    log.push(now);
+    this.phraseLog.set(pid, log);
+    this.broadcast(() => ({ t: 'phrase', seat, id }));
+  }
+
+  // ───────────────────────── game flow ─────────────────────────
+
+  private controller(seat: Seat): Controller {
+    const r = this.data!;
+    const slot = r.seats[seat];
+    if (slot.kind !== 'human') return 'cpu';
+    const m = r.members[slot.playerId];
+    // a dropped player keeps their turn clock during the grace period; after it a CPU covers them
+    return m && !m.cpuCovering ? 'human' : 'cover';
+  }
+
+  /** apply a (validated) move; `cover` = a CPU played it for a human seat */
+  private apply(move: Move, cover: 'timeout' | 'disconnected' | null): void {
+    const r = this.data!;
+    const before = r.match!;
+    const res = applyMove(before, move);
+    const events = res.events;
+    const slot = r.seats[move.seat];
+    if (slot.kind === 'cpu') maybeCpuSlam(before, move.seat, events, character(slot.characterId).slam, r.slamStats);
+    markFinishing(events);
+    r.match = res.match;
+    r.step++;
+    if (cover) this.broadcast(() => ({ t: 'covered', seat: move.seat, reason: cover }));
+    this.broadcastEvents(events);
+    if (res.match.hand?.over) {
+      if (res.match.over) r.phase = 'finished';
+      this.broadcastRoom(); // scores (and phase)
+    }
+    this.advance();
+  }
+
+  private onGameTimer(kind: string, key: string): void {
+    const r = this.data!;
+    const m = r.match;
+    if (r.phase !== 'playing' || !m || !key.startsWith(`${r.step}:`)) return; // stale
+    if (kind === 'nextHand') {
+      if (!m.over && (!m.hand || m.hand.over)) this.dealNext();
+      return;
+    }
+    const hand = m.hand;
+    if (!hand || hand.over) return;
+    if (kind === 'starter' || kind === 'cpuStarter') {
+      if (hand.pendingStarterChoice == null) return;
+      r.match = chooseStarter(m, cpuStarter(m));
+      r.step++;
+      return;
+    }
+    if (hand.pendingStarterChoice != null) return;
+    const seat = hand.turn;
+    if (kind === 'turn') {
+      this.apply(cpuMove(m, COVER_LEVEL), 'timeout');
+      return;
+    }
+    if (kind === 'cpu') {
+      const slot = r.seats[seat];
+      if (slot.kind === 'cpu') {
+        const p = profileOf(slot.characterId);
+        this.apply(cpuMove(m, p.level, p.style), null);
+      } else this.apply(cpuMove(m, COVER_LEVEL), 'disconnected');
+    }
+  }
+
+  /**
+   * Make sure the right game timer is pending for the current situation and tell everyone whose turn
+   * it is when the situation is new. Returns true when a turn message was broadcast.
+   */
+  private advance(): boolean {
+    const r = this.data!;
+    const m = r.match;
+    const sch = r.schedule;
+    if (r.phase !== 'playing' || !m || m.over) {
+      clearGameTimer(sch);
+      return false;
+    }
+    // nobody connected: the table waits (no CPU-vs-CPU games burning alarms)
+    if (connectedHumans(r).length === 0) {
+      clearGameTimer(sch);
+      return false;
+    }
+    const now = Date.now();
+    const sp = this.cfg.cpuSpeed;
+    const hand = m.hand;
+    if (!hand || hand.over) {
+      setGameTimer(sch, 'nextHand', now + this.cfg.nextHandMs, `${r.step}:next`);
+      return false;
+    }
+    if (hand.pendingStarterChoice != null) {
+      const team = hand.pendingStarterChoice;
+      const humans = [team, team + 2].filter((s) => this.controller(s as Seat) === 'human');
+      const t = humans.length
+        ? setGameTimer(sch, 'starter', now + this.cfg.turnTimeoutMs, `${r.step}:starter:${humans.join('')}`)
+        : setGameTimer(sch, 'cpuStarter', now + starterDelay(sp), `${r.step}:cpuStarter`);
+      if (t.changed) this.broadcast((pid) => this.turnMsgFor(pid));
+      return t.changed;
+    }
+    const seat = hand.turn;
+    const ctl = this.controller(seat);
+    let t;
+    if (ctl === 'human') t = setGameTimer(sch, 'turn', now + this.cfg.turnTimeoutMs, `${r.step}:${seat}:human`);
+    else {
+      const legal = legalMoves(m);
+      const delay = legal.length === 1 && legal[0].kind === 'draw' ? drawDelay(sp) : thinkDelay(m, legal.length, sp);
+      t = setGameTimer(sch, 'cpu', now + delay, `${r.step}:${seat}:${ctl}`);
+    }
+    if (t.changed) this.broadcast((pid) => this.turnMsgFor(pid));
+    return t.changed;
+  }
+
+  /** the current 'turn' message as `pid` should see it (null when no turn is pending) */
+  private turnMsgFor(pid: string): ServerMsg | null {
+    const r = this.data!;
+    const m = r.match;
+    const hand = m?.hand;
+    const timer = r.schedule.game;
+    if (r.phase !== 'playing' || !m || !hand || hand.over || !timer || timer.kind === 'nextHand') return null;
+    const mySeat = seatOf(r, pid);
+    if (hand.pendingStarterChoice != null) {
+      const team = hand.pendingStarterChoice as Team;
+      const msg: Extract<ServerMsg, { t: 'turn' }> = { t: 'turn', seat: hand.turn, deadline: timer.at, legal: [], choosingStarter: true, starterTeam: team };
+      if (mySeat !== null && mySeat % 2 === team) {
+        const partner = ((mySeat + 2) % 4) as Seat;
+        if (this.controller(partner) !== 'human') msg.partnerWants = starterPreference(m, partner);
+      }
+      return msg;
+    }
+    const legal = mySeat === hand.turn && this.controller(hand.turn) === 'human' ? legalMoves(m) : [];
+    return { t: 'turn', seat: hand.turn, deadline: timer.at, legal };
+  }
+
+  private viewFor(seat: Seat | null) {
+    const r = this.data!;
+    if (seat === null || !r.match) return null;
+    const hand = r.match.hand;
+    const timer = r.schedule.game;
+    const myTurn = r.phase === 'playing' && hand && !hand.over && hand.pendingStarterChoice == null && hand.turn === seat;
+    const legal = myTurn && this.controller(seat) === 'human' ? legalMoves(r.match) : [];
+    const deadline = timer && timer.kind !== 'nextHand' ? timer.at : null;
+    return seatView(r.match, seat, legal, deadline);
+  }
+}

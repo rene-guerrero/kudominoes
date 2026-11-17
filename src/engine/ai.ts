@@ -764,7 +764,8 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
       const base = me * S;
       const n = WC[me];
       let idx = 0;
-      while (WH[base + idx] !== m.tileId) idx++;
+      while (idx < n && WH[base + idx] !== m.tileId) idx++;
+      if (idx >= n) continue; // (never: a legal move's tile is in the hand; bounded scan, no runaway loop)
       WH[base + idx] = WH[base + n - 1];
       WC[me] = n - 1;
       const a = TILE_A[m.tileId];

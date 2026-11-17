@@ -354,12 +354,16 @@ export function layoutChain(
   const scan = (v: boolean, hi: number, lo: number) => {
     const { PW, PH } = half(v);
     let cell = hi;
-    for (;;) {
+    // bounded: hi → lo in 3% steps takes < 200 steps for any sane range; a NaN / negative bound
+    // (e.g. a zero-sized container) must give up instead of spinning forever
+    for (let it = 0; it < 400; it++) {
+      if (!Number.isFinite(cell)) return null;
       const r = tryCell(chain, PW, PH, cell, v, bounds, avoid, undefined, flip, maxSlide);
       if (r.fits) return { trial: r.trial, cell };
       if (cell <= lo + 1e-9) return null;
       cell = Math.max(lo, cell * 0.97);
     }
+    return null;
   };
 
   let vertical = prefVertical;

@@ -68,19 +68,27 @@ export class Animator {
   }
 
   update(dt: number): void {
-    this.time += dt * this.speed;
+    const step = dt * this.speed;
+    // a bad dt / speed (NaN, Infinity, negative) must never poison the clock: every tween would hang
+    if (Number.isFinite(step) && step > 0) this.time += step;
     const t = this.time;
     const list = this.list;
     for (let i = 0; i < list.length; i++) {
       const tw = list[i];
       if (t < tw.start) continue;
-      if (!tw.started) {
-        tw.started = true;
-        tw.onStart?.();
-      }
       let raw = (t - tw.start) / tw.dur;
-      if (raw >= 1) raw = 1;
-      tw.fn(tw.ease(raw), raw);
+      if (!(raw < 1)) raw = 1; // (NaN too: never a tween that can't finish)
+      try {
+        if (!tw.started) {
+          tw.started = true;
+          tw.onStart?.();
+        }
+        tw.fn(tw.ease(raw), raw);
+      } catch (e) {
+        // a failing tween ends now (and resolves): it must not fail every frame and stall what awaits it
+        console.error('[render] tween failed', e);
+        raw = 1;
+      }
       if (raw >= 1) {
         list[i] = list[list.length - 1];
         list.pop();

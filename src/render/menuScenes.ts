@@ -196,6 +196,63 @@ function planMoves(host: MenuHost, mv: Moves, ids: number[], kind: 1 | 2, cruise
   }
 }
 
+/**
+ * Rigid exit: every tile in `ids` lifts by the same height and slides the same distance in the same
+ * direction at the same time (a pure translation of the whole group), so no tile can pass through
+ * another and no collision planning is needed. O(n) — used when clearing a game's tiles off the table.
+ */
+function rigidExit(host: MenuHost, mv: Moves, ids: number[], cruise: number, now: number): void {
+  if (!ids.length) return;
+  const tiles = host.tiles;
+  let cx = 0;
+  let cz = 0;
+  let maxY = 0;
+  for (const i of ids) {
+    cx += tiles[i].pos.x;
+    cz += tiles[i].pos.z;
+    maxY = Math.max(maxY, tiles[i].pos.y);
+  }
+  cx /= ids.length;
+  cz /= ids.length;
+  const lift = Math.max(0, cruise - maxY);
+  // direction: the nearest table axis edge for the group's centre
+  let bestDx = 1;
+  let bestDz = 0;
+  let bestD = Infinity;
+  for (let a = 0; a < 4; a++) {
+    const dx = a === 0 ? 1 : a === 1 ? -1 : 0;
+    const dz = a === 2 ? 1 : a === 3 ? -1 : 0;
+    const d = offDistance(host, cx, maxY + lift, cz, dx, dz, 0);
+    if (d < bestD) {
+      bestD = d;
+      bestDx = dx;
+      bestDz = dz;
+    }
+  }
+  // the whole group must leave: slide far enough for the tile that has the longest way to go
+  let D = 0;
+  for (const i of ids) {
+    const t = tiles[i];
+    D = Math.max(D, offDistance(host, t.pos.x, t.pos.y + lift, t.pos.z, bestDx, bestDz, tileR(t.s)));
+  }
+  const tS = Math.min(1.4, Math.max(0.5, D / 10));
+  for (const i of ids) {
+    const t = tiles[i];
+    mv.kind[i] = 2;
+    mv.px[i] = t.pos.x;
+    mv.py[i] = t.pos.y;
+    mv.pz[i] = t.pos.z;
+    mv.cy[i] = t.pos.y + lift; // same lift for everyone keeps the group rigid
+    mv.dx[i] = bestDx;
+    mv.dz[i] = bestDz;
+    mv.D[i] = D;
+    mv.tS[i] = tS;
+    mv.tV[i] = 0.22;
+    mv.t0[i] = now;
+    tileObb(mv.obb[i], 0, 0, 0, t.quat.x, t.quat.y, t.quat.z, t.quat.w, t.s);
+  }
+}
+
 /** does tile i's move keep clear of the planned moves and of the tiles still resting (`rest`)? */
 function clearOf(host: MenuHost, mv: Moves, i: number, planned: number[], rest: Set<number>, now: number): boolean {
   const tiles = host.tiles;
@@ -509,7 +566,12 @@ export class MenuDirector {
       }
     }
     this.movingIds = ids;
-    planMoves(this.host, this.moves, ids, 2, top + 2 * tileR(s), this.time, 0.04);
+    // Clearing what's left on the table (a game's chain + hands, or a round cut short) must be cheap:
+    // running the collision planner over up to 28 tiles froze the page (minutes on a slow phone) every
+    // time a match started or the player returned to the menu. Instead every tile makes the SAME move —
+    // the same lift, then the same slide off the nearest edge of the group — so their relative
+    // positions never change (nothing can pass through anything) and no planning is needed.
+    rigidExit(this.host, this.moves, ids, top + 2 * tileR(s) + 0.2, this.time);
     this.movesEnd = this.lastEnd(ids);
     this.setPhase('clear');
   }

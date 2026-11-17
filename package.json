@@ -10,7 +10,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "android:sync": "npm run build && npx cap sync android",
-    "android:apk": "node scripts/android-apk.mjs"
+    "android:apk": "node scripts/android-apk.mjs",
+    "server:dev": "npm --prefix server run dev",
+    "server:test": "npm --prefix server test",
+    "server:deploy": "npm --prefix server run deploy"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",

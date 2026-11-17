@@ -1046,6 +1046,15 @@ export class AvatarController {
     this.kick();
   }
 
+  /** online: a short expression on a seat (e.g. 'sleepy' when the CPU covers a dropped player) */
+  react(seat: Seat, e: Expr, dur = 2): void {
+    if (this.quiet) return;
+    const a = this.av[seat];
+    if (a.stage > 0) this.wake(a, 'gentle');
+    this.setExpr(a, e, dur);
+    this.kick();
+  }
+
   /** a seat's own turn begins (the human): brows up, a bright look and a tiny hop */
   perk(seat: Seat): void {
     if (this.quiet) return;
@@ -1348,6 +1357,8 @@ export class AvatarController {
     active ||= micro;
     AV_STATS.frames++;
     AV_STATS.ms += performance.now() - t0;
+    // (a kick() during this frame may have requested the next one already: never run two chains)
+    if (this.raf || this.timer) return;
     if (active) this.raf = requestAnimationFrame(this.tick);
     else this.timer = window.setTimeout(this.onTimer, ambient && cfg.ambientFps ? 1000 / cfg.ambientFps : cfg.pollMs);
   };

@@ -25,6 +25,9 @@ import * as tex from './textures';
 import { Particles } from './particles';
 import { MenuDirector, type Fit, type FitBox, type MenuHost } from './menuScenes';
 import { PerfHud } from './perfHud';
+import { pickSwap, resolvePlaceholders, swapIds } from './hiddenTiles';
+import { FrameLoop } from './frameLoop';
+import { noteError } from '../app/errorLog';
 
 type V3 = THREE.Vector3;
 type Q = THREE.Quaternion;
@@ -282,11 +285,15 @@ export class TableViewImpl implements TableView {
   /** individual: the boneyard tiles left (drawn from the end) and their fixed slots (the order at the deal) */
   private pile: number[] = [];
   private pileOrder: number[] = [];
+  /** online: tiles whose identity is not known here (they stand in for hidden tiles; see hiddenTiles.ts) */
+  private unknown: boolean[] = new Array<boolean>(28).fill(false);
   private chain: PlacedTile[] = [];
   private ends: { left: Pip; right: Pip } | null = null;
   private layoutRes: ChainLayoutResult = { poses: [], cell: MAX_CELL, fits: true, vertical: false, shift: { x: 0, y: 0 } };
   private turnSeat: Seat | null = null;
   private req: HumanReq | null = null;
+  /** bumped by cancelHumanMove: a request still waiting for the queue to drain is abandoned */
+  private reqGen = 0;
   private gen = 0;
   private queue: Promise<void> = Promise.resolve();
   private busy = 0;
@@ -347,8 +354,22 @@ export class TableViewImpl implements TableView {
   private handLeftPx = 0;
   private qBasisHand = new THREE.Quaternion();
 
-  // loop
-  private raf = 0;
+  // loop (one pending frame at most, see frameLoop.ts)
+  private loop = new FrameLoop({
+    frame: (now) => this.loopFrame(now),
+    canRun: () => !this.paused && !this.disposed,
+    onError: (e, n) => {
+      if (n === 1 || n % 60 === 0) console.error(`[render] frame failed (${n}x)`, e);
+      if (n === 1) noteError('render frame', e);
+    },
+    onFatal: (e) => this.opts.onError?.(e),
+    onStalled: () => {
+      if (import.meta.env.DEV) console.warn('[render] requestAnimationFrame stalled: frames run from a timer');
+      noteError('render', 'requestAnimationFrame stalled (timer fallback)');
+    },
+  });
+  /** safety net: wakes the loop if it is asleep while animations are still pending */
+  private heartbeat = 0;
   private lastT = 0;
   private lastRender = 0;
   private paused = false;
@@ -421,6 +442,7 @@ export class TableViewImpl implements TableView {
     window.addEventListener('pointerdown', this.onMenuDown, { passive: true });
     window.addEventListener('pointerup', this.onMenuUp, { passive: true });
     window.addEventListener('pointercancel', this.onMenuCancel, { passive: true });
+    this.heartbeat = window.setInterval(this.checkAwake, 1000);
     this.onResize();
     this.prewarm();
     this.reset();
@@ -686,8 +708,13 @@ export class TableViewImpl implements TableView {
     c.style.cssText =
       'display:block;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;' +
       `background:${tex.tableStyleDef(this.tableStyle).bg};`;
+    // diagnostics for the error screen ("Detalles"): a lost GPU context is a classic phone-only failure
+    c.addEventListener('webglcontextlost', () => noteError('webgl', 'context lost'));
+    c.addEventListener('webglcontextrestored', () => noteError('webgl', 'context restored'));
     if (old) {
       this.detachInput();
+      // a press in progress on the old canvas never gets its pointerup: forget it (else taps stay ignored)
+      this.releasePointer();
       old.dispose();
       old.forceContextLoss(); // free the old context now (browsers cap live WebGL contexts)
       old.domElement.replaceWith(c);
@@ -2233,6 +2260,57 @@ export class TableViewImpl implements TableView {
 
   // ───────────────────────── public API ─────────────────────────
 
+  /**
+   * Online: make real tile `id` sit in `seat`'s hand (seat -1 = on top of the pile) by trading places
+   * with a hidden tile there. Both are face down, so the trade is invisible. No-op in local games.
+   */
+  private claim(id: number, seat: number, keep?: readonly number[]): void {
+    if (id < 0 || id >= 28) return;
+    const dest = seat < 0 ? this.pile : this.hands[seat];
+    if (!dest) return;
+    const y = pickSwap(id, dest, this.unknown, seat < 0, keep);
+    if (y < 0) return;
+    swapIds(id, y, [this.hands[0], this.hands[1], this.hands[2], this.hands[3], this.pile, this.pileOrder]);
+    const a = this.tiles[id];
+    const b = this.tiles[y];
+    const loc = a.loc;
+    const st = a.seat;
+    a.loc = b.loc;
+    a.seat = b.seat;
+    b.loc = loc;
+    b.seat = st;
+    a.token++;
+    b.token++;
+    tmpV.copy(a.pos);
+    tmpQ.copy(a.quat);
+    const sc = a.s;
+    a.pos.copy(b.pos);
+    a.quat.copy(b.quat);
+    a.s = b.s;
+    b.pos.copy(tmpV);
+    b.quat.copy(tmpQ);
+    b.s = sc;
+    // the identity flags stay with the places: the hidden one stays hidden
+    const u = this.unknown[id];
+    this.unknown[id] = this.unknown[y];
+    this.unknown[y] = u;
+  }
+
+  /** online fallback: some hidden tile (no pile left to draw from) */
+  private anyUnknown(): number {
+    for (let i = 0; i < 28; i++) if (this.unknown[i] && this.tiles[i].loc !== 'chain') return i;
+    return -1;
+  }
+
+  /** online: the player's turn ended elsewhere (timeout, resync): drop the pending tile pick */
+  cancelHumanMove(): void {
+    this.reqGen++;
+    if (!this.req) return;
+    this.cancelReq();
+    for (const id of this.hands[0]) void this.flyHome(this.tiles[id], { dur: 0.18 });
+    this.kick();
+  }
+
   handle(event: GameEvent): Promise<void> {
     const run = async () => {
       if (this.disposed) return;
@@ -2278,7 +2356,12 @@ export class TableViewImpl implements TableView {
   private async onDraw(ev: Extract<GameEvent, { type: 'draw' }>): Promise<void> {
     const g = this.gen;
     this.idleActive = false;
-    const id = ev.tile.id;
+    // online: another player's draw carries no tile (take the top of the pile); my own draw is real
+    let id = ev.tile?.id ?? -1;
+    if (id < 0) id = this.pile.length ? this.pile[this.pile.length - 1] : this.anyUnknown();
+    else this.claim(id, -1);
+    if (id < 0) return;
+    if (ev.seat === 0) this.unknown[id] = false;
     const t = this.tiles[id];
     const k = this.pile.indexOf(id);
     if (k >= 0) this.pile.splice(k, 1);
@@ -2312,11 +2395,13 @@ export class TableViewImpl implements TableView {
     // individual play: the seats in play and the boneyard (both default to the four-seat game)
     this.setActiveSeats(ev.seats);
     this.pileOrder = (ev.boneyard ?? []).map((t) => t.id);
-    this.pile = this.pileOrder.slice();
     this.chain = [];
     this.ends = null;
     this.layoutRes = this.fitChain([]);
     const dealt = ev.hands.map((h) => h.map((t) => t.id));
+    // online: other players' tiles and the boneyard arrive hidden (placeholders); they borrow free ids
+    resolvePlaceholders([...dealt, this.pileOrder], [], this.unknown);
+    this.pile = this.pileOrder.slice();
     this.hands = dealt.map((h) => h.slice());
     this.sortHuman();
     for (let s = 0; s < 4; s++) {
@@ -2464,6 +2549,9 @@ export class TableViewImpl implements TableView {
     const g = this.gen;
     this.idleActive = false;
     const id = ev.tile.id;
+    // online: the revealed tile takes the place of one of that seat's hidden tiles
+    this.claim(id, ev.seat);
+    this.unknown[id] = false;
     const t = this.tiles[id];
     for (let s = 0; s < 4; s++) {
       const k = this.hands[s].indexOf(id);
@@ -2686,9 +2774,13 @@ export class TableViewImpl implements TableView {
     // reveal remaining hands
     const ps: Promise<void>[] = [];
     for (let s = 1; s < 4; s++) {
-      const ids = (ev.remaining[s] ?? []).map((t) => t.id);
-      for (const id of this.hands[s]) if (!ids.includes(id)) ids.push(id);
-      this.hands[s] = ids;
+      const ids = (ev.remaining[s] ?? []).map((t) => t.id).filter((id) => id >= 0);
+      // online: the revealed tiles take the places of that seat's hidden tiles
+      for (const id of ids) this.claim(id, s, ids);
+      for (const id of ids) this.unknown[id] = false;
+      // (a tile still unknown stays face down in the hand)
+      for (const id of this.hands[s]) if (!ids.includes(id) && !this.unknown[id]) ids.push(id);
+      this.hands[s] = [...ids, ...this.hands[s].filter((id) => this.unknown[id] && !ids.includes(id))];
       ids.forEach((id, i) => {
         const t = this.tiles[id];
         t.loc = 'reveal';
@@ -2759,10 +2851,11 @@ export class TableViewImpl implements TableView {
 
   requestHumanMove(legal: Move[]): Promise<Move> {
     const g = this.gen;
+    const rg = this.reqGen;
     return new Promise<Move>((resolve) => {
       const start = () => {
         // a reset()/dispose() between the request and its start abandons it (the caller was cancelled)
-        if (this.disposed || g !== this.gen) return;
+        if (this.disposed || g !== this.gen || rg !== this.reqGen) return;
         if (this.req && !this.req.done) this.cancelReq();
         const sides = new Map<number, Move[]>();
         let passMove: Move | null = null;
@@ -2861,11 +2954,13 @@ export class TableViewImpl implements TableView {
     this.gen++;
     this.anim.finishAll();
     this.cancelReq();
+    this.releasePointer();
     this.chain = [];
     this.ends = null;
     this.hands = [[], [], [], []];
     this.pile = [];
     this.pileOrder = [];
+    this.unknown.fill(false);
     this.layoutRes = this.fitChain([]);
     this.dust.clear();
     this.confetti.clear();
@@ -2956,10 +3051,7 @@ export class TableViewImpl implements TableView {
     if (!paused) {
       this.lastT = 0;
       this.kick();
-    } else if (this.raf) {
-      cancelAnimationFrame(this.raf);
-      this.raf = 0;
-    }
+    } else this.loop.cancel();
   }
 
   /** optional extra: animation speed multiplier (1 = normal, 1.6 = fast) */
@@ -3055,7 +3147,11 @@ export class TableViewImpl implements TableView {
         console.error('[render] restore failed', e);
       }
     };
-    this.queue = this.queue.then(run, run);
+    // never wait behind a step that cannot finish (a restore is the way out of any stuck state): the
+    // queue normally drains within a tick after finishAll; if not, restore anyway after a short grace
+    const prev = this.queue;
+    const grace = new Promise<void>((r) => setTimeout(r, 400));
+    this.queue = Promise.race([prev.then(() => undefined, () => undefined), grace]).then(run, run);
     this.kick();
     return this.queue;
   }
@@ -3080,11 +3176,17 @@ export class TableViewImpl implements TableView {
     // individual play: seats in play and what is left of the boneyard (laid out as a fresh, compact pile)
     this.setActiveSeats(state.seats);
     this.pileOrder = (h.boneyard ?? []).map((t) => t.id);
-    this.pile = this.pileOrder.slice();
     this.chain = h.chain.slice();
     this.ends = h.ends ? { left: h.ends.left, right: h.ends.right } : null;
     this.layoutRes = this.fitChain(this.chain);
     this.hands = [0, 1, 2, 3].map((s) => (h.hands[s] ?? []).map((t) => t.id));
+    // online: hidden tiles (placeholders) borrow the ids of tiles that are nowhere in sight
+    resolvePlaceholders(
+      [...this.hands, this.pileOrder],
+      this.chain.map((p) => p.tile.id),
+      this.unknown,
+    );
+    this.pile = this.pileOrder.slice();
     this.sortHuman();
 
     for (const t of this.tiles) {
@@ -3109,8 +3211,8 @@ export class TableViewImpl implements TableView {
     for (let s = 0; s < 4; s++)
       for (const id of this.hands[s]) {
         const t = this.tiles[id];
-        // as after handEnd: the CPUs' remaining tiles lie revealed, the human keeps the fan
-        t.loc = over && s > 0 ? 'reveal' : 'hand';
+        // as after handEnd: the CPUs' remaining tiles lie revealed, the human keeps the fan (hidden tiles stay face down)
+        t.loc = over && s > 0 && !this.unknown[id] ? 'reveal' : 'hand';
         t.seat = s;
       }
     for (const id of this.pile) {
@@ -3122,7 +3224,7 @@ export class TableViewImpl implements TableView {
 
     for (let s = 0; s < 4; s++) {
       const info = this.plateInfo[s];
-      info.pips = over ? this.hands[s].reduce((n, id) => n + ALL_TILES[id].a + ALL_TILES[id].b, 0) : null;
+      info.pips = over && !this.hands[s].some((id) => this.unknown[id]) ? this.hands[s].reduce((n, id) => n + ALL_TILES[id].a + ALL_TILES[id].b, 0) : null;
       info.winner = false;
       info.active = false;
       this.plateScale[s] = 1;
@@ -3161,8 +3263,9 @@ export class TableViewImpl implements TableView {
     this.gen++;
     this.anim.finishAll();
     this.disposed = true;
-    if (this.raf) cancelAnimationFrame(this.raf);
-    this.raf = 0;
+    this.loop.cancel();
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = 0;
     this.resizeObs?.disconnect();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('pointerdown', this.onMenuDown);
@@ -3210,13 +3313,23 @@ export class TableViewImpl implements TableView {
   // ───────────────────────── loop ─────────────────────────
 
   private kick(): void {
-    if (this.raf || this.paused || this.disposed) return;
-    this.raf = requestAnimationFrame(this.tick);
+    this.loop.kick();
   }
 
-  private tick = (now: number): void => {
-    this.raf = 0;
-    if (this.paused || this.disposed) return;
+  /**
+   * Safety net (1 s timer): the loop must never sleep while tweens, queued events or a human request
+   * are pending; if it does (a missed kick), wake it. Normally a no-op.
+   */
+  private checkAwake = (): void => {
+    if (this.paused || this.disposed || this.loop.scheduled) return;
+    if (!this.anim.active && this.busy === 0 && !this.req && !this.charge) return;
+    if (import.meta.env.DEV) console.warn('[render] loop was asleep with work pending: woken');
+    this.lastT = 0;
+    this.kick();
+  };
+
+  /** one frame; returns true when another frame is wanted */
+  private loopFrame(now: number): boolean {
     // attract scenes: full rate (low: its 30 fps cap) while the menu shows; the calm showcase is ambient
     const menuOn = (this.menuOn = this.menuLive());
     const hard =
@@ -3226,12 +3339,11 @@ export class TableViewImpl implements TableView {
     const woke = this.lastT === 0;
     // frame cap: low skips rAF ticks (30 fps animating, 15 fps for gentle pulses); time stays real
     const minGap = hard ? this.q.frameMs : ambient ? this.q.ambientMs : 0;
-    if (!woke && minGap > 0 && now - this.lastRender < minGap) {
-      this.raf = requestAnimationFrame(this.tick);
-      return;
-    }
+    if (!woke && minGap > 0 && now - this.lastRender < minGap && now >= this.lastRender) return true;
     let dt = woke ? 1 / 60 : (now - this.lastT) / 1000;
-    if (dt > this.q.maxDt) dt = this.q.maxDt;
+    // (a frame run by the stall timer, see frameLoop.ts: a bigger step so animations still finish)
+    const maxDt = this.loop.fromTimer ? 0.5 : this.q.maxDt;
+    if (dt > maxDt) dt = maxDt;
     if (dt < 0) dt = 0;
     this.lastT = now;
     this.lastRender = now;
@@ -3240,9 +3352,10 @@ export class TableViewImpl implements TableView {
     this.render();
     if (import.meta.env.DEV && this.perf) this.perf.frame(now, performance.now() - w0, this.renderer, this.quality, [this.scene, this.overlay], this.q.aa);
     if (this.opts.onFrameStats) this.sampleFrame(now, hard && !woke);
-    if (hard || ambient || this.anim.active) this.raf = requestAnimationFrame(this.tick);
-    else this.lastT = 0;
-  };
+    if (hard || ambient || this.anim.active) return true;
+    this.lastT = 0;
+    return false;
+  }
 
   /**
    * onFrameStats: average interval between rendered frames over ~1 s windows, only while something is
@@ -3495,8 +3608,18 @@ export class TableViewImpl implements TableView {
         b.bubble.dir = this.bubDir[s];
       }
     }
-    cb(this.plateBoxes, this.plateCenter);
+    try {
+      cb(this.plateBoxes, this.plateCenter);
+    } catch (e) {
+      // the UI's plates must never take the render loop down with them
+      if (!this.platesErr) {
+        console.error('[render] onPlates failed', e);
+        noteError('plates', e);
+      }
+      this.platesErr = true;
+    }
   }
+  private platesErr = false;
 
   private updateOverlay(): void {
     if (this.htmlPlates) {
@@ -3751,6 +3874,9 @@ export class TableViewImpl implements TableView {
 
   private onDown = (e: PointerEvent): void => {
     const r = this.req;
+    // a new primary pointer means no other pointer is down: a press whose pointerup/cancel never arrived
+    // (lost with a recreated canvas, a WebView quirk…) must not block every later tap (touch ids never repeat)
+    if (this.ptr.down && e.isPrimary && e.pointerId !== this.ptr.id) this.releasePointer();
     if (!r || r.done || this.ptr.down) return;
     const p = this.evPos(e);
     if (r.passOnly) return; // taken automatically (autoPass)
@@ -3906,6 +4032,16 @@ export class TableViewImpl implements TableView {
     }
     if (r.selected >= 0) this.select(-1);
   };
+
+  /** drop any press / drag / slam charge in progress (the next pointerdown starts fresh) */
+  private releasePointer(): void {
+    this.clearCharge();
+    if (this.ptr.dragging && this.ptr.tile >= 0 && this.tiles[this.ptr.tile]) void this.flyHome(this.tiles[this.ptr.tile], { dur: 0.2 });
+    this.setDragging(false);
+    this.ptr.down = false;
+    this.ptr.id = -1;
+    this.ptr.tile = -1;
+  }
 
   private onCancel = (e: PointerEvent): void => {
     if (e.pointerId !== this.ptr.id) return;

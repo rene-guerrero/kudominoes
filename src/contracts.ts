@@ -397,6 +397,8 @@ export interface TableViewOptions {
    * over the frames rendered in that window and how many frames that was.
    */
   onFrameStats?: (stats: FrameStats) => void;
+  /** optional: the render loop keeps failing (frames throw); the app shows its error screen */
+  onError?: (err: unknown) => void;
 }
 
 /** Frame timing sample reported by the renderer (see TableViewOptions.onFrameStats). */
@@ -495,6 +497,11 @@ export interface TableView {
    * animations (a short scene fade-in is fine). After it resolves, play continues with handle()/requestHumanMove().
    */
   restore?(state: RestoreState): Promise<void>;
+  /**
+   * optional (online play): the human's turn ended elsewhere (timer ran out, resync) — drop a pending
+   * requestHumanMove (its promise never resolves; the caller stops waiting on it).
+   */
+  cancelHumanMove?(): void;
 }
 
 // ───────────────────────── App settings (non-rule) ─────────────────────────

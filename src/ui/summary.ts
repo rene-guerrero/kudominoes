@@ -434,7 +434,7 @@ export function buildMatchEnd(
 export type AudioKey = 'sound' | 'music' | 'vibration';
 
 /** square on/off icon button (aria-pressed); the "off" state shows the crossed, dimmed icon */
-function audioToggle(key: AudioKey, on: boolean, onChange: (key: AudioKey, on: boolean) => void): HTMLButtonElement {
+export function audioToggle(key: AudioKey, on: boolean, onChange: (key: AudioKey, on: boolean) => void): HTMLButtonElement {
   const label = t(`settings.${key}`);
   const b = h('button.icon-btn.audio-tg', { type: 'button', 'aria-pressed': String(on), 'aria-label': label, title: label, html: AUDIO_ICONS[key] });
   b.addEventListener('click', () => {

@@ -2,6 +2,7 @@ import { h } from './dom';
 import { t } from './i18n';
 import { btn, ICONS } from './overlay';
 import { tileSvg } from './tiles';
+import { onlineAvailable } from '../net/config';
 
 export interface MenuOpts {
   save: { hand: number; us: number; them: number } | null;
@@ -10,6 +11,8 @@ export interface MenuOpts {
   onSettings(): void;
   onHowto(): void;
   onAbout(): void;
+  /** "Jugar en línea" */
+  onOnline(): void;
 }
 
 /**
@@ -40,6 +43,9 @@ function apkBtn(): HTMLElement | null {
   return a;
 }
 
+const GLOBE =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M3.6 12h16.8M12 3.4c2.4 2.4 3.6 5.3 3.6 8.6s-1.2 6.2-3.6 8.6c-2.4-2.4-3.6-5.3-3.6-8.6s1.2-6.2 3.6-8.6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
+
 /** square icon-only Acerca de button, last in the Ajustes / Cómo jugar row */
 function aboutBtn(onClick: () => void): HTMLButtonElement {
   const label = t('menu.about');
@@ -59,6 +65,8 @@ export function buildMenu(o: MenuOpts): HTMLElement {
   } else {
     actions.append(btn(t('menu.play'), o.onPlay, 'primary xl', icon(ICONS.play)));
   }
+  // hidden until the room server is deployed and its URL configured (src/net/config.ts)
+  if (onlineAvailable()) actions.append(btn(t('menu.online'), o.onOnline, 'secondary lg menu-online', icon(GLOBE)));
   // Ajustes is a square icon button so Cómo jugar always has room for its label
   const settingsLabel = t('menu.settings');
   const settings = h('button.btn.ghost.about-btn.settings-btn', { type: 'button', 'aria-label': settingsLabel, title: settingsLabel }, h('span.about-btn-icon', { html: ICONS.gear }));

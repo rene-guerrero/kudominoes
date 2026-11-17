@@ -4383,3 +4383,768 @@ button.ng-seat:hover {
 .menu-actions .row.menu-row > .btn.apk-btn {
   text-decoration: none;
 }
+
+/* ───────────────────────── online play ───────────────────────── */
+.menu-actions > :nth-child(4) {
+  animation-delay: 0.56s;
+}
+.menu-actions .btn.menu-online .btn-icon {
+  width: 22px;
+  height: 22px;
+}
+.menu-actions .btn.menu-online .btn-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* "Jugar en línea" screen */
+.oh-scroll {
+  display: flex;
+  justify-content: center;
+}
+.oh-body {
+  width: min(100%, 460px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px calc(var(--sar) + 18px) calc(var(--sab) + 22px) calc(var(--sal) + 18px);
+}
+.oh-intro {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.oh-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 10px 10px;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.24);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 246, 230, 0.08);
+}
+.oh-who.need {
+  box-shadow: inset 0 0 0 2px var(--mango);
+}
+.oh-face {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  padding: 2px 3px 4px;
+  background: radial-gradient(circle at 50% 38%, #4a3a2c 0%, #2a1c14 62%, #160d08 100%);
+  box-shadow: 0 0 0 2.5px var(--us);
+}
+.oh-face .face-static {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.oh-who-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.oh-who-k {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.oh-name-input,
+.oh-code-input {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cream);
+  font: inherit;
+  font-weight: 900;
+  outline: none;
+}
+.oh-name-input {
+  width: 100%;
+  font-size: 20px;
+  padding: 2px 0;
+  border-bottom: 2px solid rgba(255, 246, 230, 0.18);
+}
+.oh-name-input:focus {
+  border-bottom-color: var(--mango);
+}
+.oh-name-input::placeholder,
+.oh-code-input::placeholder {
+  color: rgba(255, 246, 230, 0.35);
+}
+.oh-create {
+  width: 100%;
+}
+.oh-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.oh-or::before,
+.oh-or::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(255, 246, 230, 0.12);
+}
+.oh-join-row {
+  display: flex;
+  gap: 10px;
+}
+.oh-code {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 14px;
+  min-height: 52px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 2px rgba(255, 246, 230, 0.12);
+  cursor: text;
+}
+.oh-code:focus-within {
+  box-shadow: inset 0 0 0 2px var(--mango);
+}
+.oh-code-prefix {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: rgba(255, 246, 230, 0.5);
+}
+.oh-code-input {
+  flex: 1;
+  width: 100%;
+  font-size: 22px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.oh-join {
+  flex: 0 0 auto;
+  min-width: 110px;
+  white-space: nowrap;
+}
+.oh-error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 122, 89, 0.14);
+  color: #ffd3c4;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+/* lobby: the new-game layout, every seat a round card */
+.lobby .ng-left {
+  flex-direction: column;
+  gap: 10px;
+}
+.lobby .ng-felt-box {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lobby .ng-seat.pos-bottom {
+  width: clamp(92px, 30%, 136px);
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 4px 8px;
+  border-radius: 18px;
+  cursor: pointer;
+}
+.lobby .ng-seat.pos-left,
+.lobby .ng-seat.pos-right {
+  top: 50%;
+}
+.lobby .ng-seat:disabled {
+  cursor: default;
+}
+.lobby .ng-seat.me {
+  box-shadow: 0 0 0 2.5px rgba(255, 246, 230, 0.55);
+}
+.lobby .ng-seat.me .ng-seat-face {
+  width: var(--sf);
+  height: var(--sf);
+  padding: 3px 4px 5px;
+}
+.lobby .ng-seat.me .ng-seat-name {
+  margin-top: 3px;
+  font-size: 15px;
+}
+.lobby .ng-seat.occ-empty .ng-seat-face {
+  background: rgba(255, 246, 230, 0.06);
+  box-shadow: inset 0 0 0 2px rgba(255, 246, 230, 0.28);
+}
+.lobby .ng-seat.occ-empty .ng-seat-name {
+  color: var(--muted);
+}
+.lobby-empty {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(255, 246, 230, 0.55);
+}
+.lobby-empty svg {
+  width: 42%;
+  height: 42%;
+}
+.lobby .ng-seat-meta {
+  gap: 4px;
+}
+.conn-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6fd24f;
+}
+.conn-dot.off {
+  background: #8a7a6a;
+}
+.lobby-host-tag {
+  color: var(--mango);
+}
+.lobby-mode {
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.lobby-mode-label {
+  padding: 6px 14px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 14px;
+  font-weight: 900;
+}
+.lobby-code {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.26);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 246, 230, 0.08);
+}
+.lobby-code-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.lobby-code-k {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.lobby-code-v {
+  font-size: clamp(24px, 6.2vmin, 34px);
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1.1;
+  color: var(--cream);
+  white-space: nowrap;
+  user-select: text;
+}
+.lobby-sub {
+  min-height: 16px;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+.lobby-copied {
+  color: #9be37f;
+}
+.lobby-conn {
+  color: var(--mango);
+}
+.lobby-share {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.lobby-share .btn-icon,
+.lobby-start .btn-icon {
+  width: 20px;
+  height: 20px;
+}
+.lobby-share .btn-icon svg,
+.lobby-start .btn-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.lobby-status {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.lobby-start {
+  width: 100%;
+  min-height: 52px;
+  white-space: nowrap;
+}
+.lobby-wait,
+.match-wait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  min-height: 52px;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--muted);
+}
+.lobby-wait-dot,
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mango);
+  animation: soft-blink 1.8s ease-in-out infinite;
+}
+.live-dot {
+  background: #6fd24f;
+}
+@keyframes soft-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+.match-wait {
+  flex: 1;
+}
+@media (orientation: portrait) and (max-width: 760px) {
+  .lobby .ng-body > .ng-right {
+    display: contents;
+  }
+  .lobby .lobby-code {
+    order: 0;
+  }
+  .lobby .ng-left {
+    order: 1;
+  }
+  .lobby .lobby-foot {
+    order: 2;
+  }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .lobby .lobby-code {
+    padding: 8px 12px;
+  }
+  .lobby .lobby-code-v {
+    font-size: 26px;
+  }
+  .lobby .lobby-start,
+  .lobby .lobby-wait {
+    min-height: 44px;
+  }
+  .lobby .lobby-status {
+    font-size: 12px;
+  }
+  .lobby .ng-seat.pos-bottom {
+    width: clamp(84px, 27%, 120px);
+    padding: 5px 3px 6px;
+  }
+}
+
+/* seat sheet + rules sheet (host) */
+.seat-sheet {
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.seat-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.seat-sheet-head .card-title {
+  margin: 0;
+}
+.seat-sheet-x svg {
+  width: 20px;
+  height: 20px;
+}
+.seat-sheet .ng-cell:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.seat-sheet-foot {
+  justify-content: center;
+}
+.rules-opts .rules-opt {
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.online-pause-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: -4px 0 12px;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+/* the turn timer: a thin ring round the avatar of the seat to move (no numbers) */
+.plate-timer {
+  position: absolute;
+  left: -7px;
+  top: -7px;
+  width: calc(100% + 14px);
+  height: calc(100% + 14px);
+  transform: rotate(-90deg) scaleY(-1);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+  overflow: visible;
+}
+.plate-timer.on {
+  opacity: 1;
+}
+.plate-timer circle {
+  fill: none;
+  stroke-width: 4.5;
+}
+.plate-timer .pt-track {
+  stroke: rgba(20, 10, 6, 0.4);
+}
+.plate-timer .pt-run {
+  stroke: rgba(255, 233, 184, 0.85);
+  stroke-linecap: round;
+  stroke-dasharray: 100 100;
+  transition: stroke 0.6s;
+}
+.plate-timer.warn .pt-run {
+  stroke: #ffa45c;
+  animation: timer-warn 1.1s ease-in-out infinite;
+}
+@keyframes timer-warn {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* quick phrases */
+.layer-hud > .qp-btn {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(29, 15, 8, 0.82);
+  color: var(--cream);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(255, 246, 230, 0.2),
+    0 3px 8px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.25s,
+    visibility 0s 0.25s;
+  -webkit-tap-highlight-color: transparent;
+}
+.layer-hud > .qp-btn.on {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.25s;
+}
+.plates.dragging ~ .qp-btn.on {
+  opacity: 0.12;
+}
+.qp-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: var(--cream);
+}
+.qp-btn[aria-expanded='true'] {
+  background: var(--mango);
+}
+.qp-btn[aria-expanded='true'] svg {
+  fill: var(--ink);
+}
+.layer-hud > .qp-pop {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 6;
+  padding: 8px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #4a2d1c, #2e1b10);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 246, 230, 0.12),
+    0 8px 22px rgba(0, 0, 0, 0.5);
+}
+.qp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  width: min(300px, calc(100vw - 32px));
+}
+.qp-opt {
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 246, 230, 0.08);
+  color: var(--cream);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.qp-opt:hover,
+.qp-opt:focus-visible {
+  background: rgba(255, 246, 230, 0.16);
+  outline: none;
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .qp-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: min(520px, calc(100vw - 32px));
+  }
+}
+
+/* connection lost: a small chip under the top bar */
+.layer-hud > .net-chip {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--sat) + 78px);
+  z-index: 4;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: rgba(29, 15, 8, 0.88);
+  color: var(--mango);
+  font-size: 12.5px;
+  font-weight: 900;
+  transform: translateX(-50%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.3s,
+    visibility 0s 0.3s;
+}
+.layer-hud > .net-chip.on {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.3s 0.6s;
+}
+
+/* online hand summary: a quiet countdown to the next deal */
+.summary-countdown {
+  height: 4px;
+  margin: 10px 4px 0;
+  border-radius: 2px;
+  background: rgba(255, 246, 230, 0.12);
+  overflow: hidden;
+}
+.summary-countdown > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(255, 233, 184, 0.7);
+  transform-origin: left center;
+  animation: countdown linear forwards;
+}
+@keyframes countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.lobby-wait[hidden],
+.match-wait[hidden],
+.lobby .btn[hidden],
+.lobby .link-btn[hidden],
+.lobby .ng-opp[hidden] {
+  display: none;
+}
+.lobby .ng-table {
+  --sf: clamp(40px, 11vmin, 64px);
+}
+.lobby .ng-seat {
+  width: clamp(84px, 27%, 124px);
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .lobby .ng-left {
+    flex-basis: 54%;
+  }
+  .lobby .ng-table {
+    --sf: clamp(30px, 10vh, 44px);
+  }
+  .lobby .ng-seat,
+  .lobby .ng-seat.pos-bottom {
+    width: clamp(76px, 24%, 104px);
+    padding: 4px 3px 5px;
+  }
+  .lobby .ng-seat-name,
+  .lobby .ng-seat.me .ng-seat-name {
+    font-size: 12.5px;
+    margin-top: 2px;
+  }
+  .lobby .ng-seat-meta {
+    font-size: 10.5px;
+  }
+}
+.lobby .ng-dot[hidden] { display: none; }
+.lobby .lobby-code {
+  flex-wrap: wrap;
+}
+.lobby .lobby-code-text {
+  flex: 1 1 150px;
+}
+.lobby .lobby-share {
+  flex: 1 0 auto;
+}
+
+/* ───────────────────────── error card (unexpected error during a game) ───────────────────────── */
+.card.crash {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  text-align: center;
+}
+.crash-body {
+  margin: 4px 0 14px;
+  opacity: 0.85;
+  line-height: 1.4;
+}
+.crash-details {
+  margin-top: 12px;
+  text-align: left;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.crash-details summary {
+  cursor: pointer;
+  text-align: center;
+  padding: 6px;
+}
+.crash-pre {
+  margin: 6px 0 0;
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  font: 11px/1.35 ui-monospace, Menlo, Consolas, monospace;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+}
+.lobby .lobby-code .lobby-code-text {
+  flex: 1 0 auto;
+}
+.lobby .lobby-code .lobby-code-text {
+  flex: 1 1 auto;
+  min-width: max-content;
+}
+.lobby .lobby-code .lobby-share {
+  flex: 0 1 auto;
+  margin-left: auto;
+}
+/* short phones in portrait: a compact lobby so the table keeps room for the four seats */
+@media (orientation: portrait) and (max-height: 720px) {
+  .lobby .ng-body {
+    gap: 8px;
+    padding-top: 8px;
+  }
+  .lobby .lobby-code {
+    padding: 8px 12px;
+  }
+  .lobby .lobby-code-v {
+    font-size: 24px;
+  }
+  .lobby .lobby-share {
+    min-height: 44px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .lobby .ng-table {
+    --sf: clamp(30px, 9vh, 42px);
+  }
+  .lobby .ng-seat,
+  .lobby .ng-seat.pos-bottom {
+    width: clamp(70px, 28%, 100px);
+    padding: 4px 3px 5px;
+  }
+  .lobby .ng-seat-name,
+  .lobby .ng-seat.me .ng-seat-name {
+    font-size: 12.5px;
+    margin-top: 1px;
+  }
+  .lobby .ng-seat-meta {
+    font-size: 10px;
+  }
+  .lobby .lobby-status {
+    font-size: 12px;
+  }
+  .lobby .lobby-start,
+  .lobby .lobby-wait {
+    min-height: 46px;
+  }
+}
+@media (orientation: portrait) and (max-height: 720px) {
+  .lobby .lobby-code-v {
+    font-size: 22px;
+    letter-spacing: 0.02em;
+  }
+  .lobby .lobby-share {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .lobby .ng-seat.pos-left,
+  .lobby .ng-seat.pos-right {
+    top: 40%;
+  }
+  .lobby .ng-seat,
+  .lobby .ng-seat.pos-bottom {
+    width: clamp(70px, 27%, 96px);
+  }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .lobby .lobby-code-v {
+    font-size: 23px;
+    letter-spacing: 0.02em;
+  }
+  .lobby .lobby-share {
+    min-height: 42px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
