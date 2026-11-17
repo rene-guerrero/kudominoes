@@ -51,6 +51,9 @@ export class Particles {
   readonly points: THREE.Points;
   readonly cap: number;
   limit: number;
+  /** quality knobs applied at spawn: size and lifetime multipliers (1 = as requested) */
+  sizeMul = 1;
+  lifeMul = 1;
   gravity = -9;
   drag = 1.5;
   wobble = 0;
@@ -122,6 +125,8 @@ export class Particles {
 
   spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, r: number, g: number, b: number, size: number, life: number, spinV = 0): void {
     if (this.limit <= 0) return;
+    size *= this.sizeMul;
+    life *= this.lifeMul;
     const i = this.cursor;
     this.cursor = (this.cursor + 1) % Math.min(this.cap, this.limit);
     if (this.life[i] <= 0) this.alive++;

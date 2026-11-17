@@ -5,7 +5,8 @@ import { h } from './dom';
 import { loc, t, tMaybe, type Key } from './i18n';
 import { segmented, toggle } from './overlay';
 import { screenHeader } from './howto';
-import { FACE_COUNT, staticFace } from './avatars';
+import { staticFace } from './avatars';
+import { FACE_COUNT } from './faces';
 import { tileSvg } from './tiles';
 import { enhanceHScroll } from './hscroll';
 
@@ -23,6 +24,8 @@ export interface SettingsOpts {
   /** called with the full new settings object after every change */
   onChange(next: AppSettings, key: keyof AppSettings): void;
   onBack(): void;
+  /** the level auto quality runs at right now (read after a change, for the "ahora:" line) */
+  resolvedQuality?(): AppSettings['quality'];
 }
 
 // ───────────────────────── small pieces ─────────────────────────
@@ -191,7 +194,7 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
     s = { ...s, [k]: v };
     o.onChange(s, k);
   };
-  const seg = <K extends 'language' | 'quality' | 'animationSpeed'>(k: K, values: AppSettings[K][], labelKey: (v: AppSettings[K]) => string) =>
+  const seg = <K extends 'language' | 'animationSpeed'>(k: K, values: AppSettings[K][], labelKey: (v: AppSettings[K]) => string) =>
     segmented(
       values.map((v) => ({ value: v, label: labelKey(v) })),
       s[k],
@@ -241,13 +244,40 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
       ),
     );
 
+  // graphics quality: Automática (per device, lowered when frames are slow) or a fixed level
+  type QChoice = 'auto' | AppSettings['quality'];
+  const qualityCtl = () => {
+    const now = h('div.set-sub', { 'aria-live': 'polite' });
+    const showNow = () => {
+      const auto = s.qualityMode !== 'manual';
+      now.hidden = !auto;
+      if (auto) now.textContent = t('settings.quality.now', { q: t(`settings.quality.${o.resolvedQuality?.() ?? s.quality}` as Key) });
+    };
+    const ctl = segmented<QChoice>(
+      (['auto', 'low', 'medium', 'high'] as QChoice[]).map((v) => ({ value: v, label: t(`settings.quality.${v}` as Key) })),
+      s.qualityMode === 'manual' ? s.quality : 'auto',
+      (v) => {
+        if (v === 'auto') set('qualityMode', 'auto');
+        else {
+          s = { ...s, qualityMode: 'manual', quality: v };
+          o.onChange(s, 'quality');
+        }
+        showNow();
+      },
+      t('settings.quality'),
+    );
+    ctl.classList.add('seg-quality');
+    showNow();
+    return h('div.set-ctl-col', ctl, now);
+  };
+
   // ── Imagen y sonido ──
   const tabAv = () =>
     h(
       'div.set-tab-body',
       h(
         'section.card.set-card',
-        row(t('settings.quality'), seg('quality', ['low', 'medium', 'high'], (v) => t(`settings.quality.${v}` as Key)), undefined, true),
+        row(t('settings.quality'), qualityCtl(), undefined, true),
         row(t('settings.reducedMotion'), toggle(!!s.reducedMotion, (v) => set('reducedMotion', v), t('settings.reducedMotion'))),
         row(t('settings.avatars'), toggle(s.avatars !== false, (v) => set('avatars', v), t('settings.avatars'))),
         row(t('settings.animationSpeed'), seg('animationSpeed', ['normal', 'fast'], (v) => t(`settings.animationSpeed.${v}` as Key))),

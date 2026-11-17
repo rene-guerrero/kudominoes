@@ -672,6 +672,29 @@ body[data-mock] .menu,
 .set-row.stack .seg-opt {
   flex: 1 1 auto;
 }
+.set-ctl-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.seg.seg-quality {
+  flex-wrap: nowrap;
+}
+.seg-quality .seg-opt {
+  min-width: 0;
+  padding: 6px 8px;
+  white-space: nowrap;
+}
+.set-sub {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .seg-opt {
   min-height: 38px;
   padding: 6px 14px;
@@ -1466,6 +1489,178 @@ body[data-mock] .menu,
   width: 100%;
   height: 100%;
   overflow: visible;
+}
+/* live avatars: the idle bob / sway / breathing and the z's are CSS animations of transform and
+   opacity only (the compositor runs them); the script moves the <svg> only for reactions */
+.av-idle {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 84%;
+  animation:
+    av-bob var(--bob-t, 2s) var(--bob-d, 0s) ease-in-out infinite,
+    av-sway var(--sway-t, 3.6s) var(--sway-d, 0s) ease-in-out infinite;
+}
+.av-face.alien .av-idle,
+.av-face.alien svg.face {
+  transform-origin: 50% 86.7%;
+}
+.av-face.av-drowsy .av-idle {
+  animation-name: av-bob-drowsy, av-sway;
+}
+.av-face.av-asleep .av-idle {
+  animation:
+    av-breathe 3.6s ease-in-out infinite,
+    av-sway-slow var(--sway-t, 3.6s) var(--sway-d, 0s) ease-in-out infinite;
+}
+.av-face.av-still .av-idle {
+  animation: none;
+}
+.av-face.av-paused .av-idle,
+.av-face.av-paused .av-zzz,
+.av-face.av-paused .av-zzz span {
+  animation-play-state: paused;
+}
+/* its own layer: reaction transforms are compositor-only, a blink repaints just the face */
+.av-face svg.face {
+  will-change: transform;
+  transform-origin: 50% 84.3%;
+}
+.av-shadow {
+  position: absolute;
+  left: 25.7%;
+  top: 90.7%;
+  width: 48.6%;
+  height: 7.1%;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.16);
+}
+.av-face.alien .av-shadow {
+  left: 29.5%;
+  top: 94.6%;
+  width: 41%;
+  height: 6%;
+}
+/* 1 viewBox unit = 1/140 of the face box (translate % = of the element's own box) */
+@keyframes av-bob {
+  0%,
+  100% {
+    translate: 0 0;
+    scale: 1.02 0.976;
+  }
+  50% {
+    translate: 0 -1.64%;
+    scale: 0.992 1.012;
+  }
+}
+@keyframes av-bob-drowsy {
+  0%,
+  100% {
+    translate: 0 0;
+    scale: 1.02 0.976;
+  }
+  50% {
+    translate: 0 -0.86%;
+    scale: 0.992 1.012;
+  }
+}
+@keyframes av-breathe {
+  0%,
+  100% {
+    translate: 0 0.21%;
+    scale: 0.986 1.01;
+  }
+  50% {
+    translate: 0 1.5%;
+    scale: 1.014 0.99;
+  }
+}
+@keyframes av-sway {
+  0%,
+  100% {
+    rotate: -1.8deg;
+  }
+  50% {
+    rotate: 1.8deg;
+  }
+}
+@keyframes av-sway-slow {
+  0%,
+  100% {
+    rotate: -0.8deg;
+  }
+  50% {
+    rotate: 0.8deg;
+  }
+}
+/* WebViews without the individual transform properties: the bob alone, as a plain transform */
+@supports not (rotate: 1deg) {
+  .av-idle,
+  .av-face.av-drowsy .av-idle,
+  .av-face.av-asleep .av-idle {
+    animation: av-bob-legacy var(--bob-t, 2s) var(--bob-d, 0s) ease-in-out infinite;
+  }
+  @keyframes av-bob-legacy {
+    0%,
+    100% {
+      transform: none;
+    }
+    50% {
+      transform: translateY(-1.4%);
+    }
+  }
+}
+/* floating z's over a sleeper */
+.av-zzz {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font: 900 calc(var(--d, 48px) * 0.235) / 1 'Arial Rounded MT Bold', Arial, sans-serif;
+  color: #fff6e6;
+}
+.av-face.av-asleep .av-zzz {
+  display: block;
+  animation: fade-in 1.2s ease-out both;
+}
+.av-zzz span {
+  position: absolute;
+  left: 70%;
+  top: 18%;
+  opacity: 0;
+  text-shadow:
+    1px 1px 0 #2a160d,
+    -1px 1px 0 #2a160d,
+    1px -1px 0 #2a160d,
+    -1px -1px 0 #2a160d;
+  animation: av-z 2.6s linear infinite;
+}
+.av-zzz span:nth-child(2) {
+  animation-delay: -0.87s;
+}
+.av-zzz span:nth-child(3) {
+  animation-delay: -1.73s;
+}
+@keyframes av-z {
+  0% {
+    transform: translate(0, 0) scale(0.5);
+    opacity: 0;
+  }
+  25% {
+    transform: translate(0.32em, -0.38em) scale(0.66);
+    opacity: 0.78;
+  }
+  50% {
+    transform: translate(0.43em, -0.77em) scale(0.83);
+    opacity: 1;
+  }
+  75% {
+    transform: translate(0.55em, -1.15em) scale(0.99);
+    opacity: 0.78;
+  }
+  100% {
+    transform: translate(0.87em, -1.53em) scale(1.15);
+    opacity: 0;
+  }
 }
 .plate-dot {
   display: none;
@@ -3200,4 +3395,93 @@ button.ng-seat:hover {
   text-underline-offset: 3px;
   white-space: nowrap;
   pointer-events: auto;
+}
+
+/* ───────────────────────── low graphics: cheaper decoration ─────────────────────────
+   <html data-quality="low"> (auto-detected or chosen; see setUiQuality). Large blurred shadows, drop-
+   shadow filters and looping glows cost a lot to paint on weak phones; the flat versions keep the
+   same shapes. Independent of "Reducir animaciones". */
+:root[data-quality='low'] .card {
+  box-shadow: inset 0 0 0 1.5px rgba(255, 246, 230, 0.09);
+}
+:root[data-quality='low'] .modal-wrap > .card {
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 246, 230, 0.1),
+    0 6px 0 var(--wood-900);
+}
+:root[data-quality='low'] .modal-wrap.dim {
+  background: rgba(14, 7, 3, 0.62);
+}
+:root[data-quality='low'] .plate-av {
+  box-shadow:
+    0 0 0 2.5px var(--team),
+    0 0 0 4px rgba(20, 10, 6, 0.55);
+}
+:root[data-quality='low'] .plate-info,
+:root[data-quality='low'] .plate.winner .plate-info {
+  transition: none;
+  box-shadow: inset 0 0 0 1.5px rgba(214, 166, 74, 0.5);
+}
+:root[data-quality='low'] .plate.winner .plate-info {
+  box-shadow: inset 0 0 0 2px #f0cf6a;
+}
+:root[data-quality='low'] .plate.active .plate-info {
+  box-shadow: inset 0 0 0 2px #e8b450;
+}
+:root[data-quality='low'] .plate.active .plate-av::before {
+  animation: none;
+  opacity: 0.8;
+}
+:root[data-quality='low'] .plate.stack .plate-count {
+  box-shadow: inset 0 0 0 1.5px rgba(214, 166, 74, 0.6);
+}
+:root[data-quality='low'] .plate-bubble {
+  box-shadow: 0 3px 0 #c9ae86;
+}
+:root[data-quality='low'] .plate-bubble.strong {
+  box-shadow: 0 3px 0 var(--mango-d);
+}
+:root[data-quality='low'] .bubble {
+  box-shadow: 0 4px 0 #c9ae86;
+}
+:root[data-quality='low'] .ng-table {
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
+}
+:root[data-quality='low'] .logo-tiles .tile,
+:root[data-quality='low'] .howto-demo .tile,
+:root[data-quality='low'] .trophy svg,
+:root[data-quality='low'] .swatch-tile {
+  filter: none;
+}
+:root[data-quality='low'] .swatch-img {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+:root[data-quality='low'] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+/* decorative transitions: quicker */
+:root[data-quality='low'] .seg-opt,
+:root[data-quality='low'] .swatch,
+:root[data-quality='low'] .face-opt,
+:root[data-quality='low'] .ng-seat,
+:root[data-quality='low'] .ng-cell,
+:root[data-quality='low'] .btn,
+:root[data-quality='low'] .knob,
+:root[data-quality='low'] .switch {
+  transition-duration: 0.08s;
+}
+:root[data-quality='low'] .modal-wrap > .card {
+  animation-duration: 0.25s;
+}
+/* sleepers: one still "z" badge instead of three floating ones */
+:root[data-quality='low'] .av-zzz span,
+.reduce-motion .av-zzz span {
+  animation: none;
+  opacity: 1;
+  transform: translate(0.4em, -0.55em) scale(0.85);
+}
+:root[data-quality='low'] .av-zzz span + span,
+.reduce-motion .av-zzz span + span {
+  display: none;
 }

@@ -2,9 +2,16 @@
  * Animated 2D avatars: one emoji-like yellow head per seat, drawn as inline SVG.
  *
  * Every moving part is an SVG transform driven through reusable SVGTransform/SVGMatrix objects, and
- * opacities are written from a precomputed string table, so a frame allocates nothing (only the
- * mouth path string is rebuilt, and only while the mouth is actually changing shape). One shared
- * requestAnimationFrame loop drives all four faces; it stops while paused, hidden or off.
+ * opacities are written from a precomputed string table (the mouth path string is rebuilt only while
+ * the mouth is actually changing shape).
+ *
+ * The seat avatars are built to cost almost nothing at rest: the idle bob / sway / breathing and the
+ * sleepers' z's are CSS animations of transform/opacity (the compositor runs them), reactions (hops,
+ * shakes, nods) move the whole <svg> with one CSS transform on its own layer, and the face's features
+ * are written only when a value actually changed (blink, glance, expression morph). One shared loop
+ * drives all four faces: requestAnimationFrame only while something moves, otherwise a slow timer that
+ * just checks the schedule (next blink, glance, nod-off); nothing at all while paused, hidden or off.
+ * Frame caps and how busy the idle faces are depend on the graphics level (LEVELS).
  *
  * Expressions are parameter vectors (brows, mouth, eyes) that the live face eases toward; motion
  * (bob, sway, hops, shakes, nods, head lean) is layered on top. A tiny scheduler adds blinks,
@@ -12,6 +19,7 @@
  */
 import type { GameEvent, Seat, SeatPlate } from '../contracts';
 import { character, DEFAULT_LINEUP, type FaceSpec } from '../roster';
+import { FACE_COUNT, HUMAN_FACES } from './faces';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -59,23 +67,8 @@ const PRESETS: Record<Expr, number[]> = {
   asleep:   [1.5, -3,   1.5, -3, 0.8, 65, 99, 75, 99, 70, 97,  102, 0, 1,    1,   1,    0,   0,   0,   0.9, 0],
 };
 
-/**
- * Faces are composable: every face is the same round head with a few features (lashes, brows, smirk,
- * freckles, glasses, aviators, moustache) — or Papi Zorg's alien head. The human picks one of
- * HUMAN_FACES; the CPU seats wear their characters' faces (src/roster.ts).
- */
-export const HUMAN_FACES: FaceSpec[] = [
-  { iris: '#3F7FD9' }, // 0 plain
-  { iris: '#2F9B63', lashes: true }, // 1 lashes
-  { iris: '#7A4A22', brows: 'thick' }, // 2 thick brows
-  { iris: '#5B3FA8', stache: 'brown' }, // 3 handlebar moustache (no mouth)
-  { iris: '#B8741F', freckles: true }, // 4 freckles
-  { iris: '#3F7FD9', glasses: true }, // 5 round glasses
-  { iris: '#2F9B63', brows: 'raised', smirk: true }, // 6 raised brow + smirk
-  { iris: '#7A4A22', aviators: true, brows: 'aviator' }, // 7 aviator sunglasses
-  { iris: '#1E9C9C', lashes: true, glasses: true }, // 8 lashes + round glasses
-];
-export const FACE_COUNT = HUMAN_FACES.length;
+// the human's faces live in ./faces (tiny, so the settings code can import them without this module)
+export { FACE_COUNT, HUMAN_FACES } from './faces';
 const humanSpec = (i: number) => HUMAN_FACES[clamp(Math.round(i) || 0, 0, FACE_COUNT - 1)];
 
 /** the face each seat wears (seat 0 = the human's pick; 1..3 = the seated characters) */
@@ -374,8 +367,8 @@ export class Face {
   readonly spec: FaceSpec;
   private m: SVGMatrix;
   private body: Xf;
-  private shadow: Xf;
-  private shadowO: Opa;
+  private shadow: Xf | null = null;
+  private shadowO: Opa | null = null;
   private feat: Xf;
   private brows: Xf[];
   private browC: [number, number][];
@@ -397,22 +390,35 @@ export class Face {
   private aeyes: AlienEye[] = [];
   private ants: { g: Xf; halo: Opa; x: number }[] = [];
   private shadowY: number;
+  /**
+   * live = a seat avatar: the body motion (bob, sway, hops) and the floating z's are NOT drawn in the
+   * SVG — the avatar moves the whole <svg> with a CSS transform (compositor only) and shows HTML z's;
+   * the ground shadow becomes a separate element. apply() then only touches the face's features.
+   */
+  readonly live: boolean;
 
-  constructor(spec: FaceSpec) {
+  constructor(spec: FaceSpec, live = false) {
     this.spec = spec;
+    this.live = live;
     const uid = `av${UID_SALT}${++uidSeq}`;
     const tpl = document.createElement('template');
     tpl.innerHTML = faceMarkup(spec, uid).trim();
     this.svg = tpl.content.firstElementChild as SVGSVGElement;
     const svg = this.svg;
+    if (live) {
+      svg.querySelector('.shadow')?.remove();
+      svg.querySelector('.zzz')?.remove();
+    }
     this.m = svg.createSVGMatrix();
     const q = <T extends Element>(sel: string, root: ParentNode = svg) => root.querySelector(sel) as T;
     const qa = <T extends Element>(sel: string, root: ParentNode = svg) => Array.from(root.querySelectorAll(sel)) as T[];
     const xf = (el: Element) => new Xf(el as SVGGraphicsElement, this.m);
     this.body = xf(q('.body'));
-    const sh = q<SVGEllipseElement>('.shadow');
-    this.shadow = xf(sh);
-    this.shadowO = new Opa(sh);
+    if (!live) {
+      const sh = q<SVGEllipseElement>('.shadow');
+      this.shadow = xf(sh);
+      this.shadowO = new Opa(sh);
+    }
     this.shadowY = spec.alien ? 136 : 132;
     this.feat = xf(q('.feat'));
     this.brows = qa('.brow').map(xf);
@@ -459,6 +465,14 @@ export class Face {
 
   /** Write the expression `p` with the motion `m` into the SVG. */
   apply(p: Float32Array | number[], m: FaceMotion): void {
+    if (!this.live) this.applyBody(m);
+    this.feat.translate(m.fx, m.fy);
+    this.applyFeatures(p, m);
+    if (!this.live) this.applyZs(m);
+  }
+
+  /** body transform + ground shadow (static / mini faces only; live avatars move the <svg> by CSS) */
+  private applyBody(m: FaceMotion): void {
     // body: scale about the chin-bottom, rotate about the neck, then offset
     const cx = 70;
     const sY = 124; // squash pivot
@@ -478,11 +492,13 @@ export class Face {
     this.body.set(a, b, c, d, e, f);
     const lift = clamp(-m.y, 0, 40);
     const ss = 1 - lift * 0.012;
-    this.shadow.set(ss, 0, 0, 1, cx - cx * ss, 0);
-    this.shadowO.set(0.16 * (1 - lift * 0.014));
+    this.shadow?.set(ss, 0, 0, 1, cx - cx * ss, 0);
+    this.shadowO?.set(0.16 * (1 - lift * 0.014));
     void this.shadowY;
-    this.feat.translate(m.fx, m.fy);
+  }
 
+  /** brows, eyes, glasses, antennae, mouth, moustache, blush */
+  private applyFeatures(p: Float32Array | number[], m: FaceMotion): void {
     // brows (right rotation mirrored)
     const arch = p[P.ARCH];
     for (let i = 0; i < this.brows.length; i++) {
@@ -637,9 +653,11 @@ export class Face {
     const bl = this.blushBase * p[P.BLUSH];
     this.blush[0].set(bl);
     this.blush[1].set(bl);
+  }
 
-    // floating z's
-    for (let i = 0; i < 3; i++) {
+  /** floating z's (static / mini faces; live avatars use HTML z's) */
+  private applyZs(m: FaceMotion): void {
+    for (let i = 0; i < 3 && i < this.zs.length; i++) {
       const z = this.zs[i];
       if (m.zzz <= 0.01) {
         z.o.set(0);
@@ -690,9 +708,20 @@ interface Shake {
   freq: number;
 }
 
+/** body transform write thresholds (viewBox units / degrees / scale) */
+const EPS_Y = 0.02;
+const EPS_ROT = 0.03;
+const EPS_S = 0.0006;
+/** a feature value counts as changed above this (viewBox units; invisible below) */
+const EPS_F = 0.01;
+
 class Avatar {
   face: Face;
+  /** the plate mounts this: [shadow, idle wrapper > svg, z's] */
   readonly el: HTMLElement;
+  /** carries the idle bob / sway / breathing as CSS animations (run by the compositor) */
+  private idleEl: HTMLElement;
+  private shadowEl: HTMLElement;
   cur = new Float32Array(P.N);
   motion = restMotion();
   // positions (CSS px), for gaze vectors
@@ -736,21 +765,48 @@ class Avatar {
   nextWig = rand(4, 9);
   glintT0 = -10;
   nextGlint = rand(3, 8);
+  /** when the asleep breathing started (keeps the mouth's breath in step with the CSS breathing) */
+  asleepAt = 0;
+  // what was last written, so unchanged frames write nothing
+  private idleState = '';
+  private lastBody = new Float32Array([0, 0, 1, 1]);
+  private lastLift = 0;
+  private lastP = new Float32Array(P.N).fill(NaN);
+  private lastM = new Float32Array(13).fill(NaN);
+  private mv = new Float32Array(13);
 
   constructor(readonly seat: Seat) {
-    this.face = new Face(faceOfSeat(seat));
+    this.face = new Face(faceOfSeat(seat), true);
+    this.shadowEl = document.createElement('div');
+    this.shadowEl.className = 'av-shadow';
+    this.idleEl = document.createElement('div');
+    this.idleEl.className = 'av-idle';
+    this.idleEl.append(this.face.svg);
+    const zzz = document.createElement('div');
+    zzz.className = 'av-zzz';
+    zzz.innerHTML = '<span>z</span><span>z</span><span>z</span>';
     this.el = document.createElement('div');
     this.el.className = 'av-face';
-    this.el.append(this.face.svg);
+    this.el.append(this.shadowEl, this.idleEl, zzz);
+    // each face bobs and sways at its own pace (negative delays = a random phase)
+    const st = this.el.style;
+    st.setProperty('--bob-t', `${this.bobT.toFixed(2)}s`);
+    st.setProperty('--bob-d', `${(-(this.bobP / (Math.PI * 2)) * this.bobT).toFixed(2)}s`);
+    st.setProperty('--sway-t', `${this.swayT.toFixed(2)}s`);
+    st.setProperty('--sway-d', `${(-(this.swayP / (Math.PI * 2)) * this.swayT).toFixed(2)}s`);
+    this.el.classList.toggle('alien', !!this.face.spec.alien);
     exprTarget(this.face.spec, 'idle', this.cur);
   }
 
   /** swap to another face (the human's pick, or the character seated here) */
   setFace(spec: FaceSpec): void {
     if (this.face.spec === spec) return;
-    this.face = new Face(spec);
-    this.el.replaceChildren(this.face.svg);
+    this.face = new Face(spec, true);
+    this.idleEl.replaceChildren(this.face.svg);
+    this.el.classList.toggle('alien', !!spec.alien);
     this.motion = restMotion();
+    this.lastP.fill(NaN);
+    this.lastBody.set([0, 0, 1, 1]);
   }
 
   /** aliens rarely sleep */
@@ -761,9 +817,115 @@ class Avatar {
   baseExpr(): Expr {
     return this.stage === 2 ? 'asleep' : this.stage === 1 ? 'sleepy' : 'idle';
   }
+
+  /** which CSS idle motion runs: 'awake' bob, 'drowsy' (smaller bob), 'asleep' breathing, 'still' */
+  setIdle(state: 'awake' | 'drowsy' | 'asleep' | 'still'): void {
+    if (state === this.idleState) return;
+    const cl = this.el.classList;
+    if (this.idleState) cl.remove(`av-${this.idleState}`);
+    cl.add(`av-${state}`);
+    this.idleState = state;
+  }
+
+  /** reaction motion (hops, shakes, nods, lean) as one CSS transform on the <svg>; false = unchanged */
+  writeBody(y: number, rot: number, sx: number, sy: number): boolean {
+    const L = this.lastBody;
+    if (Math.abs(y - L[0]) < EPS_Y && Math.abs(rot - L[1]) < EPS_ROT && Math.abs(sx - L[2]) < EPS_S && Math.abs(sy - L[3]) < EPS_S) return false;
+    L[0] = y;
+    L[1] = rot;
+    L[2] = sx;
+    L[3] = sy;
+    const rest = Math.abs(y) < EPS_Y && Math.abs(rot) < EPS_ROT && Math.abs(sx - 1) < EPS_S && Math.abs(sy - 1) < EPS_S;
+    // translate in % of the face box (viewBox 140 wide; Papi Zorg's 166)
+    const u = this.face.spec.alien ? 100 / 166 : 100 / 140;
+    this.face.svg.style.transform = rest ? '' : `translate(0,${(y * u).toFixed(2)}%) rotate(${rot.toFixed(2)}deg) scale(${sx.toFixed(4)},${sy.toFixed(4)})`;
+    return true;
+  }
+
+  /** the ground shadow shrinks and fades while the head is in the air (hops only) */
+  writeShadow(lift: number): void {
+    if (Math.abs(lift - this.lastLift) < 0.05) return;
+    this.lastLift = lift;
+    const st = this.shadowEl.style;
+    if (lift < 0.05) {
+      st.transform = '';
+      st.opacity = '';
+      return;
+    }
+    st.transform = `scaleX(${(1 - lift * 0.012).toFixed(3)})`;
+    st.opacity = (1 - lift * 0.014).toFixed(3);
+  }
+
+  /** write the face's features only when the expression or a feature motion actually changed */
+  applyFace(alienT: boolean): boolean {
+    const p = this.cur;
+    const m = this.motion;
+    const lp = this.lastP;
+    const lm = this.lastM;
+    // gaze/feature shift, blinks, breath, moustache, droop, antenna glow/sway, glint, (alien: halo clock)
+    const mv = this.mv;
+    mv[0] = m.fx;
+    mv[1] = m.fy;
+    mv[2] = m.gx;
+    mv[3] = m.gy;
+    mv[4] = m.blinkL;
+    mv[5] = m.blinkR;
+    mv[6] = m.breath;
+    mv[7] = m.wig;
+    mv[8] = m.droop;
+    mv[9] = m.glow;
+    mv[10] = m.ant;
+    mv[11] = m.glint;
+    mv[12] = alienT ? m.t : 0;
+    let changed = false;
+    for (let i = 0; i < P.N && !changed; i++) if (!(Math.abs(p[i] - lp[i]) <= EPS_F)) changed = true;
+    for (let i = 0; i < 13 && !changed; i++) if (!(Math.abs(mv[i] - lm[i]) <= EPS_F)) changed = true;
+    if (!changed) return false;
+    lp.set(p);
+    lm.set(mv);
+    this.face.apply(p, m);
+    return true;
+  }
 }
 
 // ───────────────────────── controller ─────────────────────────
+
+/**
+ * Cost knobs per graphics level. Idle motion (bob, sway, breathing, z's) is CSS — the compositor runs
+ * it — so the script only works while something actually changes on a face:
+ * - activeFps: frame cap while a reaction plays (hop, shake, expression morph)
+ * - idleFps: frame cap for idle micro-behaviours (blinks, glances, head lean, twitches, nods)
+ * - ambientFps: continuous feature motion that cannot be CSS (antenna sway, a sleeper's breathing
+ *   mouth); 0 = those parts hold still
+ * - pollMs: with nothing moving, the loop leaves requestAnimationFrame and only checks its schedule
+ *   (next blink, glance, nod-off…) this often
+ * - lazy / blinkLazy: idle micro-behaviours (glances, winks, twitches, glints / blinks) come this many
+ *   times less often
+ * - react: reaction expressions last this fraction of their normal time
+ */
+const LEVELS = {
+  high: { activeFps: 60, idleFps: 60, ambientFps: 30, pollMs: 100, lazy: 1, blinkLazy: 1, react: 1 },
+  medium: { activeFps: 60, idleFps: 30, ambientFps: 15, pollMs: 120, lazy: 1.3, blinkLazy: 1.1, react: 1 },
+  low: { activeFps: 30, idleFps: 15, ambientFps: 0, pollMs: 200, lazy: 2, blinkLazy: 1.4, react: 0.75 },
+} as const;
+type Level = keyof typeof LEVELS;
+
+/** dev measurement: main-thread ms spent in avatar updates, ticks, face (SVG) writes, CSS writes */
+export const AV_STATS = { ms: 0, frames: 0, applies: 0, css: 0 };
+if (import.meta.env?.DEV && typeof window !== 'undefined') {
+  (window as unknown as { __avStats: typeof AV_STATS }).__avStats = AV_STATS;
+  // ?avperf: log the avatars' cost every 5 s
+  if (new URLSearchParams(location.search).has('avperf')) {
+    let last = { ...AV_STATS };
+    setInterval(() => {
+      const d = (k: keyof typeof AV_STATS) => (AV_STATS[k] - last[k]) / 5;
+      console.debug(
+        `[avatars] ${d('ms').toFixed(2)} ms/s · ${d('frames').toFixed(1)} ticks/s · ${d('applies').toFixed(1)} face writes/s · ${d('css').toFixed(1)} css writes/s · ${document.documentElement.dataset.quality}`,
+      );
+      last = { ...AV_STATS };
+    }, 5000);
+  }
+}
 
 type HandEnd = Extract<GameEvent, { type: 'handEnd' }>;
 
@@ -1008,6 +1170,8 @@ export class AvatarController {
   // ───────── behaviours ─────────
 
   private setExpr(a: Avatar, e: Expr, dur: number, delay = 0): void {
+    // low quality: reactions are kept but shorter (the 'thinking' hold lasts the whole CPU turn)
+    if (e !== 'thinking') dur *= this.cfg.react;
     if (delay > 0) {
       a.next = { expr: e, at: this.time + delay, dur };
       return;
@@ -1027,7 +1191,7 @@ export class AvatarController {
 
   private hopOnce(a: Avatar, h: number, dur: number, t0: number, n = 1): void {
     if (this.reduced) return;
-    a.hop = { t0, dur, h, n };
+    a.hop = { t0, dur, h, n: this.cfg.react < 1 ? Math.min(n, 2) : n };
   }
 
   private wake(a: Avatar, how: 'gentle' | 'startle', delay = 0): void {
@@ -1091,7 +1255,7 @@ export class AvatarController {
     a.gazeX = x;
     a.gazeY = y;
     a.gazeUntil = this.time + hold;
-    a.nextGlance = this.time + hold + rand(0.6, 2.4);
+    a.nextGlance = this.time + hold + rand(0.6, 2.4) * this.cfg.lazy;
   }
 
   // ───────── loop ─────────
@@ -1107,35 +1271,104 @@ export class AvatarController {
     return this.enabled && this.visible && !this.paused && !this.hold && !document.hidden;
   }
 
+  /** graphics level: frame caps and how busy the idle faces are (see LEVELS) */
+  setQuality(q: Level): void {
+    if (!LEVELS[q]) return;
+    setMiniQuality(q);
+    if (q === this.level) return;
+    this.level = q;
+    this.cfg = LEVELS[q];
+    this.kick();
+  }
+  private level: Level = 'high';
+  private cfg: (typeof LEVELS)[Level] = LEVELS.high;
+  private timer = 0;
+  private reacting = false;
+
   private kick(): void {
-    if (this.raf || !this.running) return;
-    this.lastNow = 0;
+    const run = this.running;
+    // CSS idle motion pauses with the loop (pause menu, summary card, hidden)
+    for (const a of this.av) a.el.classList.toggle('av-paused', !run);
+    if (!run) {
+      if (this.raf) cancelAnimationFrame(this.raf);
+      if (this.timer) clearTimeout(this.timer);
+      this.raf = this.timer = 0;
+      this.lastNow = 0;
+      return;
+    }
+    if (this.raf) return;
+    // an event while the loop only polls: switch to frames right away
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = 0;
+    }
     this.raf = requestAnimationFrame(this.tick);
   }
+
+  private onTimer = (): void => {
+    this.timer = 0;
+    this.tick(performance.now());
+  };
 
   private tick = (now: number): void => {
     this.raf = 0;
     if (!this.running) return;
+    const cfg = this.cfg;
+    // frame cap: reactions at activeFps, idle micro-behaviours at idleFps
+    const fps = this.reacting ? cfg.activeFps : cfg.idleFps;
+    if (this.lastNow && fps < 60 && now - this.lastNow < 1000 / fps - 4) {
+      this.raf = requestAnimationFrame(this.tick);
+      return;
+    }
+    const t0 = performance.now();
     let dt = this.lastNow ? (now - this.lastNow) / 1000 : 1 / 60;
     this.lastNow = now;
-    if (dt > 0.05) dt = 0.05;
+    if (dt > 0.25) dt = 0.25;
     if (dt < 0) dt = 0;
     this.time += dt;
+    let active = false;
     for (let i = 0; i < this.pending.length; i++) {
       const p = this.pending[i];
       if (p.at <= this.time) {
         this.pending.splice(i--, 1);
         this.glance(p.a, p.x, p.y, p.hold);
-      }
+      } else if (p.at - this.time < 0.3) active = true;
     }
-    for (const a of this.av) this.step(a, dt);
-    this.raf = requestAnimationFrame(this.tick);
+    let ambient = false;
+    let micro = false;
+    for (const a of this.av) {
+      const r = this.step(a, dt);
+      if (r & 1) active = true;
+      if (r & 2) ambient = true;
+      if (r & 4) micro = true;
+    }
+    this.reacting = active;
+    active ||= micro;
+    AV_STATS.frames++;
+    AV_STATS.ms += performance.now() - t0;
+    if (active) this.raf = requestAnimationFrame(this.tick);
+    else this.timer = window.setTimeout(this.onTimer, ambient && cfg.ambientFps ? 1000 / cfg.ambientFps : cfg.pollMs);
   };
 
-  private step(a: Avatar, dt: number): void {
+  /**
+   * One avatar's update. Returns bit 1 = a reaction plays (activeFps), bit 4 = an idle micro-behaviour
+   * plays (blink, glance, twitch: idleFps), bit 2 = ambient feature motion (ambientFps). Writes to the
+   * DOM only what changed.
+   */
+  private step(a: Avatar, dt: number): number {
     const t = this.time;
     const m = a.motion;
     const rm = this.reduced;
+    const cfg = this.cfg;
+    let active = false; // a reaction plays (full frame rate)
+    let micro = false; // a blink / glance / twitch plays (idle frame rate)
+    const ease = (v: number, target: number, kk: number, eps: number, idle = false): number => {
+      const d = target - v;
+      if (Math.abs(d) < eps) return target;
+      if (idle) micro = true;
+      else active = true;
+      return v + d * kk;
+    };
 
     // sleep progression (only while the game waits on someone else)
     if (!this.quiet && this.turn !== null && a.seat !== this.turn) {
@@ -1146,6 +1379,7 @@ export class AvatarController {
       } else if (a.stage === 1 && t >= a.stageAt + 5.2) {
         a.stage = 2;
         a.stageAt = t;
+        a.asleepAt = t;
         a.tilt = (Math.random() < 0.5 ? -1 : 1) * rand(5, 8);
       }
     }
@@ -1156,6 +1390,7 @@ export class AvatarController {
       a.exprUntil = t + a.next.dur;
       a.next = null;
     }
+    if (a.next && a.next.at - t < 0.3) active = true;
     if (a.expr !== a.baseExpr() && t >= a.exprUntil && !a.next) a.expr = a.baseExpr();
     const tg = this.tgt;
     exprTarget(a.face.spec, a.expr, tg);
@@ -1173,31 +1408,37 @@ export class AvatarController {
     if (!rm && a.face.spec.stache) {
       if (t >= a.nextWig && a.stage === 0 && a.expr === 'idle') {
         a.wigT0 = t;
-        a.nextWig = t + rand(4, 10);
+        a.nextWig = t + rand(4, 10) * cfg.lazy;
       }
       const wu = (t - a.wigT0) / 0.7;
-      a.motion.wig = wu >= 0 && wu < 1 ? Math.sin(wu * Math.PI * 5) * (1 - wu) * 6 : 0;
-    } else a.motion.wig = 0;
+      const on = wu >= 0 && wu < 1;
+      m.wig = on ? Math.sin(wu * Math.PI * 5) * (1 - wu) * 6 : 0;
+      if (on) micro = true;
+    } else m.wig = 0;
     // aviator glint now and then (and on demand, see glintNow); antennae sway and glow
     const spec = a.face.spec;
     if (spec.aviators) {
       if (!rm && t >= a.nextGlint && a.stage === 0) {
         a.glintT0 = t;
-        a.nextGlint = t + rand(5, 11);
+        a.nextGlint = t + rand(5, 11) * cfg.lazy;
       }
       const gu = (t - a.glintT0) / 0.65;
-      a.motion.glint = gu >= 0 && gu <= 1 ? gu : -1;
+      m.glint = gu >= 0 && gu <= 1 ? gu : -1;
+      if (m.glint >= 0) micro = true;
     }
-    const dk = 1 - Math.exp(-dt * 2.2);
-    a.motion.droop += ((a.stage === 2 ? 1 : a.stage === 1 ? 0.35 : 0) - a.motion.droop) * dk;
+    const droopT = a.stage === 2 ? 1 : a.stage === 1 ? 0.35 : 0;
+    m.droop = ease(m.droop, droopT, 1 - Math.exp(-dt * 2.2), 0.004, true);
+    const ambientOn = cfg.ambientFps > 0 && !rm;
+    let ambient = false;
     if (spec.alien) {
-      a.motion.glow += ((a.expr === 'thinking' ? 1 : 0) - a.motion.glow) * (1 - Math.exp(-dt * 4));
-      a.motion.ant = rm ? 0 : Math.sin(t * 1.9 + a.bobP) * 3.2 + Math.sin(t * 3.1 + a.swayP) * 1.2;
+      m.glow = ease(m.glow, a.expr === 'thinking' ? 1 : 0, 1 - Math.exp(-dt * 4), 0.004, true);
+      m.ant = ambientOn ? Math.sin(t * 1.9 + a.bobP) * 3.2 + Math.sin(t * 3.1 + a.swayP) * 1.2 : 0;
+      if (ambientOn) ambient = true;
     }
-    // ease toward the target (expression changes read as quick, soft morphs)
+    // ease toward the target (expression changes read as quick, soft morphs); snap when close
     const k = 1 - Math.exp(-dt * (rm ? 18 : 13));
     const cur = a.cur;
-    for (let i = 0; i < P.N; i++) cur[i] += (tg[i] - cur[i]) * k;
+    for (let i = 0; i < P.N; i++) cur[i] = ease(cur[i], tg[i], k, EPS_F);
 
     // blink / wink scheduler
     if (a.blinkT0 < 0 && t >= a.nextBlink && a.stage < 2 && a.expr !== 'happy') {
@@ -1211,22 +1452,25 @@ export class AvatarController {
       a.blinkEye = Math.random() < 0.5 ? 1 : 2;
       a.blinkDur = 0.5;
       a.blinkAgain = false;
-      a.nextWink = t + rand(25, 55);
+      a.nextWink = t + rand(25, 55) * cfg.lazy;
       a.next = { expr: 'smug', at: t, dur: 0.55 };
     }
     let b = 0;
-    if (a.blinkT0 >= 0 && t >= a.blinkT0) {
-      const u = (t - a.blinkT0) / a.blinkDur;
-      // fast close, short hold, slower open
-      b = u < 0.32 ? smooth(0, 0.32, u) : u < 0.45 ? 1 : 1 - smooth(0.45, 1, u);
-      if (u >= 1) {
-        b = 0;
-        if (a.blinkAgain) {
-          a.blinkAgain = false;
-          a.blinkT0 = t + 0.07;
-        } else {
-          a.blinkT0 = -1;
-          a.nextBlink = t + (a.stage === 1 ? rand(1.2, 2.2) : rand(2.2, 6.2));
+    if (a.blinkT0 >= 0) {
+      micro = true;
+      if (t >= a.blinkT0) {
+        const u = (t - a.blinkT0) / a.blinkDur;
+        // fast close, short hold, slower open
+        b = u < 0.32 ? smooth(0, 0.32, u) : u < 0.45 ? 1 : 1 - smooth(0.45, 1, u);
+        if (u >= 1) {
+          b = 0;
+          if (a.blinkAgain) {
+            a.blinkAgain = false;
+            a.blinkT0 = t + 0.07;
+          } else {
+            a.blinkT0 = -1;
+            a.nextBlink = t + (a.stage === 1 ? rand(1.2, 2.2) : rand(2.2, 6.2) * cfg.blinkLazy);
+          }
         }
       }
     }
@@ -1248,27 +1492,26 @@ export class AvatarController {
       }
     } else a.gazeX = a.gazeY = 0;
     const asleep = a.stage === 2;
-    const gTargetX = asleep ? 0 : a.gazeX;
-    const gTargetY = asleep ? 0 : a.gazeY;
+    const gTargetX = asleep || rm ? 0 : a.gazeX;
+    const gTargetY = asleep || rm ? 0 : a.gazeY;
     const ks = 1 - Math.exp(-dt * 24); // saccade
     const kh = 1 - Math.exp(-dt * 4.5); // head follows slowly
-    m.gx += (gTargetX * 3.3 - m.gx) * ks;
-    m.gy += (gTargetY * 2.8 - m.gy) * ks;
-    a.lookX += (gTargetX - a.lookX) * kh;
-    a.lookY += (gTargetY - a.lookY) * kh;
+    m.gx = ease(m.gx, gTargetX * 3.3, ks, EPS_F, true);
+    m.gy = ease(m.gy, gTargetY * 2.8, ks, EPS_F, true);
+    // the head lean's long tail is invisible below ~0.015 (0.08° / 0.05 units): snap there
+    a.lookX = ease(a.lookX, gTargetX, kh, 0.015, true);
+    a.lookY = ease(a.lookY, gTargetY, kh, 0.015, true);
 
-    // motion
+    // idle motion is CSS (bob / drowsy bob / breathing / z's); the script adds reactions on top
+    a.setIdle(rm ? 'still' : asleep ? 'asleep' : a.stage === 1 ? 'drowsy' : 'awake');
     if (rm) {
-      m.y = 0;
-      m.rot = 0;
-      m.sx = m.sy = 1;
       m.fx = m.fy = 0;
-      m.gx = m.gy = 0;
       m.breath = 0;
-      m.zzz += ((asleep ? 1 : 0) - m.zzz) * k;
-      m.t = 0.35; // z's hold still
-      a.face.apply(cur, m);
-      return;
+      m.t = 0.35;
+      if (a.writeBody(0, 0, 1, 1)) AV_STATS.css++;
+      a.writeShadow(0);
+      if (a.applyFace(false)) AV_STATS.applies++;
+      return (active ? 1 : 0) | (micro ? 4 : 0);
     }
     let y = 0;
     let rot = 0;
@@ -1276,24 +1519,12 @@ export class AvatarController {
     let sy = 1;
     let fy = 0;
     if (asleep) {
-      // slow breathing
-      const br = Math.sin((t / 3.6) * Math.PI * 2 + a.bobP);
-      y = 1.2 + br * 0.9;
-      sx = 1 + br * 0.014;
-      sy = 1 - br * 0.01;
-      m.breath = br;
+      // the mouth breathes with the body (CSS breathing: 3.6 s cycle starting with the out-breath)
+      m.breath = ambientOn ? -Math.cos(((t - a.asleepAt) / 3.6) * Math.PI * 2) : 0;
+      if (ambientOn) ambient = true;
       fy = 2;
-    } else {
-      const ph = (t / a.bobT) * Math.PI * 2 + a.bobP;
-      const kk = 0.5 - 0.5 * Math.cos(ph); // 0 at rest, 1 at the top
-      const amp = a.stage === 1 ? 1.2 : 2.3;
-      y = -amp * kk;
-      sy = 1 - 0.024 * (1 - kk) + 0.012 * kk;
-      sx = 1 + 0.02 * (1 - kk) - 0.008 * kk;
-      m.breath = 0;
-    }
-    rot = Math.sin((t / a.swayT) * Math.PI * 2 + a.swayP) * (asleep ? 0.8 : 1.8);
-    a.tiltCur += (a.tilt - a.tiltCur) * (1 - Math.exp(-dt * 2.5));
+    } else m.breath = 0;
+    a.tiltCur = ease(a.tiltCur, a.tilt, 1 - Math.exp(-dt * 2.5), 0.02, true);
     rot += a.tiltCur + a.lookX * 5;
     // drowsy nods
     if (a.stage === 1) {
@@ -1309,60 +1540,68 @@ export class AvatarController {
           fy += 4.5 * s;
           y += 2.2 * s;
           rot += 3 * s * (a.seat % 2 ? 1 : -1);
+          micro = true;
         }
       }
     }
     // stretch on a gentle wake-up
     const su = (t - a.stretchT0) / 0.7;
-    if (su >= 0 && su < 1) {
-      const s = Math.sin(su * Math.PI);
-      sy *= 1 + 0.07 * s;
-      sx *= 1 - 0.04 * s;
-      y -= 2 * s;
+    if (su >= -0.5 && su < 1) {
+      active = true;
+      if (su >= 0) {
+        const s = Math.sin(su * Math.PI);
+        sy *= 1 + 0.07 * s;
+        sx *= 1 - 0.04 * s;
+        y -= 2 * s;
+      }
     }
     // hops (anticipation squash, flight with stretch, landing squash)
     const hp = a.hop;
-    if (hp && t >= hp.t0) {
-      const total = hp.dur * hp.n;
-      const ut = (t - hp.t0) / hp.dur;
-      if (t - hp.t0 >= total) a.hop = null;
-      else {
-        const i = Math.floor(ut);
-        const u = ut - i;
-        const h = hp.h * (i === 0 ? 1 : 0.7);
-        if (u < 0.16) {
-          const s = Math.sin((u / 0.16) * Math.PI);
-          sy *= 1 - 0.09 * s;
-          sx *= 1 + 0.07 * s;
-        } else if (u < 0.86) {
-          const v = (u - 0.16) / 0.7;
-          y -= h * Math.sin(v * Math.PI);
-          const st = Math.cos(v * Math.PI) * 0.05;
-          sy *= 1 + Math.abs(st);
-          sx *= 1 - Math.abs(st) * 0.6;
-        } else {
-          const s = Math.sin(((u - 0.86) / 0.14) * Math.PI);
-          sy *= 1 - 0.07 * s;
-          sx *= 1 + 0.05 * s;
+    if (hp) {
+      active = true;
+      if (t >= hp.t0) {
+        const total = hp.dur * hp.n;
+        const ut = (t - hp.t0) / hp.dur;
+        if (t - hp.t0 >= total) a.hop = null;
+        else {
+          const i = Math.floor(ut);
+          const u = ut - i;
+          const h = hp.h * (i === 0 ? 1 : 0.7);
+          if (u < 0.16) {
+            const s = Math.sin((u / 0.16) * Math.PI);
+            sy *= 1 - 0.09 * s;
+            sx *= 1 + 0.07 * s;
+          } else if (u < 0.86) {
+            const v = (u - 0.16) / 0.7;
+            y -= h * Math.sin(v * Math.PI);
+            const st = Math.cos(v * Math.PI) * 0.05;
+            sy *= 1 + Math.abs(st);
+            sx *= 1 - Math.abs(st) * 0.6;
+          } else {
+            const s = Math.sin(((u - 0.86) / 0.14) * Math.PI);
+            sy *= 1 - 0.07 * s;
+            sx *= 1 + 0.05 * s;
+          }
         }
       }
     }
     // head shakes
     const sk = a.shake;
-    if (sk && t >= sk.t0) {
-      const u = (t - sk.t0) / sk.dur;
-      if (u >= 1) a.shake = null;
-      else rot += Math.sin(u * Math.PI * 2 * sk.freq * sk.dur) * sk.amp * (1 - u);
+    if (sk) {
+      active = true;
+      if (t >= sk.t0) {
+        const u = (t - sk.t0) / sk.dur;
+        if (u >= 1) a.shake = null;
+        else rot += Math.sin(u * Math.PI * 2 * sk.freq * sk.dur) * sk.amp * (1 - u);
+      }
     }
-    m.y = y;
-    m.rot = rot;
-    m.sx = sx;
-    m.sy = sy;
+    if (a.writeBody(y, rot, sx, sy)) AV_STATS.css++;
+    a.writeShadow(clamp(-y, 0, 40));
     m.fx = a.lookX * 3.6;
     m.fy = fy + a.lookY * 2.6;
-    m.zzz += ((asleep ? 1 : 0) - m.zzz) * (1 - Math.exp(-dt * 2));
-    m.t = t;
-    a.face.apply(cur, m);
+    m.t = ambientOn ? t : 0;
+    if (a.applyFace(!!spec.alien && ambientOn)) AV_STATS.applies++;
+    return (active ? 1 : 0) | (ambient ? 2 : 0) | (micro ? 4 : 0);
   }
 }
 
@@ -1389,9 +1628,19 @@ const minis = new Set<Mini>();
 let miniRaf = 0;
 let miniT = 0;
 let miniLast = 0;
+/** frame cap of the small live faces per graphics level */
+const MINI_FPS = { low: 20, medium: 30, high: 60 };
+let miniFps = 60;
+function setMiniQuality(q: Level): void {
+  miniFps = MINI_FPS[q] ?? 60;
+}
 
 function miniTick(now: number): void {
   miniRaf = 0;
+  if (miniLast && miniFps < 60 && now - miniLast < 1000 / miniFps - 4) {
+    if (minis.size && !document.hidden) miniRaf = requestAnimationFrame(miniTick);
+    return;
+  }
   const dt = miniLast ? Math.min(0.05, (now - miniLast) / 1000) : 1 / 60;
   miniLast = now;
   miniT += dt;

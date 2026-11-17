@@ -9,9 +9,11 @@ const app = document.getElementById('app')!;
 const logEl = document.getElementById('log')!;
 const log = (s: string) => (logEl.textContent = s);
 
+const q0 = (new URLSearchParams(location.search).get('q') as Quality | null) ?? 'medium';
+(document.getElementById('sQ') as HTMLSelectElement).value = q0;
 const view = createTableView({
   container: app,
-  quality: 'medium',
+  quality: q0,
   playerNames: ['Tú', 'Yuni', 'Pancho', 'Mayelín'],
   onSfx: (n) => console.debug('[sfx]', n),
 });

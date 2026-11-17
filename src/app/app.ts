@@ -1,4 +1,4 @@
-import type { AppSettings, Bonus, EngineApi, GameEvent, Lineup, MatchState, Seat, SfxName, TableView, TableViewOptions } from '../contracts';
+import type { AppSettings, Bonus, EngineApi, FrameStats, GameEvent, Lineup, MatchState, Seat, SfxName, TableView, TableViewOptions } from '../contracts';
 import { character, profileOf, randomLineup } from '../roster';
 import { hapticTick, playSfx, setAudioPrefs, setAudioSuspended } from '../audio/sfx';
 import { buildHowto } from '../ui/howto';
@@ -10,12 +10,13 @@ import { buildSettings, presetName, type SettingsTab } from '../ui/settings';
 import { buildNewGame } from '../ui/newgame';
 import { setTileTheme } from '../ui/tiles';
 import { buildHandSummary, buildMatchEnd, buildPause, buildStarterChooser } from '../ui/summary';
-import { prefersReducedMotion, setReducedMotionPref } from '../ui/dom';
+import { prefersReducedMotion, setReducedMotionPref, setUiQuality } from '../ui/dom';
 import { AvatarController } from '../ui/avatars';
 import { SeatPlates } from '../ui/plates';
 import { GameSession, type SessionHooks } from './controller';
 import { clearSave, loadSave, saveGame } from './save';
 import { findTarget, RANDOM, sanitizeLineupSetting, saveSettings } from './settings';
+import { QualityGovernor, resolveQuality } from './perf';
 
 type Names = [string, string, string, string];
 
@@ -47,10 +48,15 @@ export class App {
   private plates = new SeatPlates(this.avatars);
   /** the characters of the match being played (from the new-game sheet or the save) */
   private lineup: Lineup;
+  /** auto quality: steps the level down when the renderer reports sustained slow frames */
+  private governor = new QualityGovernor();
 
   constructor(private deps: AppDeps) {
     this.engine = deps.engine;
-    this.settings = deps.settings;
+    this.settings = resolveQuality(deps.settings);
+    if (this.settings !== deps.settings) saveSettings(this.settings);
+    setUiQuality(this.settings.quality);
+    this.avatars.setQuality(this.settings.quality);
     this.overlay = deps.overlay;
     this.lineup = resolveLineup(sanitizeLineupSetting(this.settings.lineup));
     this.applyLineupFaces();
@@ -63,6 +69,32 @@ export class App {
     this.avatars.setReducedMotion(prefersReducedMotion());
     this.ensureView();
     this.bindGlobal();
+    // dev only: feed fake frame stats from the console, e.g. __kudoPerf.feed(40) a few times
+    if (import.meta.env.DEV)
+      (window as unknown as { __kudoPerf: unknown }).__kudoPerf = {
+        feed: (avgFrameMs: number, frames = 30) => this.onFrameStats({ avgFrameMs, frames, quality: this.settings.quality }),
+        settings: () => ({ quality: this.settings.quality, qualityMode: this.settings.qualityMode, autoQuality: this.settings.autoQuality }),
+      };
+  }
+
+  // ───────────────────────── graphics quality ─────────────────────────
+
+  /** renderer telemetry (≈1/s while animating): in auto mode, sustained slow frames lower the level */
+  private onFrameStats = (st: FrameStats): void => {
+    if (this.settings.qualityMode === 'manual') return;
+    const next = this.governor.feed(st, this.settings.quality);
+    if (!next) return;
+    if (import.meta.env.DEV) console.info(`[kudominoes] auto quality: ${this.settings.quality} → ${next} (avg ${st.avgFrameMs.toFixed(1)} ms over ${st.frames} frames)`);
+    this.settings = { ...this.settings, autoQuality: next, quality: next };
+    saveSettings(this.settings);
+    this.applyQuality();
+  };
+
+  private applyQuality(): void {
+    const q = this.settings.quality;
+    this.view.setQuality(q);
+    setUiQuality(q);
+    this.avatars.setQuality(q);
   }
 
   /** seats 1..3 wear their characters' faces */
@@ -112,6 +144,7 @@ export class App {
       onPlates: (plates, center) => this.plates.update(plates, center),
       onImpact: (seat, kind) => this.avatars.onImpact(seat, kind),
       onDrag: (d) => this.plates.setDragging(d),
+      onFrameStats: this.onFrameStats,
     });
     this.viewNames = names;
   }
@@ -151,9 +184,11 @@ export class App {
         presets: this.engine.RULE_PRESETS ?? [],
         matchInProgress: !!this.session || !!loadSave(),
         confirm: (o) => confirmDialog(this.overlay, o),
+        resolvedQuality: () => this.settings.quality,
         onChange: (next, key) => {
-          this.settings = next;
-          saveSettings(next);
+          // the auto decision belongs to the app (the screen's copy may be stale); auto mode = that level
+          this.settings = resolveQuality({ ...next, autoQuality: this.settings.autoQuality });
+          saveSettings(this.settings);
           this.applySetting(key);
           if (key === 'rules' && from === 'game') this.rulesNoticePending = true;
           if (key === 'language') this.overlay.showScreen(build());
@@ -238,7 +273,9 @@ export class App {
         this.view.setTileBack?.(s.tileBack ?? 'ornate');
         break;
       case 'quality':
-        this.view.setQuality(s.quality);
+      case 'qualityMode':
+        this.governor.reset();
+        this.applyQuality();
         break;
       case 'sound':
       case 'music':

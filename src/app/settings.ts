@@ -2,7 +2,8 @@ import type { AppSettings, EngineApi, Lineup, RuleSettings, SettingDescriptor } 
 import { TABLE_STYLES, TILE_BACKS } from '../contracts';
 import { migrateRules, RULES_VERSION } from '../engine/rules';
 import { DEFAULT_LINEUP, isCharacter } from '../roster';
-import { FACE_COUNT } from '../ui/avatars';
+import { FACE_COUNT } from '../ui/faces';
+import { resolveQuality } from './perf';
 
 const KEY = 'kudominoes.settings.v1';
 
@@ -10,7 +11,9 @@ export function defaultSettings(engine: EngineApi): AppSettings {
   const lang = 'es' as const; // Spanish is the default; English is opt-in in Ajustes
   return {
     language: lang,
-    quality: guessQuality(),
+    // auto: resolved per device on load (src/app/perf.ts); 'medium' is only a placeholder until then
+    quality: 'medium',
+    qualityMode: 'auto',
     sound: true,
     music: false,
     vibration: true,
@@ -29,13 +32,7 @@ export function defaultSettings(engine: EngineApi): AppSettings {
   };
 }
 
-function guessQuality(): AppSettings['quality'] {
-  const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 4;
-  const cores = navigator.hardwareConcurrency ?? 4;
-  if (mem <= 2 || cores <= 4) return 'low';
-  if (mem >= 8 && cores >= 8 && !/Android|iPhone|iPad/i.test(navigator.userAgent)) return 'high';
-  return 'medium';
-}
+const isQuality = (v: unknown): v is AppSettings['quality'] => v === 'low' || v === 'medium' || v === 'high';
 
 /** Keep only rules the engine knows, with values of the right type / one of the options. */
 export function sanitizeRules(engine: EngineApi, stored: unknown): RuleSettings {
@@ -79,16 +76,21 @@ export function loadSettings(engine: EngineApi): AppSettings {
   const def = defaultSettings(engine);
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return def;
+    if (!raw) return resolveQuality(def);
     const s = JSON.parse(raw) as Partial<AppSettings>;
     const pick = <K extends keyof AppSettings>(k: K, ok: (v: unknown) => boolean): AppSettings[K] =>
       ok(s[k]) ? (s[k] as AppSettings[K]) : def[k];
     // rules stored before the tens-scale scoring (no rulesVersion) are migrated: structural choices are
     // kept, everything on the points scale takes the new Cuban defaults
     const storedRules = typeof s.rulesVersion === 'number' && s.rulesVersion >= RULES_VERSION ? s.rules : migrateRules(s.rules as RuleSettings | undefined, s.rulesVersion);
-    return {
+    // graphics quality: settings saved before the auto mode existed (no qualityMode) cannot tell a level
+    // the player picked from the old per-device guess, so they move to auto; 'manual' stays as chosen
+    const qualityMode = s.qualityMode === 'manual' && isQuality(s.quality) ? 'manual' : 'auto';
+    return resolveQuality({
       language: pick('language', (v) => v === 'es' || v === 'en'),
-      quality: pick('quality', (v) => v === 'low' || v === 'medium' || v === 'high'),
+      quality: pick('quality', isQuality),
+      qualityMode,
+      autoQuality: isQuality(s.autoQuality) ? s.autoQuality : undefined,
       sound: pick('sound', (v) => typeof v === 'boolean'),
       music: pick('music', (v) => typeof v === 'boolean'),
       vibration: pick('vibration', (v) => typeof v === 'boolean'),
@@ -105,9 +107,9 @@ export function loadSettings(engine: EngineApi): AppSettings {
       settingsTab: s.settingsTab === 'game' || s.settingsTab === 'rules' || s.settingsTab === 'av' ? s.settingsTab : 'game',
       tableStyle: TABLE_STYLES.includes(s.tableStyle as never) ? s.tableStyle : def.tableStyle,
       tileBack: TILE_BACKS.includes(s.tileBack as never) ? s.tileBack : def.tileBack,
-    };
+    });
   } catch {
-    return def;
+    return resolveQuality(def);
   }
 }
 

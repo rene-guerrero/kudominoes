@@ -44,6 +44,15 @@ export function setReducedMotionPref(v: boolean): void {
 }
 export const prefersReducedMotion = () => reducedMotionPref;
 
+/**
+ * The effective graphics level, as `<html data-quality>`: on 'low' the stylesheet drops costly
+ * decoration (big blurred shadows, blur filters, looping glows) and shortens decorative transitions.
+ * Independent of the reduced-motion setting.
+ */
+export function setUiQuality(q: 'low' | 'medium' | 'high'): void {
+  document.documentElement.dataset.quality = q;
+}
+
 /** Animate a number in a text node with requestAnimationFrame (text-only DOM writes). */
 export function countUp(el: Element, from: number, to: number, ms: number): Promise<void> {
   return new Promise((resolve) => {

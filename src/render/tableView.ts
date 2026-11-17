@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type {
+  FrameStats,
   GameEvent,
   Move,
   PlacedTile,
@@ -23,6 +24,7 @@ import { Animator, ease, lerp, clamp01, type Ease } from './tween';
 import * as tex from './textures';
 import { Particles } from './particles';
 import { fitRing, ringHalfWidth, type RingGeo, type TileDims } from './idleRing';
+import { PerfHud } from './perfHud';
 
 type V3 = THREE.Vector3;
 type Q = THREE.Quaternion;
@@ -47,18 +49,48 @@ const Q_FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0
 const Q_PLANE_TO_TILE = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
 interface QualityCfg {
+  /** canvas pixel ratio = clamp(devicePixelRatio * dprScale, dprMin, dpr) (CSS stretches it to the view) */
   dpr: number;
+  dprScale: number;
+  dprMin: number;
+  /** MSAA: a context creation flag, so changing it recreates the WebGLRenderer */
   aa: boolean;
   shadows: boolean;
   particles: number;
   confetti: number;
   atlas: number;
   seg: number;
+  /** min ms between rendered frames while animating (0 = every rAF) / while only ambient pulses run */
+  frameMs: number;
+  ambientMs: number;
+  /** largest simulated step per frame (s): below 1/maxDt fps the tweens would run slower than wall clock */
+  maxDt: number;
+  /** impact dust count / size / lifetime multipliers */
+  fx: number;
+  fxSize: number;
+  fxLife: number;
+  /** camera shake, zoom punch and full-screen flashes */
+  shake: boolean;
+  /** cheap look: Lambert wood frame, no rim light, calmer slam ripple, idle ring without per-tile wobble */
+  lite: boolean;
+  /** procedural canvas sizes (longest felt side, wood tile) and texture anisotropy */
+  felt: number;
+  wood: number;
+  aniso: number;
 }
 const QUALITY: Record<Quality, QualityCfg> = {
-  low: { dpr: 1.25, aa: false, shadows: false, particles: 90, confetti: 90, atlas: 128, seg: 2 },
-  medium: { dpr: 1.75, aa: true, shadows: false, particles: 200, confetti: 180, atlas: 256, seg: 2 },
-  high: { dpr: 2, aa: true, shadows: true, particles: 360, confetti: 280, atlas: 256, seg: 3 },
+  low: {
+    dpr: 0.75, dprScale: 0.75, dprMin: 0.6, aa: false, shadows: false, particles: 64, confetti: 70, atlas: 128, seg: 2,
+    frameMs: 28, ambientMs: 60, maxDt: 0.1, fx: 0.25, fxSize: 0.8, fxLife: 0.7, shake: false, lite: true, felt: 512, wood: 256, aniso: 1,
+  },
+  medium: {
+    dpr: 1.5, dprScale: 1, dprMin: 0, aa: true, shadows: false, particles: 200, confetti: 180, atlas: 256, seg: 2,
+    frameMs: 0, ambientMs: 30, maxDt: 0.1, fx: 1, fxSize: 1, fxLife: 1, shake: true, lite: false, felt: 1024, wood: 512, aniso: 4,
+  },
+  high: {
+    dpr: 2, dprScale: 1, dprMin: 0, aa: true, shadows: true, particles: 360, confetti: 280, atlas: 256, seg: 3,
+    frameMs: 0, ambientMs: 30, maxDt: 0.05, fx: 1, fxSize: 1, fxLife: 1, shake: true, lite: false, felt: 1024, wood: 512, aniso: 4,
+  },
 };
 
 type Loc = 'idle' | 'pool' | 'hand' | 'chain' | 'reveal';
@@ -321,6 +353,9 @@ export class TableViewImpl implements TableView {
   private shakeT = 0;
   private shakeDecay = 9;
   private flashAmt = 0;
+  /** onFrameStats sampling window (see sampleFrame) */
+  private fstat = { prev: 0, skip: 0, start: 0, sum: 0, n: 0 };
+  private fstatOut: FrameStats = { avgFrameMs: 0, frames: 0, quality: 'high' };
 
   // input
   private ptr = { id: -1, x: 0, y: 0, sx: 0, sy: 0, tile: -1, dragging: false, down: false, t: 0, vx: 0, vy: 0, ghost: -1 };
@@ -339,6 +374,8 @@ export class TableViewImpl implements TableView {
   private ndc = new THREE.Vector2();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private resizeObs: ResizeObserver | null = null;
+  /** dev-only perf readout (?perf=1) */
+  private perf: PerfHud | null = null;
 
   constructor(opts: TableViewOptions) {
     this.opts = opts;
@@ -356,9 +393,11 @@ export class TableViewImpl implements TableView {
     for (let s = 0; s < 4; s++)
       this.plateBoxes.push({ x: 0, y: 0, w: 0, h: 0, d: 0, layout: 'row', scale: 1, rot: 0, visible: false, active: false, winner: false, count: 0, pips: null, bubble: { x: 0, y: 0, dir: 'up' } });
 
+    if (import.meta.env.DEV && /[?&]perf=1/.test(location.search)) this.perf = new PerfHud(this.container);
     this.createRenderer();
     this.buildScene();
     this.buildOverlay();
+    this.applyQualityKnobs();
     this.initTiles();
 
     const qb = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0));
@@ -370,7 +409,27 @@ export class TableViewImpl implements TableView {
     }
     window.addEventListener('resize', this.onResize);
     this.onResize();
+    this.prewarm();
     this.reset();
+  }
+
+  /**
+   * Compile every shader up front (including the normally hidden fx: dust, confetti, shockwave ring,
+   * drop slots, flash, popups), so the first slam / win doesn't stall on a compile mid-animation;
+   * on weak phones a program link can take 100+ ms.
+   */
+  private prewarm(): void {
+    const hidden: THREE.Object3D[] = [this.ring, this.dust.points, this.confetti.points, this.ghostMesh, this.glowMesh, this.flash, this.fader, this.turnGlow];
+    for (const p of this.popups) hidden.push(p.sprite);
+    const was = hidden.map((o) => o.visible);
+    for (const o of hidden) o.visible = true;
+    try {
+      this.renderer.compile(this.scene, this.camera);
+      this.renderer.compile(this.overlay, this.overlayCam);
+    } catch {
+      /* best effort */
+    }
+    hidden.forEach((o, i) => (o.visible = was[i]));
   }
 
   // ───────────────────────── setup ─────────────────────────
@@ -385,7 +444,7 @@ export class TableViewImpl implements TableView {
     r.autoClear = false;
     r.shadowMap.enabled = this.q.shadows;
     r.shadowMap.type = THREE.PCFShadowMap;
-    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.q.dpr));
+    r.setPixelRatio(this.pixelRatio());
     const c = r.domElement;
     c.style.cssText =
       'display:block;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;' +
@@ -393,16 +452,85 @@ export class TableViewImpl implements TableView {
     if (old) {
       this.detachInput();
       old.dispose();
+      old.forceContextLoss(); // free the old context now (browsers cap live WebGL contexts)
       old.domElement.replaceWith(c);
     } else {
       this.container.appendChild(c);
     }
     this.renderer = r;
     this.canvas = c;
+    if (import.meta.env.DEV && this.perf) r.info.autoReset = false;
     this.attachInput();
     if (old) {
       r.setSize(this.W, this.H, false);
     }
+  }
+
+  /** canvas resolution per CSS px for the current quality (low renders under 1:1 and is stretched by CSS) */
+  private pixelRatio(): number {
+    const q = this.q;
+    return Math.min(q.dpr, Math.max(q.dprMin, (window.devicePixelRatio || 1) * q.dprScale));
+  }
+
+  /** wood frame material: Standard (sheen) on medium/high, Lambert (diffuse only, never brighter) on low */
+  private makeFrameMat(): THREE.Material {
+    const S = tex.tableStyleDef(this.tableStyle);
+    if (this.q.lite) return new THREE.MeshLambertMaterial({ map: this.woodTex, color: new THREE.Color().setScalar(1 - S.metalness) });
+    return new THREE.MeshStandardMaterial({ map: this.woodTex, roughness: S.roughness, metalness: S.metalness, color: 0xffffff });
+  }
+
+  /** quality knobs that live on existing objects (lights, particles, texture filtering) */
+  private applyQualityKnobs(): void {
+    const q = this.q;
+    this.rimLight.visible = !q.lite;
+    this.dust.limit = q.particles;
+    this.dust.sizeMul = q.fxSize;
+    this.dust.lifeMul = q.fxLife;
+    this.confetti.limit = q.confetti;
+    this.confetti.sizeMul = q.lite ? 0.85 : 1;
+    this.confetti.lifeMul = q.lite ? 0.75 : 1;
+    this.atlas.anisotropy = q.aniso;
+    this.woodTex.anisotropy = q.aniso;
+    if (!q.shake) {
+      this.shake = 0;
+      this.punch = 0;
+      this.flashAmt = 0;
+    }
+    this.syncFeltMat();
+  }
+
+  /**
+   * Felt material. With shadow maps (high) it's Lambert so it can receive them. Without, the felt is a
+   * flat plane under directional + hemisphere lights only, so its Lambert shading is one constant
+   * factor: it's drawn with MeshBasicMaterial and that factor baked into the colour (same pixels, no
+   * per-fragment lighting on the biggest surface on screen).
+   */
+  private syncFeltMat(): void {
+    const S = tex.tableStyleDef(this.tableStyle);
+    let m = this.felt.material as THREE.MeshBasicMaterial | THREE.MeshLambertMaterial;
+    const basic = !this.q.shadows;
+    if (basic !== !!(m as THREE.MeshBasicMaterial).isMeshBasicMaterial) {
+      const n = basic ? new THREE.MeshBasicMaterial() : new THREE.MeshLambertMaterial();
+      n.map = m.map;
+      m.dispose();
+      this.felt.material = n;
+      m = n;
+    }
+    m.color.setScalar(S.feltTint);
+    if (!basic) return;
+    // three's Lambert: (hemi sky (normal straight up) + sum(dir colour * max(N.L, 0))) * albedo / PI
+    const hemi = this.hemiLight;
+    tmpC.copy(hemi.color).multiplyScalar(hemi.intensity);
+    for (const l of [this.keyLight, this.rimLight]) {
+      if (!l.visible) continue;
+      tmpV.subVectors(l.position, l.target.position);
+      const len = tmpV.length();
+      const ndl = len > 0 ? Math.max(0, tmpV.y / len) : 0;
+      tmpC.r += l.color.r * l.intensity * ndl;
+      tmpC.g += l.color.g * l.intensity * ndl;
+      tmpC.b += l.color.b * l.intensity * ndl;
+    }
+    m.color.multiply(tmpC).multiplyScalar(1 / Math.PI);
   }
 
   private buildScene(): void {
@@ -439,7 +567,7 @@ export class TableViewImpl implements TableView {
     this.felt.receiveShadow = true;
     this.felt.renderOrder = 0;
     this.scene.add(this.felt);
-    this.woodTex = tex.makeWood(512, this.tableStyle);
+    this.woodTex = tex.makeWood(this.q.wood, this.tableStyle);
     this.woodTex.repeat.set(0.09, 0.09);
 
     // tiles
@@ -640,6 +768,17 @@ export class TableViewImpl implements TableView {
     if (this.disposed) return;
     const w = Math.max(1, this.container.clientWidth);
     const h = Math.max(1, this.container.clientHeight);
+    const pr = this.pixelRatio();
+    if (pr !== this.renderer.getPixelRatio()) {
+      this.renderer.setPixelRatio(pr);
+      if (w === this.W && h === this.H && this.frame) {
+        // same CSS size, new device pixel ratio (zoom / another screen): px-based sizes follow
+        this.renderer.setSize(w, h, false);
+        this.computeLayout();
+        this.kick();
+        return;
+      }
+    }
     if (w === this.W && h === this.H && this.frame) return;
     this.W = w;
     this.H = h;
@@ -1370,12 +1509,12 @@ export class TableViewImpl implements TableView {
     const aspect = fw / fh;
     if (Math.abs(aspect - this.feltAspect) > 0.01) {
       this.feltAspect = aspect;
-      this.feltCanvas = tex.drawFelt(this.feltCanvas, aspect, this.quality === 'low' ? 768 : 1024, (this.bounds.cz - FZ0) / fh, this.tableStyle);
+      this.feltCanvas = tex.drawFelt(this.feltCanvas, aspect, this.q.felt, (this.bounds.cz - FZ0) / fh, this.tableStyle);
       if (this.feltTex) this.feltTex.dispose();
       this.feltTex = new THREE.CanvasTexture(this.feltCanvas);
       this.feltTex.colorSpace = THREE.SRGBColorSpace;
-      this.feltTex.anisotropy = 4;
-      const m = this.felt.material as THREE.MeshLambertMaterial;
+      this.feltTex.anisotropy = this.q.aniso;
+      const m = this.felt.material as THREE.MeshBasicMaterial | THREE.MeshLambertMaterial;
       m.map = this.feltTex;
       m.needsUpdate = true;
     }
@@ -1400,9 +1539,7 @@ export class TableViewImpl implements TableView {
       this.frame.geometry.dispose();
       this.frame.geometry = geo;
     } else {
-      const S = tex.tableStyleDef(this.tableStyle);
-      const mat = new THREE.MeshStandardMaterial({ map: this.woodTex, roughness: S.roughness, metalness: S.metalness, color: 0xffffff });
-      this.frame = new THREE.Mesh(geo, mat);
+      this.frame = new THREE.Mesh(geo, this.makeFrameMat());
       this.frame.receiveShadow = true;
       this.scene.add(this.frame);
     }
@@ -1611,7 +1748,8 @@ export class TableViewImpl implements TableView {
     const R = g.r;
     const a = (i / 28) * Math.PI * 2 + time * 0.18;
     const s = g.s;
-    const bob = (Math.sin(time * 1.6 + i * 0.7) * 0.5 + 0.5) * IDLE_BOB * s;
+    const lite = this.q.lite;
+    const bob = (lite ? 0.5 : Math.sin(time * 1.6 + i * 0.7) * 0.5 + 0.5) * IDLE_BOB * s;
     out.set(Math.cos(a) * R, (TL * s) / 2 + IDLE_LIFT * s + bob, this.idleCz + Math.sin(a) * R);
     // stand upright, face pointing outward
     const ox = Math.cos(a);
@@ -1621,8 +1759,10 @@ export class TableViewImpl implements TableView {
     const az = bz.crossVectors(ax, ay);
     tmpM.makeBasis(ax, ay, az);
     outQ.setFromRotationMatrix(tmpM);
-    tmpQ2.setFromAxisAngle(ay, Math.sin(time * 0.9 + i) * IDLE_TILT);
-    outQ.premultiply(tmpQ2);
+    if (!lite) {
+      tmpQ2.setFromAxisAngle(ay, Math.sin(time * 0.9 + i) * IDLE_TILT);
+      outQ.premultiply(tmpQ2);
+    }
     return s;
   }
 
@@ -1725,7 +1865,7 @@ export class TableViewImpl implements TableView {
   }
 
   private addShake(a: number, p = 0, cap = 0.35, punchCap = 1.5): void {
-    if (this.reduced) return;
+    if (this.reduced || !this.q.shake) return;
     this.shake = Math.min(cap, this.shake + a);
     this.punch = Math.min(punchCap, this.punch + p);
   }
@@ -1743,10 +1883,10 @@ export class TableViewImpl implements TableView {
     if (slam) {
       // the quake: harder and a little longer than any other shake, with a quick zoom punch
       this.addShake(1.25 * power, 4 * power, 1.4, 4);
-      if (!this.reduced) this.shakeDecay = power >= 1 ? 4.5 : 6;
+      if (!this.reduced && this.q.shake) this.shakeDecay = power >= 1 ? 4.5 : 6;
     } else this.addShake(0.035, 0.25);
     if (slam) {
-      if (!this.reduced) {
+      if (!this.reduced && this.q.shake) {
         this.flashAmt = 0.12 * power;
         tmpC.set(0xffc060);
         (this.flash.material as THREE.SpriteMaterial).color.copy(tmpC);
@@ -1754,7 +1894,7 @@ export class TableViewImpl implements TableView {
       this.shockwave(t, power);
     }
     // particles: a light puff ring hugging the felt (outward + slightly upward only) and a few sparks
-    const n = Math.round((slam ? 22 : 10) * (this.reduced ? 0.4 : 1));
+    const n = Math.round((slam ? 22 : 10) * (this.reduced ? 0.4 : 1) * this.q.fx);
     const cell = t.s;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
@@ -1774,7 +1914,7 @@ export class TableViewImpl implements TableView {
         0.28 + Math.random() * 0.2,
       );
     }
-    const ns = Math.round((slam ? 18 : 4) * (this.reduced ? 0.4 : 1));
+    const ns = Math.round((slam ? 18 : 4) * (this.reduced ? 0.4 : 1) * this.q.fx);
     for (let i = 0; i < ns; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = (slam ? 5 : 3) * (0.4 + Math.random()) * cell;
@@ -2183,7 +2323,7 @@ export class TableViewImpl implements TableView {
       // the tiles clearly leave the table: ~4.5 thicknesses near the impact, ~2+ at the far hands
       const fall = 1 / (1 + d * 0.085);
       const h = TH * (human ? this.handHs * 3.2 : o.s * 4.5) * amp * fall;
-      const tilt = (this.reduced ? 0.06 : 0.38) * (0.45 + 0.55 * fall) * Math.min(1, amp + 0.2);
+      const tilt = (this.reduced ? 0.06 : this.q.lite ? 0.16 : 0.38) * (0.45 + 0.55 * fall) * Math.min(1, amp + 0.2);
       // tilt away from the impact
       const dx = o.pos.x - src.pos.x;
       const dz = o.pos.z - src.pos.z;
@@ -2486,18 +2626,33 @@ export class TableViewImpl implements TableView {
     const prev = this.q;
     this.quality = q;
     this.q = QUALITY[q];
+    this.fstat.prev = 0; // never mix frame-time samples across levels
+    // antialias is fixed at context creation: a change recreates the renderer (GPU resources re-upload lazily)
     if (prev.aa !== this.q.aa) this.createRenderer();
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.q.dpr));
+    this.renderer.setPixelRatio(this.pixelRatio());
     this.renderer.setSize(this.W, this.H, false);
     this.renderer.shadowMap.enabled = this.q.shadows;
     this.keyLight.castShadow = this.q.shadows;
+    if (!this.q.shadows && this.keyLight.shadow.map) {
+      // release the shadow map render target (re-created on demand if shadows come back)
+      this.keyLight.shadow.map.dispose();
+      this.keyLight.shadow.map = null;
+    }
     this.tilesMesh.receiveShadow = this.q.shadows;
     this.blobMesh.visible = !this.q.shadows;
     this.tileMat.needsUpdate = true;
     (this.felt.material as THREE.Material).needsUpdate = true;
-    if (this.frame) (this.frame.material as THREE.Material).needsUpdate = true;
-    this.dust.limit = this.q.particles;
-    this.confetti.limit = this.q.confetti;
+    if (prev.wood !== this.q.wood) {
+      const oldWood = this.woodTex;
+      this.woodTex = tex.makeWood(this.q.wood, this.tableStyle);
+      this.woodTex.repeat.set(0.09, 0.09);
+      oldWood.dispose();
+    }
+    if (this.frame) {
+      const old = this.frame.material as THREE.Material;
+      this.frame.material = this.makeFrameMat();
+      old.dispose();
+    }
     if (prev.atlas !== this.q.atlas) {
       const old = this.atlas;
       this.atlas = tex.makeTileAtlas(this.q.atlas, this.theme, this.tileBack);
@@ -2511,8 +2666,10 @@ export class TableViewImpl implements TableView {
       this.tilesMesh.geometry = this.tileGeo;
       old.dispose();
     }
+    this.applyQualityKnobs();
     this.feltAspect = 0;
     this.computeLayout();
+    this.prewarm();
     this.kick();
   }
 
@@ -2579,17 +2736,16 @@ export class TableViewImpl implements TableView {
     this.rimLight.color.set(S.rimColor);
     this.rimLight.intensity = S.rim;
     const oldWood = this.woodTex;
-    this.woodTex = tex.makeWood(512, style);
+    this.woodTex = tex.makeWood(this.q.wood, style);
     this.woodTex.repeat.set(0.09, 0.09);
+    this.woodTex.anisotropy = this.q.aniso;
     if (this.frame) {
-      const fm = this.frame.material as THREE.MeshStandardMaterial;
-      fm.map = this.woodTex;
-      fm.roughness = S.roughness;
-      fm.metalness = S.metalness;
-      fm.needsUpdate = true;
+      const old = this.frame.material as THREE.Material;
+      this.frame.material = this.makeFrameMat();
+      old.dispose();
     }
     oldWood.dispose();
-    (this.felt.material as THREE.MeshLambertMaterial).color.setScalar(S.feltTint);
+    this.syncFeltMat();
     // redraw the felt canvas (buildTable disposes the previous felt texture)
     this.feltAspect = 0;
     this.buildTable();
@@ -2755,6 +2911,7 @@ export class TableViewImpl implements TableView {
     this.atlas.dispose();
     this.renderer.dispose();
     this.canvas.remove();
+    if (import.meta.env.DEV) this.perf?.dispose();
   }
 
   // ───────────────────────── loop ─────────────────────────
@@ -2769,21 +2926,68 @@ export class TableViewImpl implements TableView {
     if (this.paused || this.disposed) return;
     const hard =
       this.anim.active || this.dust.busy || this.confetti.busy || this.shake > 0.002 || this.punch > 0.002 || this.ptr.dragging || this.flashAmt > 0.002 || this.charge !== null || this.fadeAmt > 0;
-    const ambient = this.idleActive || this.turnSeat !== null || (this.req !== null && !this.req.passOnly);
-    if (!hard && ambient && this.lastT !== 0 && now - this.lastRender < 30) {
+    // the turn pulse is a 3D sprite only without HTML plates (the UI animates its own plates)
+    const ambient = this.idleActive || (this.turnSeat !== null && !this.htmlPlates) || (this.req !== null && !this.req.passOnly);
+    const woke = this.lastT === 0;
+    // frame cap: low skips rAF ticks (30 fps animating, 15 fps for gentle pulses); time stays real
+    const minGap = hard ? this.q.frameMs : ambient ? this.q.ambientMs : 0;
+    if (!woke && minGap > 0 && now - this.lastRender < minGap) {
       this.raf = requestAnimationFrame(this.tick);
       return;
     }
-    let dt = this.lastT === 0 ? 1 / 60 : (now - this.lastT) / 1000;
-    if (dt > 0.05) dt = 0.05;
+    let dt = woke ? 1 / 60 : (now - this.lastT) / 1000;
+    if (dt > this.q.maxDt) dt = this.q.maxDt;
     if (dt < 0) dt = 0;
     this.lastT = now;
     this.lastRender = now;
+    const w0 = import.meta.env.DEV && this.perf ? performance.now() : 0;
     this.update(dt);
     this.render();
+    if (import.meta.env.DEV && this.perf) this.perf.frame(now, performance.now() - w0, this.renderer, this.quality, [this.scene, this.overlay], this.q.aa);
+    if (this.opts.onFrameStats) this.sampleFrame(now, hard && !woke);
     if (hard || ambient || this.anim.active) this.raf = requestAnimationFrame(this.tick);
     else this.lastT = 0;
   };
+
+  /**
+   * onFrameStats: average interval between rendered frames over ~1 s windows, only while something is
+   * really animating; a window restarts after idle / pause / a hidden tab / a quality change, and the
+   * first frames after waking (uploads, shader compiles, rAF ramp-up) are not counted. No allocations.
+   */
+  private sampleFrame(now: number, active: boolean): void {
+    const s = this.fstat;
+    if (!active || s.prev === 0 || now - s.prev > 250) {
+      s.prev = active ? now : 0;
+      s.skip = 3;
+      s.start = now;
+      s.sum = 0;
+      s.n = 0;
+      return;
+    }
+    const d = now - s.prev;
+    s.prev = now;
+    if (s.skip > 0) {
+      s.skip--;
+      s.start = now;
+      return;
+    }
+    s.sum += d;
+    s.n++;
+    if (now - s.start >= 1000) {
+      const o = this.fstatOut;
+      o.avgFrameMs = s.sum / s.n;
+      o.frames = s.n;
+      o.quality = this.quality;
+      s.start = now;
+      s.sum = 0;
+      s.n = 0;
+      try {
+        this.opts.onFrameStats?.(o);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 
   private update(dt: number): void {
     this.anim.update(dt);
@@ -2861,7 +3065,7 @@ export class TableViewImpl implements TableView {
     }
     cam.quaternion.copy(this.baseCamQuat);
     cam.updateMatrixWorld();
-    this.flashAmt *= Math.exp(-dt * 5);
+    this.flashAmt = this.q.shake ? this.flashAmt * Math.exp(-dt * 5) : 0;
     const fm = this.flash.material as THREE.SpriteMaterial;
     fm.opacity = this.flashAmt;
     this.flash.visible = this.flashAmt > 0.003;
@@ -3045,6 +3249,7 @@ export class TableViewImpl implements TableView {
 
   private render(): void {
     const r = this.renderer;
+    if (import.meta.env.DEV && this.perf) r.info.reset();
     r.clear();
     r.render(this.scene, this.camera);
     r.clearDepth();

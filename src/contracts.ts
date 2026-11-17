@@ -274,6 +274,20 @@ export interface TableViewOptions {
   tableStyle?: TableStyle;
   /** tile-back look (default 'ornate') */
   tileBack?: TileBack;
+  /**
+   * optional performance telemetry: called about once per second WHILE the view is actively
+   * animating (never while idle/render-on-demand is asleep) with the average frame time in ms
+   * over the frames rendered in that window and how many frames that was.
+   */
+  onFrameStats?: (stats: FrameStats) => void;
+}
+
+/** Frame timing sample reported by the renderer (see TableViewOptions.onFrameStats). */
+export interface FrameStats {
+  avgFrameMs: number;
+  frames: number;
+  /** quality level that was active while sampling */
+  quality: Quality;
 }
 
 /** Table looks: felt + wood frame + emblem tint + ambient. */
@@ -368,7 +382,12 @@ export interface TableView {
 
 export interface AppSettings {
   language: 'es' | 'en';
+  /** the EFFECTIVE graphics level the renderer uses (in auto mode = autoQuality) */
   quality: Quality;
+  /** 'auto' (default; missing = auto) picks and adapts the level per device; 'manual' keeps `quality` as chosen */
+  qualityMode?: 'auto' | 'manual';
+  /** auto mode's current decision (device detection, lowered at runtime when frames are slow); missing = not decided yet */
+  autoQuality?: Quality;
   sound: boolean;
   music: boolean;
   vibration: boolean;

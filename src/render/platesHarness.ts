@@ -27,7 +27,7 @@ hud.show(true);
 
 const view = createTableView({
   container: document.getElementById('table')!,
-  quality: 'medium',
+  quality: (new URLSearchParams(location.search).get('q') as 'low' | 'medium' | 'high' | null) ?? 'medium',
   playerNames: names,
   language: 'es',
   onPlates: (p, c) => plates.update(p, c),
