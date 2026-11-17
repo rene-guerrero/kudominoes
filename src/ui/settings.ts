@@ -6,7 +6,7 @@ import { loc, t, tMaybe, type Key } from './i18n';
 import { ICONS, segmented, toggle } from './overlay';
 import { screenHeader } from './howto';
 import { staticFace } from './avatars';
-import { FACE_COUNT } from './faces';
+import { FACE_COUNT } from 'kuavatars/faces';
 import { tileSvg } from './tiles';
 import { enhanceHScroll } from './hscroll';
 

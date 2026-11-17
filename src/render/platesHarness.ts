@@ -2,6 +2,7 @@
  * Dev harness for the real in-game composition: 3D table + HTML name plates (avatars) + top HUD,
  * without the app/controller. Open /platesHarness.html?demo=start|mid|pass|hand.
  */
+import 'kuavatars/avatars.css';
 import '../ui/styles.css';
 import { createTableView } from './index';
 import type { GameEvent, Move, PlacedTile, Pip, Seat, Tile } from '../contracts';

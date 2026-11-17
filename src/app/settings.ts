@@ -2,7 +2,7 @@ import type { AppSettings, EngineApi, GameMode, Lineup, RuleSettings, SettingDes
 import { TABLE_STYLES, TILE_BACKS } from '../contracts';
 import { migrateRules, RULES_VERSION } from '../engine/rules';
 import { DEFAULT_LINEUP, isCharacter } from '../roster';
-import { FACE_COUNT } from '../ui/faces';
+import { FACE_COUNT } from 'kuavatars/faces';
 import { resolveQuality } from './perf';
 
 const KEY = 'kudominoes.settings.v1';

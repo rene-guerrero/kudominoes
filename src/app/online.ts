@@ -15,7 +15,7 @@ import type { AvatarController, AvatarExpr } from '../ui/avatars';
 import type { FaceSpec } from '../roster';
 import type { SessionHooks } from './controller';
 import { character, ROSTER } from '../roster';
-import { HUMAN_FACES } from '../ui/faces';
+import { HUMAN_FACES } from 'kuavatars/faces';
 import { RoomClient, httpBackend, NetError, type Backend, type ConnState } from '../net/client';
 import { useMockServer, shareLink } from '../net/config';
 import { displayCode, normalizeCode, playerId, rememberRoom, cleanName } from '../net/identity';

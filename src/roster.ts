@@ -3,34 +3,12 @@
  * (levels, styles, slams), the UI (names, faces, cards) and the engine tests.
  */
 import type { CpuProfile, Difficulty, Lineup, PlayStyle } from './contracts';
+import { CHARACTER_FACES, type FaceSpec } from 'kuavatars/faces';
 
 type L10n = { es: string; en: string };
 
-/** A composable avatar face: the same round head with a few features (or Papi Zorg's alien head). */
-export interface FaceSpec {
-  iris: string;
-  lashes?: boolean;
-  /** brow shape: plain (default), thick, raised (one brow up), aviator (straight-ish, set for sunglasses) */
-  brows?: 'plain' | 'thick' | 'raised' | 'aviator';
-  /** brow colour (default brown) */
-  browColor?: string;
-  smirk?: boolean;
-  freckles?: boolean;
-  /** round glasses */
-  glasses?: boolean;
-  /** gold aviator sunglasses (the eyes are hidden) */
-  aviators?: boolean;
-  /** handlebar moustache (no mouth) */
-  stache?: 'brown' | 'grey';
-  /** the green alien head */
-  alien?: boolean;
-  /** a small flower clip on the head */
-  flower?: boolean;
-  /** a beauty mark by the mouth */
-  mole?: boolean;
-  /** cool, half-lidded resting look */
-  cool?: boolean;
-}
+/** the avatar faces live in the shared KuAvatars library */
+export type { FaceSpec };
 
 export interface Character {
   id: string;
@@ -56,7 +34,7 @@ export const ROSTER: Character[] = [
     name: 'Lola',
     level: 'easy',
     style: 'carefree',
-    face: { iris: '#2F9B63', freckles: true, flower: true },
+    face: CHARACTER_FACES.lola,
     tag: { es: 'Despreocupada', en: 'Carefree' },
     desc: { es: 'Juega por diversión. Pone la primera ficha que le cabe y nunca da golpe en la mesa.', en: 'Plays for fun. Puts down the first ficha that fits and never slams.' },
     slam: { p: 0, cap: 0 },
@@ -67,7 +45,7 @@ export const ROSTER: Character[] = [
     name: 'Pepe',
     level: 'easy',
     style: 'impulsive',
-    face: { iris: '#5B3FA8', brows: 'raised', smirk: true },
+    face: CHARACTER_FACES.pepe,
     tag: { es: 'Impulsivo', en: 'Impulsive' },
     desc: { es: 'Se deshace rápido de sus fichas más pesadas y olvida lo que ya se jugó.', en: 'Gets rid of his heaviest fichas fast and forgets what has been played.' },
     slam: { p: 0.7, cap: 1 / 5 },
@@ -78,7 +56,7 @@ export const ROSTER: Character[] = [
     name: 'Nico',
     level: 'easy',
     style: 'beginner',
-    face: { iris: '#3F7FD9', aviators: true, freckles: true, smirk: true, brows: 'aviator' },
+    face: CHARACTER_FACES.nico,
     tag: { es: 'Principiante', en: 'Beginner' },
     desc: { es: 'Todavía está aprendiendo. Sigue lo básico, pero no capta lo que intentas decirle.', en: 'Still learning. Follows the basics but misses what you’re trying to tell him.' },
     slam: { p: 0.35, cap: 1 / 6 },
@@ -89,7 +67,7 @@ export const ROSTER: Character[] = [
     name: 'Elena',
     level: 'normal',
     style: 'balanced',
-    face: { iris: '#B8741F', lashes: true },
+    face: CHARACTER_FACES.elena,
     tag: { es: 'Equilibrada', en: 'Balanced' },
     desc: { es: 'Guarda un poco de cada número y apoya el juego de su pareja.', en: 'Keeps a bit of every number and backs up her partner’s play.' },
     slam: { p: 0.6, cap: 1 / 6 },
@@ -100,7 +78,7 @@ export const ROSTER: Character[] = [
     name: 'Andrés',
     level: 'normal',
     style: 'byTheBook',
-    face: { iris: '#7A4A22', brows: 'thick' },
+    face: CHARACTER_FACES.andres,
     tag: { es: 'Clásico', en: 'By the book' },
     desc: { es: 'Dobles pronto y fichas pesadas primero. Sólido y predecible.', en: 'Doubles early, heavy fichas first. Solid and predictable.' },
     slam: { p: 0.5, cap: 1 / 6 },
@@ -111,7 +89,7 @@ export const ROSTER: Character[] = [
     name: 'Rosa',
     level: 'normal',
     style: 'blocker',
-    face: { iris: '#1E9C9C', lashes: true, glasses: true },
+    face: CHARACTER_FACES.rosa,
     tag: { es: 'Bloqueadora', en: 'Blocker' },
     desc: { es: 'Le gusta cerrar los extremos a sus rivales y obligarlos a pasar.', en: 'Likes to close the ends on her rivals and force a pass.' },
     slam: { p: 0.8, cap: 1 / 5 },
@@ -122,7 +100,7 @@ export const ROSTER: Character[] = [
     name: 'Carlos',
     level: 'hard',
     style: 'aggressive',
-    face: { iris: '#3F7FD9', stache: 'brown' },
+    face: CHARACTER_FACES.carlos,
     tag: { es: 'Agresivo', en: 'Aggressive' },
     desc: { es: 'Cuenta las fichas, empuja su número fuerte y da golpe cuando importa.', en: 'Counts the fichas, pushes his strong number and slams when it matters.' },
     slam: { p: 1, cap: 1 / 4 },
@@ -133,7 +111,7 @@ export const ROSTER: Character[] = [
     name: 'Marta',
     level: 'hard',
     style: 'calculator',
-    face: { iris: '#6F8FB0', lashes: true, brows: 'raised', smirk: true, mole: true, cool: true },
+    face: CHARACTER_FACES.marta,
     tag: { es: 'Calculadora', en: 'Cold calculator' },
     desc: { es: 'Nunca da golpe ni regala nada. Prepara el cerrado cuando le conviene.', en: 'Never slams, never gives anything away. Sets up the cerrado when it suits her.' },
     slam: { p: 0, cap: 0 },
@@ -145,7 +123,7 @@ export const ROSTER: Character[] = [
     short: 'Julio',
     level: 'hard',
     style: 'teamPlayer',
-    face: { iris: '#8B5A2B', glasses: true, stache: 'grey', browColor: '#9A9A92' },
+    face: CHARACTER_FACES.julio,
     tag: { es: 'De equipo', en: 'Team player' },
     desc: { es: 'Recuerda cada pase y juega para preparar el juego de su pareja.', en: 'Remembers every pass and plays to set up his partner.' },
     slam: { p: 0.6, cap: 1 / 6 },
@@ -157,7 +135,7 @@ export const ROSTER: Character[] = [
     short: 'Zorg',
     level: 'master',
     style: 'perfect',
-    face: { iris: '#101418', alien: true },
+    face: CHARACTER_FACES.zorg,
     tag: { es: 'Perfecto', en: 'Perfect' },
     desc: { es: 'El jugador perfecto. Vino de muy lejos solo para contar tus fichas.', en: 'The perfect player. Came from very far away just to count your fichas.' },
     slam: { p: 0.5, cap: 1 / 6 },
