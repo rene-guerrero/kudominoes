@@ -46,6 +46,8 @@ export interface RoomData {
   schedule: Schedule;
   /** per seat, this match: plays and slams of the CPU characters (slams are rationed) */
   slamStats: { plays: number[]; slams: number[] };
+  /** this hand's opener choice: what a human partner said ("Quiero salir" = true); cleared on each deal */
+  starterWish?: { seat: Seat; wants: boolean } | null;
 }
 
 export const MAX_MEMBERS = 8;
@@ -157,7 +159,8 @@ export function sit(r: RoomData, playerId: string, seat: Seat | null): void {
   if (cur === seat) return;
   const target = r.seats[seat];
   if (target.kind === 'human') throw new LobbyError('room_full', 'seat taken');
-  if (cur !== null) r.seats[cur] = { kind: 'empty' };
+  // swap: whatever sat in the target seat (a CPU or nothing) takes the player's old seat
+  if (cur !== null) r.seats[cur] = target;
   r.seats[seat] = { kind: 'human', playerId };
 }
 

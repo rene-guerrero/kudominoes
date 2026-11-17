@@ -348,6 +348,8 @@ export class Room extends DurableObject<Env> {
         return this.onMove(ws, pid, msg.move);
       case 'chooseStarter':
         return this.onChooseStarter(ws, pid, msg.seat);
+      case 'starterWish':
+        return this.onStarterWish(ws, pid, msg.wants);
       case 'phrase':
         return this.onPhrase(ws, pid, msg.id);
       case 'leave':
@@ -386,6 +388,7 @@ export class Room extends DurableObject<Env> {
     const r = this.data!;
     const res = startHand(r.match!);
     r.match = res.match;
+    r.starterWish = null;
     r.step++;
     this.broadcastEvents(res.events);
     this.advance();
@@ -408,11 +411,51 @@ export class Room extends DurableObject<Env> {
     const seat = seatOf(r, pid);
     if (r.phase !== 'playing' || !hand || hand.over || hand.pendingStarterChoice == null || seat === null) return this.err(ws, 'not_your_turn');
     const team = hand.pendingStarterChoice;
-    if (seat % 2 !== team) return this.err(ws, 'not_your_turn');
+    if (seat !== this.starterChooser()) return this.err(ws, 'not_your_turn');
     if (!isSeat(pick) || pick % 2 !== team) return this.err(ws, 'bad_request', 'seat not in your team');
     r.match = chooseStarter(r.match!, pick);
+    r.starterWish = null;
     r.step++;
     this.advance();
+  }
+
+  /** the chooser's partner says whether they want to open (once per hand) */
+  private onStarterWish(ws: WebSocket, pid: string, wants: boolean): void {
+    const r = this.data!;
+    const hand = r.match?.hand;
+    const seat = seatOf(r, pid);
+    const chooser = this.starterChooser();
+    if (r.phase !== 'playing' || !hand || hand.over || chooser === null || seat === null || seat !== (((chooser + 2) % 4) as Seat)) return this.err(ws, 'not_your_turn');
+    if (r.starterWish) return;
+    r.starterWish = { seat, wants: !!wants };
+    this.broadcast(() => ({ t: 'starterWish', seat, wants: !!wants }));
+    this.broadcast((p) => this.turnMsgFor(p));
+  }
+
+  /**
+   * Who picks the opener while a choice is pending: the last hand's winner when a human plays that seat,
+   * else its partner when that one is human; null = nobody (the CPU decides after a short pause).
+   */
+  private starterChooser(): Seat | null {
+    const m = this.data!.match;
+    const hand = m?.hand;
+    if (!m || !hand || hand.over || hand.pendingStarterChoice == null) return null;
+    const team = hand.pendingStarterChoice;
+    const w = (m.lastHandWinner !== null && m.lastHandWinner % 2 === team ? m.lastHandWinner : team) as Seat;
+    const p = ((w + 2) % 4) as Seat;
+    if (this.controller(w) === 'human') return w;
+    if (this.controller(p) === 'human') return p;
+    return null;
+  }
+
+  /** timeout / nobody to choose: a human partner's spoken wish counts, else the CPU rule */
+  private autoStarter(): Seat {
+    const r = this.data!;
+    const m = r.match!;
+    const wish = r.starterWish;
+    const chooser = this.starterChooser();
+    if (wish && chooser !== null) return wish.wants ? wish.seat : chooser;
+    return cpuStarter(m);
   }
 
   private onPhrase(ws: WebSocket, pid: string, id: string): void {
@@ -473,7 +516,8 @@ export class Room extends DurableObject<Env> {
     if (!hand || hand.over) return;
     if (kind === 'starter' || kind === 'cpuStarter') {
       if (hand.pendingStarterChoice == null) return;
-      r.match = chooseStarter(m, cpuStarter(m));
+      r.match = chooseStarter(m, this.autoStarter());
+      r.starterWish = null;
       r.step++;
       return;
     }
@@ -517,10 +561,9 @@ export class Room extends DurableObject<Env> {
       return false;
     }
     if (hand.pendingStarterChoice != null) {
-      const team = hand.pendingStarterChoice;
-      const humans = [team, team + 2].filter((s) => this.controller(s as Seat) === 'human');
-      const t = humans.length
-        ? setGameTimer(sch, 'starter', now + this.cfg.turnTimeoutMs, `${r.step}:starter:${humans.join('')}`)
+      const chooser = this.starterChooser();
+      const t = chooser !== null
+        ? setGameTimer(sch, 'starter', now + this.cfg.turnTimeoutMs, `${r.step}:starter:${chooser}`)
         : setGameTimer(sch, 'cpuStarter', now + starterDelay(sp), `${r.step}:cpuStarter`);
       if (t.changed) this.broadcast((pid) => this.turnMsgFor(pid));
       return t.changed;
@@ -548,10 +591,14 @@ export class Room extends DurableObject<Env> {
     const mySeat = seatOf(r, pid);
     if (hand.pendingStarterChoice != null) {
       const team = hand.pendingStarterChoice as Team;
-      const msg: Extract<ServerMsg, { t: 'turn' }> = { t: 'turn', seat: hand.turn, deadline: timer.at, legal: [], choosingStarter: true, starterTeam: team };
-      if (mySeat !== null && mySeat % 2 === team) {
+      const chooser = this.starterChooser();
+      const msg: Extract<ServerMsg, { t: 'turn' }> = { t: 'turn', seat: chooser ?? hand.turn, deadline: timer.at, legal: [], choosingStarter: true, starterTeam: team };
+      if (chooser !== null) msg.starterChooser = chooser;
+      if (chooser !== null && mySeat === chooser) {
         const partner = ((mySeat + 2) % 4) as Seat;
+        const wish = r.starterWish;
         if (this.controller(partner) !== 'human') msg.partnerWants = starterPreference(m, partner);
+        else if (wish && wish.seat === partner) msg.partnerWants = wish.wants;
       }
       return msg;
     }

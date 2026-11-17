@@ -285,8 +285,10 @@ export function buildLobby(o: LobbyOpts): Lobby {
 
   const update = (room: PublicRoom, me: { seat: Seat | null; isHost: boolean }) => {
     const act = activeSeatsOf(room);
-    const p = new Perspective(me.seat ?? act[0], room.mode, act);
-    // seats round the table, my seat at the bottom
+    // a fixed map of the table (first seat at the bottom): changing seats moves you, not the table.
+    // In the game itself the player is always at the bottom.
+    const p = new Perspective(act[0], room.mode, act);
+    const myPos = me.seat === null ? null : ([0, 1, 2, 3] as Seat[]).find((q) => p.server(q) === me.seat) ?? null;
     for (const pos of [0, 1, 2, 3] as Seat[]) {
       const s = p.server(pos);
       const el = seatEls[pos];
@@ -296,7 +298,7 @@ export function buildLobby(o: LobbyOpts): Lobby {
       if (!used) continue;
       const occ = room.seats[s] ?? { kind: 'empty' };
       const mine = occ.kind === 'human' && occ.playerId === o.myId;
-      const partner = pos === 0 || (room.mode === 'pairs' && pos === 2);
+      const partner = myPos === null ? pos === 0 || (room.mode === 'pairs' && pos === 2) : pos === myPos || (room.mode === 'pairs' && (pos + 2) % 4 === myPos);
       el.b.className = `ng-seat pos-${POS[pos]} ${partner ? 'us' : 'them'} occ-${occ.kind}${mine ? ' me' : ''}`;
       if (occ.kind === 'human') {
         el.face.replaceChildren(o.avatars ? h('span.face-static', staticFace(occ.face, 'idle')) : h('span.ng-letter', occupantName(occ).slice(0, 1).toUpperCase()));

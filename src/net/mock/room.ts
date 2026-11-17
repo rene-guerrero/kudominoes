@@ -132,6 +132,12 @@ export class MockRoom {
         return this.humanMove(sock, m, msg.move);
       case 'chooseStarter':
         return this.humanChoose(sock, m, msg.seat);
+      case 'starterWish': {
+        const tt = this.turn;
+        if (!tt?.choosing || !tt.human || m.seat === null || m.seat !== ((tt.seat + 2) & 3)) return sock.send({ t: 'error', code: 'not_your_turn' });
+        for (const [s] of this.socketsOf()) s.send({ t: 'starterWish', seat: m.seat, wants: !!msg.wants });
+        return;
+      }
       case 'phrase': {
         if (m.seat === null || !(QUICK_PHRASES as readonly string[]).includes(msg.id)) return;
         const last = this.lastPhrase.get(m.pid) ?? 0;
@@ -192,7 +198,11 @@ export class MockRoom {
       m.seat = null;
     } else {
       if (!this.activeSeats().includes(s) || this.seats[s].kind === 'human') return;
+      const target = this.seats[s];
+      const from = m.seat;
       this.seatMember(m, s);
+      if (from !== null && from !== s) this.seats[from] = target; // swap places with the CPU
+
     }
     this.broadcastRoom();
   }
@@ -373,6 +383,7 @@ export class MockRoom {
             legal: [],
             choosingStarter: true,
             starterTeam: team,
+            starterChooser: human,
             ...(partnerCpu && x.seat === human && engine.starterPreference ? { partnerWants: engine.starterPreference(m, partner) } : {}),
           });
         this.timer = setTimeout(() => this.applyChoice(engine.cpuStarter!(m)), TURN_TIMEOUT_MS);
@@ -455,7 +466,7 @@ export class MockRoom {
 
   private humanChoose(sock: MockSocket, m: Member, seat: Seat): void {
     const h = this.match?.hand;
-    if (!h || h.pendingStarterChoice == null || !this.turn?.choosing || m.seat === null || (m.seat & 1) !== h.pendingStarterChoice) return sock.send({ t: 'error', code: 'not_your_turn' });
+    if (!h || h.pendingStarterChoice == null || !this.turn?.choosing || m.seat === null || m.seat !== this.turn.seat) return sock.send({ t: 'error', code: 'not_your_turn' });
     if ((seat & 1) !== h.pendingStarterChoice) return sock.send({ t: 'error', code: 'bad_request' });
     this.applyChoice(seat);
   }

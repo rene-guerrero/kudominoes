@@ -23,7 +23,7 @@ import { layoutChain, type AvoidRect, type ChainBounds, type ChainLayoutResult }
 import { Animator, ease, lerp, clamp01, type Ease } from './tween';
 import * as tex from './textures';
 import { Particles } from './particles';
-import { MenuDirector, type Fit, type FitBox, type MenuHost } from './menuScenes';
+import { RingDirector as MenuDirector, type Fit, type FitBox, type MenuHost } from './menuRing';
 import { PerfHud } from './perfHud';
 import { pickSwap, resolvePlaceholders, swapIds } from './hiddenTiles';
 import { FrameLoop } from './frameLoop';
@@ -37,6 +37,10 @@ const TL = 1.92;
 const TW = 0.94;
 const TH = 0.3;
 const OPP_SCALE = 0.72;
+/** hold time over a slot (or on it) before a release slams */
+const SLAM_HOLD_MS = 600;
+const sameMove = (a: Move, b: Move): boolean =>
+  a.kind === b.kind && (a.kind !== 'play' || (b.kind === 'play' && a.tileId === b.tileId && a.side === b.side));
 const MAX_CELL = 1;
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -301,7 +305,7 @@ export class TableViewImpl implements TableView {
   private idleActive = false;
   /** this frame: the attract scenes run (idle + menu on screen) */
   private menuOn = false;
-  /** main-menu attract scenes (menuScenes.ts), driven while idleActive and the menu is on screen */
+  /** main-menu attract ring (menuRing.ts), driven while idleActive and the menu is on screen */
   private menuDir!: MenuDirector;
   private idleCam: THREE.PerspectiveCamera | null = null;
   private idleScratch = new THREE.Vector3();
@@ -387,12 +391,11 @@ export class TableViewImpl implements TableView {
   private ptr = { id: -1, x: 0, y: 0, sx: 0, sy: 0, tile: -1, dragging: false, down: false, t: 0, vx: 0, vy: 0, ghost: -1 };
   /** press-and-hold slam charge: the move it will play, the tile trembling, and the hold timer */
   private charge: { move: Move; tile: number; armed: boolean; t0: number; start: number } | null = null;
-  /** pointer trail for flick detection (fixed ring buffer, no allocations) */
+  /** pointer trail for the release velocity (fixed ring buffer, no allocations) */
   private trailX = new Float32Array(8);
   private trailY = new Float32Array(8);
   private trailT = new Float64Array(8);
   private trailN = 0;
-  private peakY = 0;
   private chargeTimer = 0;
   private dragTarget = new THREE.Vector3();
   private dragQuat = new THREE.Quaternion();
@@ -3420,7 +3423,7 @@ export class TableViewImpl implements TableView {
     const ch = this.charge;
     if (ch) {
       const t = this.tiles[ch.tile];
-      const k = Math.min(1, (performance.now() - ch.start) / 200);
+      const k = Math.min(1, (performance.now() - ch.start) / SLAM_HOLD_MS);
       const a = ch.armed ? 0.06 * this.handHs : 0;
       t.off.set(Math.sin(this.uTime.value * 70) * a, this.handHs * 0.35 * k + Math.sin(this.uTime.value * 53) * a * 0.5, 0);
     }
@@ -3545,7 +3548,7 @@ export class TableViewImpl implements TableView {
         const c = this.charge;
         let fill = 0;
         if (c && c.move.kind === 'play' && gh.move.kind === 'play' && c.move.side === gh.move.side && c.move.tileId === gh.move.tileId) {
-          fill = c.armed ? 1 : Math.min(1, (performance.now() - c.start) / 200);
+          fill = c.armed ? 1 : Math.min(1, (performance.now() - c.start) / SLAM_HOLD_MS);
           pulse = Math.max(pulse, 0.6 + 0.4 * fill);
         }
         tmpQ.setFromAxisAngle(UP, gh.rotY).multiply(Q_PLANE_TO_TILE);
@@ -3824,19 +3827,19 @@ export class TableViewImpl implements TableView {
     this.kick();
   }
 
-  /** start the ~350 ms hold timer that arms a slam for `move` (tile trembles once armed) */
+  /** start the SLAM_HOLD_MS hold timer that arms a slam for `move` (tile trembles once armed) */
   private startCharge(move: Move, tile: number): void {
     this.clearCharge();
     this.charge = { move, tile, armed: false, t0: 0, start: performance.now() };
     this.kick();
     this.chargeTimer = window.setTimeout(() => {
       const c = this.charge;
-      if (!c || !this.ptr.down || this.ptr.dragging) return;
+      if (!c || !this.ptr.down) return;
       c.armed = true;
       c.t0 = performance.now();
       this.sfx('charge');
       this.kick();
-    }, 200);
+    }, SLAM_HOLD_MS);
   }
 
   private clearCharge(): void {
@@ -3848,17 +3851,6 @@ export class TableViewImpl implements TableView {
       if (t) t.off.set(0, 0, 0);
     }
     this.charge = null;
-  }
-
-  /**
-   * Slam by gesture: (a) brisk release — pointer speed over the last ~80 ms above a modest
-   * threshold; or (b) lifted well above the slot and brought down onto it.
-   */
-  private isFlick(x: number, y: number): boolean {
-    const v = this.velocity(x, y);
-    if (Math.hypot(v.x, v.y) > Math.max(550, this.H * 0.75)) return true;
-    // lifted high (>= 14% of the screen above the release point) then brought down
-    return this.peakY - y > this.H * 0.14 && v.y < 0;
   }
 
   private slamMove(m: Move): Move {
@@ -3887,18 +3879,14 @@ export class TableViewImpl implements TableView {
     this.ptr.t = performance.now();
     this.ptr.vx = this.ptr.vy = 0;
     this.trailN = 0;
-    this.peakY = p.y;
     this.setDragging(false);
     const hi = this.hitHand(p.x, p.y);
     this.ptr.tile = hi >= 0 ? this.hands[0][hi] : -1;
     this.ptr.ghost = -1;
     if (this.ptr.tile >= 0) {
       const moves = r.sides.get(this.ptr.tile);
-      if (moves && moves.length === 1) {
-        if (r.selected !== this.ptr.tile) this.select(this.ptr.tile);
-        this.startCharge(moves[0], this.ptr.tile);
-      }
-      else if (moves && r.selected === this.ptr.tile && r.ghosts.length === 1) this.startCharge(r.ghosts[0].move, this.ptr.tile);
+      // (no slam charge here: holding a hand tile used to arm one and slammed by accident)
+      if (moves && moves.length === 1 && r.selected !== this.ptr.tile) this.select(this.ptr.tile);
     } else if (r.selected >= 0) {
       const gi = this.dropTarget(p.x, p.y, 0, 0, 2.5);
       if (gi >= 0) {
@@ -3919,7 +3907,7 @@ export class TableViewImpl implements TableView {
     const p = this.evPos(e);
     const now = performance.now();
     const dt = Math.max(1, now - this.ptr.t) / 1000;
-    // smoothed pointer velocity (px/s) for flick-to-slam
+    // smoothed pointer velocity (px/s) for drop targeting
     const k = Math.min(1, dt / 0.05);
     this.ptr.vx += ((p.x - this.ptr.x) / dt - this.ptr.vx) * k;
     this.ptr.vy += ((p.y - this.ptr.y) / dt - this.ptr.vy) * k;
@@ -3930,9 +3918,12 @@ export class TableViewImpl implements TableView {
     this.trailX[ti] = p.x;
     this.trailY[ti] = p.y;
     this.trailT[ti] = now;
-    if (this.ptr.dragging && p.y > this.peakY) this.peakY = p.y;
     const id = this.ptr.tile;
-    if (id < 0) return;
+    if (id < 0) {
+      // a press on a slot: sliding off it cancels the slam charge
+      if (this.charge && Math.hypot(p.x - this.ptr.sx, p.y - this.ptr.sy) > 24) this.clearCharge();
+      return;
+    }
     if (!this.ptr.dragging) {
       if (Math.hypot(p.x - this.ptr.sx, p.y - this.ptr.sy) < 10) return;
       if (!r.sides.has(id)) return; // unplayable: handled as tap on release
@@ -3959,6 +3950,13 @@ export class TableViewImpl implements TableView {
     const near = gi >= 0 && this.dropDist < 1.6 * this.dropLen;
     if (near) this.dragQuat.setFromAxisAngle(UP, r.ghosts[gi].rotY);
     else this.handQuat(this.dragQuat);
+    // hold-to-slam: the tile resting over a slot charges a slam for that slot; leaving it cancels
+    const over = gi >= 0 && this.dropDist < this.dropLen;
+    if (over) {
+      const mv = r.ghosts[gi].move;
+      const c = this.charge;
+      if (!c || !sameMove(c.move, mv)) this.startCharge(mv, id);
+    } else if (this.charge) this.clearCharge();
     if (near) {
       const gh = r.ghosts[gi];
       const m = 0.55 * (1 - this.dropDist / (1.6 * this.dropLen));
@@ -3985,7 +3983,8 @@ export class TableViewImpl implements TableView {
     const id = this.ptr.tile;
     // a held (armed) press releases as a slam
     const ch = this.charge;
-    if (ch && ch.armed && !this.ptr.dragging) {
+    if (ch && ch.armed) {
+      if (this.ptr.dragging) this.setDragging(false);
       this.finishReq(this.slamMove(ch.move));
       return;
     }
@@ -3995,7 +3994,7 @@ export class TableViewImpl implements TableView {
       const vel = this.velocity(p.x, p.y);
       const gi = this.dropTarget(p.x, p.y, vel.x, vel.y);
       if (gi >= 0) {
-        this.finishReq(this.isFlick(p.x, p.y) ? this.slamMove(r.ghosts[gi].move) : r.ghosts[gi].move);
+        this.finishReq(r.ghosts[gi].move); // slams only by holding over the slot (no flick slam)
         return;
       }
       r.hover = -1;

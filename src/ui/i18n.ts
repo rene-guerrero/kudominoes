@@ -157,6 +157,7 @@ const es = {
   'starter.title': '¿Quién sale?',
   'starter.me': 'Salgo yo',
   'starter.partner': 'Sale {name}',
+  'starter.decides': 'Decide {name}',
 
   'pause.title': 'Pausa',
   'pause.resume': 'Seguir jugando',
@@ -164,7 +165,7 @@ const es = {
   'menu.about': 'Acerca de',
   'about.title': 'Acerca de Kudominoes',
   'about.version': 'Versión {v}',
-  'about.tagline': 'El dominó que merecíamos',
+  'about.tagline': 'El dominó que merecemos',
   'about.madeBy': 'Hecho con ❤️ por {author}',
   'about.close': 'Cerrar',
   'settings.about': 'Acerca de Kudominoes',
@@ -470,6 +471,7 @@ const en: Record<Key, string> = {
   'starter.title': 'Who opens?',
   'starter.me': 'I’ll open',
   'starter.partner': '{name} opens',
+  'starter.decides': '{name} decides',
 
   'pause.title': 'Paused',
   'pause.resume': 'Resume',
@@ -477,7 +479,7 @@ const en: Record<Key, string> = {
   'menu.about': 'About',
   'about.title': 'About Kudominoes',
   'about.version': 'Version {v}',
-  'about.tagline': 'The dominoes game we deserved',
+  'about.tagline': 'The dominoes game we deserve',
   'about.madeBy': 'Made with ❤️ by {author}',
   'about.close': 'Close',
   'settings.about': 'About Kudominoes',
@@ -708,7 +710,7 @@ export const HOWTO: Record<Lang, HowtoSection[]> = {
       title: 'Consejos',
       body: [
         'Juega el número del que tienes más fichas y fíjate en qué números pasa cada jugador: si un rival pasó con un cinco en un extremo, no tiene cincos. Ayuda a tu compañero a terminar y evita bloquear sus números.',
-        'Mantén pulsado o suelta la ficha con fuerza para dar un golpe en la mesa.',
+        'Para dar un golpe, arrastra la ficha a su lugar y mantenla ahí hasta que se ilumine en dorado; al soltarla, golpea la mesa.',
       ],
     },
     {
@@ -777,7 +779,7 @@ export const HOWTO: Record<Lang, HowtoSection[]> = {
       title: 'Tips',
       body: [
         'Play the number you hold most of and watch which numbers each player passes on: an opponent who passed with a five on an open end has no fives. Help your partner finish and avoid blocking their numbers.',
-        'Press and hold, or flick the tile down hard, to slam it on the table.',
+        'To slam, drag the tile onto its slot and hold it there until it glows gold; let go to slam it on the table.',
       ],
     },
     {

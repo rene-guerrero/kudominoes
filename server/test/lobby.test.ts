@@ -79,6 +79,15 @@ describe('seats and host', () => {
     expect(seatOf(r, 'p2')).toBeNull();
   });
 
+  it('sitting on a CPU swaps places with it', () => {
+    const r = newRoom('ABCD', 0);
+    join(r, 'p1');
+    setCpu(r, 'p1', 1, 'carlos');
+    sit(r, 'p1', 1);
+    expect(seatOf(r, 'p1')).toBe(1);
+    expect(r.seats[0]).toEqual({ kind: 'cpu', characterId: 'carlos' });
+  });
+
   it('only the host sets CPUs, mode and rules', () => {
     const r = newRoom('ABCD', 0);
     join(r, 'p1');

@@ -497,7 +497,15 @@ const cloudSvg = `<svg viewBox="0 0 120 110" aria-hidden="true">
 <path d="M18 98q42-14 84 0" fill="none" stroke="#fff" stroke-opacity=".25" stroke-width="4" stroke-linecap="round"/></svg>`;
 
 /** "¿Quién sale?": the human's pair picks its opener. Compact, sits near the hand, no timer. */
-export function buildStarterChooser(o: { names: readonly string[]; avatars: boolean; partnerWants: boolean; onPick(seat: Seat): void }): HTMLElement {
+export function buildStarterChooser(o: {
+  names: readonly string[];
+  avatars: boolean;
+  partnerWants: boolean;
+  onPick(seat: Seat): void;
+  /** online, the partner of the one who decides: say a wish instead ("Quiero salir" / "Sal tú") */
+  labels?: { me: string; partner: string };
+  note?: string;
+}): HTMLElement {
   const opt = (seat: Seat, label: string) => {
     const face = o.avatars
       ? h('span.st-face', h('span.face-static', staticFace(faceOfSeat(seat), seat === 2 && o.partnerWants ? 'happy' : 'idle')))
@@ -506,7 +514,12 @@ export function buildStarterChooser(o: { names: readonly string[]; avatars: bool
     b.addEventListener('click', () => o.onPick(seat));
     return b;
   };
-  const me = opt(0, t('starter.me'));
+  const me = opt(0, o.labels?.me ?? t('starter.me'));
   me.dataset.autofocus = '';
-  return h('div.card.starter-pick', h('h2.card-title', t('starter.title')), h('div.st-row', me, opt(2, t('starter.partner', { name: o.names[2] }))));
+  return h(
+    'div.card.starter-pick',
+    h('h2.card-title', t('starter.title')),
+    ...(o.note ? [h('p.st-note', o.note)] : []),
+    h('div.st-row', me, opt(2, o.labels?.partner ?? t('starter.partner', { name: o.names[2] }))),
+  );
 }

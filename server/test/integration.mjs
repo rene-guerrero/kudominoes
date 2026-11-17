@@ -154,7 +154,7 @@ class Client {
     }
   }
   maybeAct(m) {
-    if (m.choosingStarter && this.seat !== null && this.seat % 2 === m.starterTeam && this.autoplay) {
+    if (m.choosingStarter && this.seat !== null && m.starterChooser === this.seat && this.autoplay) {
       setTimeout(() => this.send({ t: 'chooseStarter', seat: this.seat }), 20);
       return;
     }

@@ -5148,3 +5148,11 @@ button.ng-seat:hover {
     padding-right: 12px;
   }
 }
+
+/* online: the partner of the one who decides the opener */
+.starter-pick .st-note {
+  margin: -4px 0 10px;
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.8;
+}

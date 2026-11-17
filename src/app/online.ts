@@ -110,6 +110,8 @@ export class OnlineController {
   private closeMenu: (() => void) | null = null;
   private closeSheet: (() => void) | null = null;
   private closeChooser: (() => void) | null = null;
+  /** the opener choice of this hand was answered here (pick or wish): later repeats of it are stale */
+  private starterAnswered = false;
   private phraseBtn: HTMLButtonElement | null = null;
   private phrasePop: HTMLElement | null = null;
   private netChip: HTMLElement | null = null;
@@ -503,6 +505,10 @@ export class OnlineController {
         if (this.mode !== 'game' || !this.persp) return;
         this.showPhrase(this.persp.seat(msg.seat), msg.id);
         break;
+      case 'starterWish':
+        if (this.mode !== 'game' || !this.persp) return;
+        this.host.plates.say(this.persp.seat(msg.seat), t(msg.wants ? 'say.wantStart' : 'say.youStart'), false, 2600);
+        break;
       case 'error':
         if (msg.code === 'bad_move' || msg.code === 'not_your_turn') this.client?.resync();
         else if (import.meta.env.DEV && msg.code !== 'rate_limited') console.warn('[online] server error', msg.code, msg.message ?? '');
@@ -686,6 +692,7 @@ export class OnlineController {
     this.host.plates.setTimer(null);
     for (const c of [this.closeSummary, this.closeMatchEnd, this.closeMenu, this.closeChooser]) c?.();
     this.closeSummary = this.closeMatchEnd = this.closeMenu = this.closeChooser = null;
+    this.starterAnswered = false;
     this.persp = null;
     this.mirror = null;
     if (this.mode === 'game') this.mode = 'off';
@@ -928,11 +935,17 @@ export class OnlineController {
       view.setTurn(seat);
       this.setRing(seat, msg.deadline);
       if (msg.choosingStarter) {
-        const myTeam = this.mySeat !== null ? ((this.mySeat & 1) as 0 | 1) : -1;
-        const team = msg.starterTeam ?? (msg.seat & 1);
-        if (team === myTeam) await this.chooseStarter(msg.partnerWants ?? false);
+        // one player decides (the last hand's winner); the partner may only say what they want
+        if (this.starterAnswered || this.closeChooser || this.mySeat === null) return;
+        const chooser = msg.starterChooser;
+        if (chooser === undefined) return; // CPUs decide
+        if (chooser === this.mySeat) await this.chooseStarter(msg.partnerWants);
+        else if (((chooser + 2) % 4) === this.mySeat) this.offerStarterWish(p.seat(chooser));
         return;
       }
+      this.starterAnswered = false;
+      this.closeChooser?.();
+      this.closeChooser = null;
       const mustPass = legal.length === 1 && legal[0].kind !== 'play';
       if (this.lastDrawSeat !== seat) hooks.onTurn(seat, m, mustPass);
       if (seat !== 0 || !legal.length) return;
@@ -963,10 +976,12 @@ export class OnlineController {
   }
 
   /** "¿Quién sale?" for my pair */
-  private async chooseStarter(partnerWants: boolean): Promise<void> {
+  private async chooseStarter(wish: boolean | undefined): Promise<void> {
     const p = this.persp!;
     const s = this.host.settings();
-    if (partnerWants) this.host.plates.say(2, t('say.wantStart'), false, 2600);
+    const partnerWants = wish ?? false;
+    // a CPU partner speaks first (as offline); a human partner's wish arrives as its own bubble
+    if (wish !== undefined) this.host.plates.say(2, t(wish ? 'say.wantStart' : 'say.youStart'), false, 2600);
     const interrupted = new Promise<null>((r) => (this.interruptRes = () => r(null)));
     const pick = new Promise<Seat>((resolve) => {
       const card = buildStarterChooser({
@@ -984,8 +999,31 @@ export class OnlineController {
     this.closeChooser = null;
     if (seat === null) return;
     this.interruptRes = null;
+    this.starterAnswered = true;
     if (seat === 0) this.host.plates.say(0, t('say.iStart'), false);
     this.client?.send({ t: 'chooseStarter', seat: p.server(seat) });
+  }
+
+  /** my partner decides who opens: I can say "Quiero salir" or "Sal tú" (doesn't block the queue) */
+  private offerStarterWish(chooser: Seat): void {
+    const s = this.host.settings();
+    const names = this.namesNow();
+    const card = buildStarterChooser({
+      names,
+      avatars: s.avatars !== false,
+      partnerWants: false,
+      labels: { me: t('say.wantStart'), partner: t('say.youStart') },
+      note: t('starter.decides', { name: names[chooser] }),
+      onPick: (seat) => {
+        this.closeChooser?.();
+        this.closeChooser = null;
+        this.starterAnswered = true;
+        this.client?.send({ t: 'starterWish', wants: seat === 0 });
+      },
+    });
+    const close = this.host.overlay.openModal(card, { dim: false });
+    card.parentElement?.classList.add('starter-wrap');
+    this.closeChooser = close;
   }
 
   private onCovered(serverSeat: Seat, reason: 'timeout' | 'disconnected'): void {

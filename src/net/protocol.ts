@@ -101,6 +101,8 @@ export type ClientMsg =
   | { t: 'move'; move: Move }
   /** in game (pairs, winning team chooses opener): pick which partner opens */
   | { t: 'chooseStarter'; seat: Seat }
+  /** in game, while the partner (starterChooser) picks the opener: "Quiero salir" (true) / "Sal tú" (false) */
+  | { t: 'starterWish'; wants: boolean }
   /** quick phrase / emote by id (see QUICK_PHRASES); rate-limited server-side */
   | { t: 'phrase'; id: string }
   /** the human slams a tile: sent as part of the move (move.slam) — no separate message */
@@ -128,14 +130,21 @@ export type ServerMsg =
       deadline: number;
       legal: Move[];
       choosingStarter?: boolean;
-      /** optional (with choosingStarter): the team that picks its opener; any connected human of it may send chooseStarter (timeout: CPU decides) */
+      /** optional (with choosingStarter): the team that picks its opener (timeout: CPU decides) */
       starterTeam?: Team;
-      /** optional (with choosingStarter, only to a chooser whose partner is a CPU): the partner's spoken wish to open */
+      /**
+       * optional (with choosingStarter): the one seat that may send chooseStarter: the last hand's winner
+       * (or its human partner when the winner is a CPU / covered). Its partner may send starterWish.
+       */
+      starterChooser?: Seat;
+      /** optional (with choosingStarter, only to the chooser): the partner's spoken wish to open (CPU, or a human who said it) */
       partnerWants?: boolean;
     }
   /** full private resync (after reconnect, or if the client reports it's out of sync) */
   | { t: 'sync'; room: PublicRoom; view: SeatView }
   | { t: 'phrase'; seat: Seat; id: string }
+  /** a player said whether they want to open ("Quiero salir" / "Sal tú"): shown as a bubble */
+  | { t: 'starterWish'; seat: Seat; wants: boolean }
   /** a CPU just played for a human seat (timer ran out or player disconnected) */
   | { t: 'covered'; seat: Seat; reason: 'timeout' | 'disconnected' }
   | { t: 'error'; code: ErrorCode; message?: string }
