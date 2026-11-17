@@ -59,7 +59,10 @@ export function buildMenu(o: MenuOpts): HTMLElement {
   } else {
     actions.append(btn(t('menu.play'), o.onPlay, 'primary xl', icon(ICONS.play)));
   }
-  const settings = btn(t('menu.settings'), o.onSettings, 'ghost', icon(ICONS.gear));
+  // Ajustes is a square icon button so Cómo jugar always has room for its label
+  const settingsLabel = t('menu.settings');
+  const settings = h('button.btn.ghost.about-btn.settings-btn', { type: 'button', 'aria-label': settingsLabel, title: settingsLabel }, h('span.about-btn-icon', { html: ICONS.gear }));
+  settings.addEventListener('click', o.onSettings);
   const howto = btn(t('menu.howto'), o.onHowto, 'ghost', icon(ICONS.book));
   actions.append(h('div.row.menu-row', settings, howto, aboutBtn(o.onAbout), apkBtn()));
   (actions.firstElementChild as HTMLElement).dataset.autofocus = '';
