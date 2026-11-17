@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#2a160d" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Kudominoes" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="description" content="Dominó por parejas — doble seis, contra la computadora." />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <title>Kudominoes</title>
+    <style>
+      /* critical boot styles so nothing flashes white before the CSS bundle loads */
+      html, body { margin: 0; height: 100%; background: #2a160d; overflow: hidden; }
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; }
+      #boot svg { width: 72px; height: 72px; animation: bootpulse 1.1s ease-in-out infinite; }
+      @keyframes bootpulse { 50% { transform: scale(0.88) rotate(-6deg); opacity: 0.7; } }
+    </style>
+  </head>
+  <body>
+    <div id="table" aria-hidden="true"></div>
+    <div id="ui"></div>
+    <div id="boot">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="14" y="4" width="36" height="56" rx="8" fill="#fff6e6" />
+        <rect x="18" y="31" width="28" height="2" rx="1" fill="#c9b79c" />
+        <circle cx="32" cy="17" r="4" fill="#c8231b" />
+        <circle cx="24" cy="41" r="3.6" fill="#2a160d" />
+        <circle cx="40" cy="51" r="3.6" fill="#2a160d" />
+        <circle cx="32" cy="46" r="3.6" fill="#2a160d" />
+      </svg>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

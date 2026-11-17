@@ -1,0 +1,210 @@
+/**
+ * HTML name plates (one per seat), laid out by the 3D view (TableViewOptions.onPlates) so they hug
+ * each seat's hand and the chain keeps clear of them. Each plate shows the seat's avatar (or a team
+ * dot when avatars are off), the name, and the tiles-left count (pip total after a hand).
+ * Updates only write a transform, a class or a text node when that value actually changed.
+ */
+import type { Seat, SeatPlate } from '../contracts';
+import type { AvatarController } from './avatars';
+import { h, prefersReducedMotion } from './dom';
+
+interface PlateEl {
+  root: HTMLElement;
+  av: HTMLElement;
+  dot: HTMLElement;
+  name: HTMLElement;
+  count: HTMLElement;
+  num: Text;
+  last: { tf: string; w: number; h: number; d: number; layout: string; visible: boolean; active: boolean; winner: boolean; count: number; pips: number | null };
+}
+
+export class SeatPlates {
+  readonly el: HTMLElement;
+  private p: PlateEl[];
+  private avatarsOn = true;
+  private boxes: (SeatPlate | null)[] = [null, null, null, null];
+  private center = { x: 0, y: 0 };
+  private bubbles: HTMLElement[] = [];
+
+  constructor(private avatars: AvatarController) {
+    this.el = h('div.plates', { 'aria-hidden': 'true' });
+    this.p = ([0, 1, 2, 3] as Seat[]).map((s) => {
+      const dot = h('span.plate-dot');
+      const av = h('div.plate-av', dot, avatars.faceEl(s));
+      const name = h('span.plate-name');
+      const num = document.createTextNode('0');
+      const count = h('span.plate-count', h('i.plate-tile'), num);
+      const root = h('div.plate', { class: `seat-${s} team-${s % 2}` }, h('div.plate-info', name, count), av);
+      this.el.append(root);
+      return { root, av, dot, name, count, num, last: { tf: '', w: 0, h: 0, d: 0, layout: '', visible: false, active: false, winner: false, count: -1, pips: null } };
+    });
+    this.setAvatars(true);
+  }
+
+  setNames(names: readonly string[]): void {
+    this.p.forEach((p, s) => {
+      const n = names[s] ?? '';
+      p.name.textContent = n;
+      // long names (Papi Zorg, Don Julio) get a slightly smaller type instead of an ellipsis
+      p.root.classList.toggle('long-name', n.length > 7);
+    });
+  }
+
+  setAvatars(on: boolean): void {
+    this.avatarsOn = on;
+    this.el.classList.toggle('no-avatars', !on);
+    this.avatars.setEnabled(on);
+  }
+
+  /** one short, soft pulse on a plate (the human's turn); no persistent blinking */
+  pulse(seat: Seat): void {
+    const r = this.p[seat].root;
+    const target = r.querySelector('.plate-info') as HTMLElement;
+    const av = r.querySelector('.plate-av') as HTMLElement;
+    if (prefersReducedMotion()) {
+      target.animate([{ filter: 'brightness(1.35)' }, { filter: 'none' }], { duration: 600, easing: 'ease-out' });
+      return;
+    }
+    av.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)', offset: 0.35 }, { transform: 'scale(0.98)', offset: 0.7 }, { transform: 'scale(1)' }], { duration: 560, easing: 'ease-out' });
+    target.animate(
+      [{ boxShadow: 'inset 0 0 0 2px #e8b450, 0 0 0 0 rgba(255,196,96,.55)' }, { boxShadow: 'inset 0 0 0 2px #e8b450, 0 0 0 9px rgba(255,196,96,0)' }],
+      { duration: 700, easing: 'ease-out' },
+    );
+  }
+
+  /** hide while menus/screens are up */
+  hide(): void {
+    for (const p of this.p) {
+      p.root.classList.remove('on');
+      p.last.visible = false;
+    }
+    this.avatars.setVisible(false);
+  }
+
+  update(plates: readonly SeatPlate[], center: { x: number; y: number }): void {
+    let anyVisible = false;
+    for (let s = 0; s < 4; s++) {
+      const b = plates[s];
+      const p = this.p[s];
+      const L = p.last;
+      if (b.w !== L.w || b.h !== L.h || b.d !== L.d || b.layout !== L.layout) {
+        L.w = b.w;
+        L.h = b.h;
+        L.d = b.d;
+        L.layout = b.layout;
+        const st = p.root.style;
+        st.width = `${b.w}px`;
+        st.height = `${b.h}px`;
+        st.setProperty('--d', `${b.d}px`);
+        p.root.classList.toggle('stack', b.layout === 'stack');
+        p.root.classList.toggle('row', b.layout === 'row');
+      }
+      const tf = `translate(${(b.x - b.w / 2).toFixed(1)}px,${(b.y - b.h / 2).toFixed(1)}px)${b.scale !== 1 ? ` scale(${b.scale.toFixed(3)})` : ''}${b.rot ? ` rotate(${b.rot.toFixed(3)}rad)` : ''}`;
+      if (tf !== L.tf) {
+        L.tf = tf;
+        p.root.style.transform = tf;
+      }
+      if (b.visible !== L.visible) {
+        L.visible = b.visible;
+        p.root.classList.toggle('on', b.visible);
+      }
+      if (b.active !== L.active) {
+        L.active = b.active;
+        p.root.classList.toggle('active', b.active);
+      }
+      if (b.winner !== L.winner) {
+        L.winner = b.winner;
+        p.root.classList.toggle('winner', b.winner);
+      }
+      if (b.count !== L.count || b.pips !== L.pips) {
+        L.count = b.count;
+        L.pips = b.pips;
+        p.num.data = String(b.pips ?? b.count);
+        p.count.classList.toggle('pips', b.pips !== null);
+      }
+      anyVisible ||= b.visible;
+    }
+    for (let s = 0; s < 4; s++) this.boxes[s] = { ...plates[s], bubble: plates[s].bubble ? { ...plates[s].bubble! } : undefined };
+    this.center = { x: center.x, y: center.y };
+    this.avatars.setPositions(plates, center);
+    this.avatars.setVisible(anyVisible && this.avatarsOn);
+  }
+
+  /** while the human drags a ficha, the own plate fades out of its way */
+  setDragging(on: boolean): void {
+    this.el.classList.toggle('dragging', on);
+  }
+
+  /**
+   * A per-player callout (Paso, ¡Dominó!, ¡Cerrado!, ¡Capicúa!) as a speech bubble on the seat's plate,
+   * growing toward the table centre: right of the left seat, left of the right seat, below the top seat,
+   * above/right of the human. Clamped inside the viewport.
+   */
+  say(seat: Seat, text: string, strong = false, ms = 1500): void {
+    const box = this.boxes[seat];
+    if (!box || !box.visible) return;
+    let b = this.bubbles[seat];
+    if (!b) {
+      b = h('div.plate-bubble', { role: 'status', 'aria-live': 'polite' });
+      this.bubbles[seat] = b;
+      this.el.append(b);
+    }
+    const anchor = box.bubble;
+    const dir = anchor?.dir ?? (seat === 3 ? 'right' : seat === 1 ? 'left' : seat === 2 ? 'down' : 'up');
+    b.className = `plate-bubble dir-${dir}${strong ? ' strong' : ''}`;
+    b.textContent = text;
+    b.style.transform = 'none';
+    b.getAnimations().forEach((a) => a.cancel());
+    const bw = b.offsetWidth;
+    const bh = b.offsetHeight;
+    // plate extent (a plate rotated by ~90° swaps its width and height)
+    const turned = Math.abs(Math.sin(box.rot)) > 0.7;
+    const pw = (turned ? box.h : box.w) * box.scale;
+    const ph = (turned ? box.w : box.h) * box.scale;
+    const gap = 8;
+    let x: number;
+    let y: number;
+    if (anchor) {
+      // the renderer's anchor (the chain keeps clear of it)
+      x = dir === 'left' ? anchor.x - bw : dir === 'right' ? anchor.x : anchor.x - bw / 2;
+      y = dir === 'up' ? anchor.y - bh : dir === 'down' ? anchor.y : anchor.y - bh / 2;
+    } else if (dir === 'right') {
+      x = box.x + pw / 2 + gap;
+      y = box.y - bh / 2;
+    } else if (dir === 'left') {
+      x = box.x - pw / 2 - gap - bw;
+      y = box.y - bh / 2;
+    } else if (dir === 'down') {
+      x = box.x - bw / 2;
+      y = box.y + ph / 2 + gap;
+    } else {
+      x = box.x + pw / 2 - bw * 0.35;
+      y = box.y - ph / 2 - gap - bh;
+    }
+    const W = this.el.clientWidth || window.innerWidth;
+    const H = this.el.clientHeight || window.innerHeight;
+    x = Math.max(6, Math.min(W - bw - 6, x));
+    y = Math.max(6, Math.min(H - bh - 6, y));
+    b.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+    const origin = dir === 'right' ? '0% 50%' : dir === 'left' ? '100% 50%' : dir === 'down' ? '50% 0%' : '30% 100%';
+    b.style.transformOrigin = origin;
+    const base = b.style.transform;
+    const rm = prefersReducedMotion();
+    b.animate(
+      rm
+        ? [{ opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }]
+        : [
+            { opacity: 0, transform: `${base} scale(.3)` },
+            { opacity: 1, transform: `${base} scale(1.08)`, offset: 0.1 },
+            { opacity: 1, transform: `${base} scale(1)`, offset: 0.16 },
+            { opacity: 1, transform: `${base} scale(1)`, offset: 0.85 },
+            { opacity: 0, transform: `${base} scale(.92)` },
+          ],
+      { duration: ms, easing: 'ease-out', fill: 'forwards' },
+    );
+  }
+
+  clearBubbles(): void {
+    for (const b of this.bubbles) b?.getAnimations().forEach((a) => a.cancel());
+  }
+}

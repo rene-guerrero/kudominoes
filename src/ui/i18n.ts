@@ -1,0 +1,501 @@
+/**
+ * i18n — neutral standard Spanish (default) + English. Keep keys flat. `t('key', {n: 3})` interpolates {n}.
+ */
+export type Lang = 'es' | 'en';
+
+const es = {
+  'app.tagline': 'Dominó por parejas',
+  'menu.play': 'Jugar',
+  'menu.continue': 'Continuar',
+  'menu.continueSub': 'Mano {hand} · {us}–{them}',
+  'menu.settings': 'Ajustes',
+  'menu.howto': 'Cómo jugar',
+  'menu.newConfirmTitle': '¿Nueva partida?',
+  'menu.newConfirmBody': 'Tienes una partida guardada. Si empiezas otra, se pierde.',
+  'menu.newConfirmOk': 'Empezar nueva',
+  'menu.offline': 'Doble seis · 4 jugadores · sin conexión',
+  'menu.apk': 'Descargar para Android (APK)',
+
+  'common.back': 'Atrás',
+  'common.cancel': 'Cancelar',
+  'common.close': 'Cerrar',
+  'common.on': 'Sí',
+  'common.off': 'No',
+
+  'settings.title': 'Ajustes',
+  'settings.general': 'General',
+  'settings.game': 'Juego',
+  'settings.av': 'Gráficos y sonido',
+  'settings.rules': 'Reglas y variantes',
+  'settings.rulesHelp': 'Elige las reglas de juego. Los cambios se aplican a la próxima partida.',
+  'settings.rulesWarn': 'Hay una partida en curso: estas reglas se usarán en la próxima.',
+  'settings.rulesReset': 'Reglas por defecto',
+  'settings.name': 'Tu nombre',
+  'settings.language': 'Idioma',
+  'settings.difficulty': 'Nivel de la máquina',
+  'settings.difficulty.easy': 'Fácil',
+  'settings.difficulty.normal': 'Normal',
+  'settings.difficulty.hard': 'Difícil',
+  'settings.difficulty.master': 'Maestro',
+  'settings.animationSpeed': 'Velocidad',
+  'settings.animationSpeed.normal': 'Normal',
+  'settings.animationSpeed.fast': 'Rápida',
+  'settings.quality': 'Calidad gráfica',
+  'settings.quality.low': 'Baja',
+  'settings.quality.medium': 'Media',
+  'settings.quality.high': 'Alta',
+  'settings.tileTheme': 'Fichas',
+  'settings.tileTheme.classic': 'Clásicas',
+  'settings.tileTheme.dark': 'Oscuras',
+  'settings.reducedMotion': 'Reducir animaciones',
+  'settings.avatars': 'Avatares',
+  'settings.avatarFace': 'Tu cara',
+  'settings.face.0': 'Sencilla',
+  'settings.face.1': 'Pestañas',
+  'settings.face.2': 'Cejas gruesas',
+  'settings.face.3': 'Bigote',
+  'settings.face.4': 'Pecas',
+  'settings.face.5': 'Gafas',
+  'settings.face.6': 'Ceja levantada',
+  'settings.face.7': 'Gafas de aviador',
+  'settings.face.8': 'Pestañas y gafas',
+  'settings.sound': 'Efectos de sonido',
+  'settings.music': 'Música',
+  'settings.vibration': 'Vibración',
+  'settings.tab.game': 'Juego',
+  'settings.tab.rules': 'Reglas',
+  'settings.tab.av': 'Imagen y sonido',
+  'settings.tabs': 'Secciones de ajustes',
+  'settings.preset': 'Reglas',
+  'settings.preset.custom': 'Personalizado',
+  'settings.presetConfirmTitle': '¿Volver a {name}?',
+  'settings.presetConfirmBody': 'Hay una partida en curso. Las reglas nuevas se usarán en la próxima partida.',
+  'settings.presetConfirmOk': 'Restaurar',
+  'settings.info': 'Explicación',
+  'settings.tableStyle': 'Mesa',
+  'settings.table.green': 'Verde',
+  'settings.table.navy': 'Azul marino',
+  'settings.table.burgundy': 'Vino',
+  'settings.table.charcoal': 'Grafito',
+  'settings.table.wood': 'Madera',
+  'settings.table.sand': 'Arena',
+  'settings.tileBack': 'Reverso de las fichas',
+  'settings.back.ornate': 'Dorado',
+  'settings.back.ivory': 'Marfil',
+  'settings.back.red': 'Sol rojo',
+  'settings.back.navy': 'Celosía',
+  'settings.back.green': 'Rombos',
+  'settings.back.wood': 'Madera',
+  'role.partner': 'Compañero',
+  'role.partnerF': 'Compañera',
+  'role.rival': 'Rival',
+  'newgame.title': 'Nueva partida',
+  'newgame.players': 'Jugadores',
+  'newgame.pickPartner': 'Elige a tu pareja',
+  'newgame.pickRival1': 'Elige al rival 1',
+  'newgame.pickRival2': 'Elige al rival 2',
+  'newgame.rolePartner': 'Pareja',
+  'newgame.surprise': 'Sorpréndeme',
+  'newgame.level': 'Nivel {level}',
+  'newgame.rules': 'Reglas',
+  'newgame.change': 'Cambiar',
+  'newgame.start': 'Comenzar',
+  'pause.levels': 'Niveles',
+  'notice.capicuaDouble': 'Capicúa: los puntos valen doble para {team}',
+  'notice.paseSalidaBlocked': 'Pase de salida: no suma, porque no puede ganar la partida',
+  'summary.arith': '{pips} en fichas → {rounded} → {n} puntos',
+  'summary.arithNone': '{pips} puntos en fichas',
+  'summary.capicuaDouble': 'Capicúa ×2 = {n}',
+  'summary.early': 'ya sumado',
+
+  'rulesGroup.salida': 'La salida',
+  'rulesGroup.puntuacion': 'Puntuación',
+  'rulesGroup.tranque': 'Cerrado',
+  'rulesGroup.bonos': 'Bonos',
+  'rulesGroup.partida': 'Partida',
+  'rulesGroup.juego': 'Juego',
+  'rulesGroup.general': 'General',
+
+  'hud.us': 'Nosotros',
+  'hud.them': 'Ellos',
+  'hud.target': 'a {n}',
+  'hud.hand': 'Mano {n}',
+  'hud.pause': 'Pausa',
+  'hud.ends': 'Puntas',
+  'notice.openDouble6': 'Debes salir con el doble seis',
+  'notice.void': 'Mano nula: nadie suma puntos',
+  'notice.bonus': '{label}: +{n} para {team}',
+  'notice.bonusNoPts': '{label} para {team}',
+  'notice.rulesNext': 'Los cambios de reglas se aplican en la próxima partida',
+
+  'say.pass': 'Paso',
+  'say.domino': '¡Dominó!',
+  'say.tranque': '¡Cerrado!',
+  'say.capicua': '¡Capicúa!',
+  'say.iStart': 'Salgo yo',
+  'say.wantStart': 'Quiero salir',
+  'say.youStart': 'Sal tú',
+  'starter.title': '¿Quién sale?',
+  'starter.me': 'Salgo yo',
+  'starter.partner': 'Sale {name}',
+
+  'pause.title': 'Pausa',
+  'pause.resume': 'Seguir jugando',
+  'pause.quit': 'Salir al menú',
+  'pause.saved': 'Tu partida se guarda sola. Puedes seguirla con «Continuar».',
+
+  'summary.domino': 'Dominó',
+  'summary.dominoBy': '{name} ganó la mano',
+  'summary.dominoYou': 'Ganaste la mano',
+  'summary.tranqueYou': 'Ganas con menos puntos',
+  'summary.tranque': 'Juego cerrado',
+  'summary.tranqueBy': 'Gana {name} con menos puntos',
+  'summary.void': 'Mano nula',
+  'summary.voidBody': 'Empate en el juego cerrado: nadie suma puntos.',
+  'summary.pips': '{n} puntos',
+  'summary.pointsUs': 'Nosotros sumamos {n}',
+  'summary.pointsThem': 'Ellos suman {n}',
+  'summary.bonuses': 'Bonos',
+  'summary.continue': 'Siguiente mano',
+  'summary.toMatchEnd': 'Ver resultado',
+  'summary.hand': 'Mano {n}',
+
+  'match.win': 'Victoria',
+  'match.lose': 'Derrota',
+  'match.winSub': 'Tú y {partner} ganaron la partida',
+  'match.loseSub': 'La pareja contraria ganó la partida',
+  'match.hands': 'Manos ganadas',
+  'match.rematch': 'Jugar otra vez',
+  'match.menu': 'Menú',
+
+  'loading.error': 'No se pudo cargar el juego.',
+  'seat.you': 'Tú',
+  'team.us': 'Nosotros',
+  'team.them': 'Ellos',
+} as const;
+
+export type Key = keyof typeof es;
+
+const en: Record<Key, string> = {
+  'app.tagline': 'Partnership dominoes',
+  'menu.play': 'Play',
+  'menu.continue': 'Continue',
+  'menu.continueSub': 'Hand {hand} · {us}–{them}',
+  'menu.settings': 'Settings',
+  'menu.howto': 'How to play',
+  'menu.newConfirmTitle': 'New match?',
+  'menu.newConfirmBody': 'You have a saved match. Starting a new one will discard it.',
+  'menu.newConfirmOk': 'Start new',
+  'menu.offline': 'Double six · 4 players · offline',
+  'menu.apk': 'Download for Android (APK)',
+
+  'common.back': 'Back',
+  'common.cancel': 'Cancel',
+  'common.close': 'Close',
+  'common.on': 'On',
+  'common.off': 'Off',
+
+  'settings.title': 'Settings',
+  'settings.general': 'General',
+  'settings.game': 'Game',
+  'settings.av': 'Graphics & sound',
+  'settings.rules': 'Rules & variants',
+  'settings.rulesHelp': 'Choose the game rules. Changes apply to the next match.',
+  'settings.rulesWarn': 'A match is in progress: these rules will be used in the next one.',
+  'settings.rulesReset': 'Default rules',
+  'settings.name': 'Your name',
+  'settings.language': 'Language',
+  'settings.difficulty': 'CPU level',
+  'settings.difficulty.easy': 'Easy',
+  'settings.difficulty.normal': 'Normal',
+  'settings.difficulty.hard': 'Hard',
+  'settings.difficulty.master': 'Master',
+  'settings.animationSpeed': 'Speed',
+  'settings.animationSpeed.normal': 'Normal',
+  'settings.animationSpeed.fast': 'Fast',
+  'settings.quality': 'Graphics quality',
+  'settings.quality.low': 'Low',
+  'settings.quality.medium': 'Medium',
+  'settings.quality.high': 'High',
+  'settings.tileTheme': 'Tiles',
+  'settings.tileTheme.classic': 'Classic',
+  'settings.tileTheme.dark': 'Dark',
+  'settings.reducedMotion': 'Reduce motion',
+  'settings.avatars': 'Avatars',
+  'settings.avatarFace': 'Your face',
+  'settings.face.0': 'Plain',
+  'settings.face.1': 'Lashes',
+  'settings.face.2': 'Thick brows',
+  'settings.face.3': 'Moustache',
+  'settings.face.4': 'Freckles',
+  'settings.face.5': 'Glasses',
+  'settings.face.6': 'Raised brow',
+  'settings.face.7': 'Aviator sunglasses',
+  'settings.face.8': 'Lashes and glasses',
+  'settings.sound': 'Sound effects',
+  'settings.music': 'Music',
+  'settings.vibration': 'Vibration',
+  'settings.tab.game': 'Game',
+  'settings.tab.rules': 'Rules',
+  'settings.tab.av': 'Look & sound',
+  'settings.tabs': 'Settings sections',
+  'settings.preset': 'Rules',
+  'settings.preset.custom': 'Custom',
+  'settings.presetConfirmTitle': 'Back to {name}?',
+  'settings.presetConfirmBody': 'A match is in progress. The new rules will be used in the next match.',
+  'settings.presetConfirmOk': 'Restore',
+  'settings.info': 'Explanation',
+  'settings.tableStyle': 'Table',
+  'settings.table.green': 'Green',
+  'settings.table.navy': 'Navy',
+  'settings.table.burgundy': 'Burgundy',
+  'settings.table.charcoal': 'Graphite',
+  'settings.table.wood': 'Wood',
+  'settings.table.sand': 'Sand',
+  'settings.tileBack': 'Tile backs',
+  'settings.back.ornate': 'Gold',
+  'settings.back.ivory': 'Ivory',
+  'settings.back.red': 'Red sun',
+  'settings.back.navy': 'Lattice',
+  'settings.back.green': 'Diamonds',
+  'settings.back.wood': 'Wood',
+  'role.partner': 'Partner',
+  'role.partnerF': 'Partner',
+  'role.rival': 'Opponent',
+  'newgame.title': 'New match',
+  'newgame.players': 'Players',
+  'newgame.pickPartner': 'Choose your partner',
+  'newgame.pickRival1': 'Choose opponent 1',
+  'newgame.pickRival2': 'Choose opponent 2',
+  'newgame.rolePartner': 'Partner',
+  'newgame.surprise': 'Surprise me',
+  'newgame.level': '{level} level',
+  'newgame.rules': 'Rules',
+  'newgame.change': 'Change',
+  'newgame.start': 'Start',
+  'pause.levels': 'Levels',
+  'notice.capicuaDouble': 'Capicúa: points count double for {team}',
+  'notice.paseSalidaBlocked': 'Opening pass: not added, it cannot win the match',
+  'summary.arith': '{pips} in tiles → {rounded} → {n} points',
+  'summary.arithNone': '{pips} points in tiles',
+  'summary.capicuaDouble': 'Capicúa ×2 = {n}',
+  'summary.early': 'already added',
+
+  'rulesGroup.salida': 'Opening',
+  'rulesGroup.puntuacion': 'Scoring',
+  'rulesGroup.tranque': 'Blocked game',
+  'rulesGroup.bonos': 'Bonuses',
+  'rulesGroup.partida': 'Match',
+  'rulesGroup.juego': 'Play',
+  'rulesGroup.general': 'General',
+
+  'hud.us': 'Us',
+  'hud.them': 'Them',
+  'hud.target': 'to {n}',
+  'hud.hand': 'Hand {n}',
+  'hud.pause': 'Pause',
+  'hud.ends': 'Ends',
+  'notice.openDouble6': 'You must open with the double six',
+  'notice.void': 'Void hand: nobody scores',
+  'notice.bonus': '{label}: +{n} for {team}',
+  'notice.bonusNoPts': '{label} for {team}',
+  'notice.rulesNext': 'Rule changes apply from the next match',
+
+  'say.pass': 'Pass',
+  'say.domino': 'Domino!',
+  'say.tranque': 'Blocked',
+  'say.capicua': 'Capicúa!',
+  'say.iStart': 'I’ll open',
+  'say.wantStart': 'I want to open',
+  'say.youStart': 'You open',
+  'starter.title': 'Who opens?',
+  'starter.me': 'I’ll open',
+  'starter.partner': '{name} opens',
+
+  'pause.title': 'Paused',
+  'pause.resume': 'Resume',
+  'pause.quit': 'Quit to menu',
+  'pause.saved': 'Your match saves automatically. Pick it up with “Continue”.',
+
+  'summary.domino': 'Domino',
+  'summary.dominoBy': '{name} won the hand',
+  'summary.dominoYou': 'You won the hand',
+  'summary.tranqueYou': 'You win with the fewest pips',
+  'summary.tranque': 'Blocked game',
+  'summary.tranqueBy': '{name} wins with the fewest pips',
+  'summary.void': 'Void hand',
+  'summary.voidBody': 'Tied blocked game: nobody scores.',
+  'summary.pips': '{n} points',
+  'summary.pointsUs': 'We score {n}',
+  'summary.pointsThem': 'They score {n}',
+  'summary.bonuses': 'Bonuses',
+  'summary.continue': 'Next hand',
+  'summary.toMatchEnd': 'See result',
+  'summary.hand': 'Hand {n}',
+
+  'match.win': 'Victory',
+  'match.lose': 'Defeat',
+  'match.winSub': 'You and {partner} took the match',
+  'match.loseSub': 'The opponents won the match',
+  'match.hands': 'Hands won',
+  'match.rematch': 'Play again',
+  'match.menu': 'Menu',
+
+  'loading.error': 'The game could not be loaded.',
+  'seat.you': 'You',
+  'team.us': 'Us',
+  'team.them': 'Them',
+};
+
+const dicts: Record<Lang, Record<Key, string>> = { es, en };
+let lang: Lang = 'es';
+
+export function setLang(l: Lang): void {
+  lang = l;
+  document.documentElement.lang = l;
+}
+export function getLang(): Lang {
+  return lang;
+}
+
+export function t(key: Key, params?: Record<string, string | number>): string {
+  let s = dicts[lang][key] ?? es[key] ?? key;
+  if (params) for (const [k, v] of Object.entries(params)) s = s.split(`{${k}}`).join(String(v));
+  return s;
+}
+
+/** Lookup for dynamic keys (e.g. rule groups); returns null when missing. */
+export function tMaybe(key: string): string | null {
+  return (dicts[lang] as Record<string, string>)[key] ?? null;
+}
+
+/** Pick the right side of an engine-provided `{es, en}` label. */
+export function loc(l: { es: string; en: string } | undefined): string {
+  if (!l) return '';
+  return l[lang] || l.es;
+}
+
+// ───────────────────────── How to play ─────────────────────────
+
+export interface HowtoSection {
+  title: string;
+  body: string[];
+  terms?: [string, string][];
+}
+
+export const HOWTO: Record<Lang, HowtoSection[]> = {
+  es: [
+    {
+      title: 'Objetivo',
+      body: [
+        'Se juega por parejas con las 28 fichas del doble seis. Tu compañero se sienta enfrente y los rivales a los lados. Cada jugador recibe 7 fichas.',
+        'Los turnos van en sentido contrario a las agujas del reloj. En tu turno colocas una ficha cuyo número coincida con uno de los dos extremos de la mesa. Si no tienes ninguna, pasas.',
+      ],
+    },
+    {
+      title: 'Cómo se gana una mano',
+      body: [
+        'Gana la mano la pareja del jugador que coloca todas sus fichas (dominó). Suma los puntos de las fichas que quedan sin jugar: las de todos los jugadores o solo las de los rivales, según la regla elegida.',
+        'Si nadie puede jugar, el juego queda cerrado: se cuentan los puntos y gana quien tenga menos. En caso de empate, la mano puede anularse.',
+      ],
+    },
+    {
+      title: 'Puntuación cubana',
+      body: [
+        'Los puntos de las fichas se redondean a la decena hacia arriba y se cuentan de diez en diez: 31 → 40 → 4 puntos; 65 → 70 → 7 puntos; 60 → 6 puntos. El juego cerrado se redondea igual.',
+        'Capicúa: si la mano se gana con una ficha que entraba por los dos extremos, los puntos valen doble. Primero se redondea y después se dobla: 65 → 7, Capicúa ×2 = 14.',
+        'Pase de salida: si la primera ficha de la mano hace pasar al siguiente jugador, la pareja que salió suma 2 puntos en ese momento. Ese premio nunca gana la partida: si con él la pareja llegaría a la meta (por ejemplo, tiene 18 o 19 de 20), no se suma.',
+        'En Ajustes → Reglas puedes cambiar el redondeo o elegir «Sin redondeo» para contar los puntos exactos; entonces la meta es diez veces mayor (20 → 200).',
+      ],
+    },
+    {
+      title: 'La partida',
+      body: [
+        'Se juegan manos hasta que una pareja llega a 20 puntos. La partida solo se gana al terminar una mano. La primera mano la abre quien tiene el doble seis. Desde la segunda mano sale la pareja que ganó la anterior: después de ver sus fichas, los dos deciden quién sale («¿Quién sale?»), y ese jugador puede salir con cualquier ficha. Tu compañero te dice si quiere salir, pero decides tú. Si la mano fue nula, vuelve a salir el mismo jugador.',
+      ],
+    },
+    {
+      title: 'Consejos',
+      body: [
+        'Juega el número del que tienes más fichas y fíjate en qué números pasa cada jugador: si un rival pasó con un cinco en un extremo, no tiene cincos. Ayuda a tu compañero a terminar y evita bloquear sus números.',
+        'Mantén pulsado o suelta la ficha con fuerza para dar un golpe en la mesa.',
+      ],
+    },
+    {
+      title: 'Términos',
+      body: [],
+      terms: [
+        ['Salida', 'La primera ficha de la mano.'],
+        ['Dominó', 'Colocar la última ficha y ganar la mano.'],
+        ['Paso', 'Cuando no tienes ninguna ficha que se pueda jugar.'],
+        ['Cerrado', 'Juego cerrado: nadie puede colocar ficha.'],
+        ['Capicúa', 'Terminar con una ficha que encaja en los dos extremos: la mano vale doble.'],
+        ['Pase de salida', 'La primera ficha hace pasar al siguiente jugador: 2 puntos para la pareja que salió.'],
+        ['Blanqueo', 'Ganar la partida sin que los rivales sumen puntos.'],
+      ],
+    },
+    {
+      title: 'Variantes',
+      body: [
+        'Las reglas cambian de un lugar a otro: puntuación objetivo, quién sale, cómo se puntúa el juego cerrado, bonificaciones… Puedes ajustarlas en Ajustes → Reglas, o volver de un toque a «Cubano clásico»; el botón ⓘ de cada opción la explica.',
+      ],
+    },
+  ],
+  en: [
+    {
+      title: 'Goal',
+      body: [
+        'Four players in two partnerships use the 28 double-six tiles. Your partner sits across from you and the opponents on either side. Each player gets 7 tiles.',
+        'Turns go counter-clockwise. On your turn, place a tile that matches one of the two open ends. If none fits, you pass.',
+      ],
+    },
+    {
+      title: 'Winning a hand',
+      body: [
+        'The team of the player who places all their tiles (domino) wins the hand and scores the pips left unplayed: everyone’s or only the opponents’, depending on the rule.',
+        'If nobody can play, the game is blocked: pips are counted and the lowest total wins. A tie may void the hand.',
+      ],
+    },
+    {
+      title: 'Cuban scoring',
+      body: [
+        'The pips left are rounded up to the next ten and counted in tens: 31 → 40 → 4 points; 65 → 70 → 7 points; 60 → 6 points. A blocked game is rounded the same way.',
+        'Capicúa: if the hand is won with a tile that fits both ends, the points count double. Round first, then double: 65 → 7, Capicúa ×2 = 14.',
+        'Opening pass: if the first tile of the hand makes the next player pass, the opening team scores 2 points right away. That bonus never wins the match: if it would take the team to the target (say 18 or 19 of 20), it is not added.',
+        'In Settings → Rules you can change the rounding or pick “No rounding” to count exact pips; the target is then ten times larger (20 → 200).',
+      ],
+    },
+    {
+      title: 'The match',
+      body: [
+        'Hands are played until a team reaches 20 points. The match is only won when a hand ends. The holder of the double six opens the first hand. From the second hand on, the pair that won the previous hand opens: after seeing their tiles, the two decide who leads (“Who opens?”), and that player may open with any tile. Your partner tells you whether they want to open, but you decide. After a void hand the same player opens again.',
+      ],
+    },
+    {
+      title: 'Tips',
+      body: [
+        'Play the number you hold most of and watch which numbers each player passes on: an opponent who passed with a five on an open end has no fives. Help your partner finish and avoid blocking their numbers.',
+        'Press and hold, or flick the tile down hard, to slam it on the table.',
+      ],
+    },
+    {
+      title: 'Terms',
+      body: [],
+      terms: [
+        ['Opening', 'The first tile of a hand.'],
+        ['Domino', 'Placing your last tile to win the hand.'],
+        ['Pass', 'When none of your tiles can be played.'],
+        ['Blocked game', 'Nobody can place a tile.'],
+        ['Capicúa', 'Finishing with a tile that fits both ends: the hand counts double.'],
+        ['Opening pass', 'The first tile makes the next player pass: 2 points for the opening team.'],
+        ['Shutout', 'Winning the match with the opponents on zero.'],
+      ],
+    },
+    {
+      title: 'Variants',
+      body: [
+        'Rules vary from place to place: target score, who leads, how a blocked game is scored, bonuses… Adjust them in Settings → Rules, or go back to “Classic Cuban” in one tap; the ⓘ button on each option explains it.',
+      ],
+    },
+  ],
+};

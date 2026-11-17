@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Kudominoes</string>
+    <string name="title_activity_main">Kudominoes</string>
+    <string name="package_name">com.kudominoes.app</string>
+    <string name="custom_url_scheme">com.kudominoes.app</string>
+</resources>
