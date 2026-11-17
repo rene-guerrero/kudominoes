@@ -207,10 +207,6 @@ export function buildPause(o: {
       btn(t('menu.howto'), o.onHowto, 'secondary', h('span.btn-icon', { html: ICONS.book })),
       btn(t('pause.quit'), o.onQuit, 'ghost', h('span.btn-icon', { html: ICONS.home })),
     ),
-    o.levels?.length
-      ? h('p.pause-levels', h('span.pl-k', `${t('pause.levels')}: `), o.levels.map((l) => `${l.name} ${l.level}`).join(' · '))
-      : null,
-    h('p.card-note', t('pause.saved')),
   );
 }
 

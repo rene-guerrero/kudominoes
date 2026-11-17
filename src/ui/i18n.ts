@@ -100,7 +100,6 @@ const es = {
   'newgame.rules': 'Reglas',
   'newgame.change': 'Cambiar',
   'newgame.start': 'Comenzar',
-  'pause.levels': 'Niveles',
   'notice.capicuaDouble': 'Capicúa: los puntos valen doble para {team}',
   'notice.paseSalidaBlocked': 'Pase de salida: no suma, porque no puede ganar la partida',
   'summary.arith': '{pips} en fichas → {rounded} → {n} puntos',
@@ -142,7 +141,6 @@ const es = {
   'pause.title': 'Pausa',
   'pause.resume': 'Seguir jugando',
   'pause.quit': 'Salir al menú',
-  'pause.saved': 'Tu partida se guarda sola. Puedes seguirla con «Continuar».',
 
   'summary.domino': 'Dominó',
   'summary.dominoBy': '{name} ganó la mano',
@@ -273,7 +271,6 @@ const en: Record<Key, string> = {
   'newgame.rules': 'Rules',
   'newgame.change': 'Change',
   'newgame.start': 'Start',
-  'pause.levels': 'Levels',
   'notice.capicuaDouble': 'Capicúa: points count double for {team}',
   'notice.paseSalidaBlocked': 'Opening pass: not added, it cannot win the match',
   'summary.arith': '{pips} in tiles → {rounded} → {n} points',
@@ -315,7 +312,6 @@ const en: Record<Key, string> = {
   'pause.title': 'Paused',
   'pause.resume': 'Resume',
   'pause.quit': 'Quit to menu',
-  'pause.saved': 'Your match saves automatically. Pick it up with “Continue”.',
 
   'summary.domino': 'Domino',
   'summary.dominoBy': '{name} won the hand',
