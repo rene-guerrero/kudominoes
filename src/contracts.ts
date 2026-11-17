@@ -302,6 +302,12 @@ export interface SeatPlate {
   d: number;
   /** 'row' = avatar left, name + count right; 'stack' = avatar on top, name below */
   layout: 'row' | 'stack';
+  /**
+   * optional (portrait side seats): the stack plate hugs this screen edge, so its count badge sits on
+   * the avatar's outer top corner and its speech bubble is the compact edge bubble (rising over the
+   * seat's stack)
+   */
+  edge?: 'left' | 'right';
   scale: number;
   /** radians, clockwise */
   rot: number;
@@ -313,7 +319,8 @@ export interface SeatPlate {
   /**
    * optional: where a speech bubble attaches (6 px off the plate on its table-centre side). For 'left'
    * the bubble's right edge is at x (centred on y); 'right': left edge at x; 'up': centred on x, bottom
-   * at y; 'down': centred on x, top at y. The chain keeps clear of a 120x44 bubble there.
+   * at y; 'down': centred on x, top at y (all clamped inside the view). The chain keeps clear of a
+   * 120x44 bubble there (76x34 for an edge plate's compact bubble).
    */
   bubble?: { x: number; y: number; dir: 'left' | 'right' | 'up' | 'down' };
 }

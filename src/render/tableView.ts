@@ -18,10 +18,11 @@ import type {
   TileBack,
   TileTheme,
 } from '../contracts';
-import { layoutChain, type ChainBounds, type ChainLayoutResult } from './chainLayout';
+import { layoutChain, type AvoidRect, type ChainBounds, type ChainLayoutResult } from './chainLayout';
 import { Animator, ease, lerp, clamp01, type Ease } from './tween';
 import * as tex from './textures';
 import { Particles } from './particles';
+import { fitRing, ringHalfWidth, type RingGeo, type TileDims } from './idleRing';
 
 type V3 = THREE.Vector3;
 type Q = THREE.Quaternion;
@@ -32,6 +33,13 @@ const TW = 0.94;
 const TH = 0.3;
 const OPP_SCALE = 0.72;
 const MAX_CELL = 1;
+/** main-menu attract ring (see idleRing.ts); lengths at tile scale 1 */
+const IDLE_DIMS: TileDims = { l: TL, w: TW, t: TH };
+const IDLE_TILT = 0.12;
+const IDLE_GAP = 0.12;
+const IDLE_BASE_S = 0.8;
+const IDLE_LIFT = 0.1;
+const IDLE_BOB = 0.4;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const Q_FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
@@ -138,6 +146,16 @@ const HUD_PX = 72;
 /** speech-bubble zone the UI attaches beside each HTML plate (css px) */
 const BUBBLE_W = 120;
 const BUBBLE_H = 44;
+/** the compact bubble of a portrait edge plate (rises over the seat's stack) */
+const BUBBLE_EDGE_W = 76;
+const BUBBLE_EDGE_H = 34;
+/** portrait edge plates: the stack stands this far outboard of the box edge, tight against the frame */
+const EDGE_STACK_OUT = 0.3;
+/** portrait chain tile length on screen: at most this share of a hand tile ... */
+const CHAIN_MAX_OF_HAND = 0.8;
+/** ... and a readability floor (css px / share of a hand tile), only crossed in the worst case */
+const CHAIN_MIN_PX = 50;
+const CHAIN_MIN_OF_HAND = 0.56;
 /** side seats: their tiles are revealed flat just inboard of the stack; the plate's outer edge sits this far in */
 const SIDE_REVEAL_X = 0.15;
 const SIDE_PLATE_GAP = 0.95;
@@ -233,7 +251,7 @@ export class TableViewImpl implements TableView {
   private hands: number[][] = [[], [], [], []];
   private chain: PlacedTile[] = [];
   private ends: { left: Pip; right: Pip } | null = null;
-  private layoutRes: ChainLayoutResult = { poses: [], cell: MAX_CELL, fits: true, vertical: false };
+  private layoutRes: ChainLayoutResult = { poses: [], cell: MAX_CELL, fits: true, vertical: false, shift: { x: 0, y: 0 } };
   private turnSeat: Seat | null = null;
   private req: HumanReq | null = null;
   private gen = 0;
@@ -244,6 +262,11 @@ export class TableViewImpl implements TableView {
   private idleMix = 0;
   private idleFrom: { pos: V3; quat: Q; s: number }[] = [];
   private idleTime = 0;
+  private idleGeo: RingGeo = { n: 28, r: 4, s: 0.8 };
+  private idleGeoKey = [NaN, NaN, NaN, NaN];
+  private idleCam: THREE.PerspectiveCamera | null = null;
+  private idleScratch = new THREE.Vector3();
+  private idleCz = 0;
 
   // layout
   private W = 1;
@@ -254,6 +277,18 @@ export class TableViewImpl implements TableView {
   private baseCamQuat = new THREE.Quaternion();
   private lookTarget = new THREE.Vector3();
   private bounds: ChainBounds = { cx: 0, cz: 0, w: 16, h: 9 };
+  /**
+   * portrait + HTML plates: the side plates hug the screen edges and the chain gets the full felt
+   * width, keeping clear of plates / stacks / bubble zones through keep-out rects instead
+   */
+  private edgeMode = false;
+  private chainAvoid: AvoidRect[] = [];
+  private chainMaxCell = MAX_CELL;
+  private chainSoftMin = 0;
+  private chainVertical: boolean | undefined = undefined;
+  /** safe-area insets (css px), left / right */
+  private safeL = 0;
+  private safeR = 0;
   private box = { x: 12, z0: -6, z1: 6 };
   private sideX = 10;
   private sideZ = 0;
@@ -691,6 +726,22 @@ export class TableViewImpl implements TableView {
     this.lookTarget.set(0, 0, tz);
     this.baseCamPos.copy(cam.position);
     this.baseCamQuat.copy(cam.quaternion);
+    if (this.portrait && this.htmlPlates) {
+      // portrait is width-bound: the box ends up centred with spare height above it (wood and sky).
+      // Grow the felt away from the viewer until its far edge meets the HUD band: the partner's row moves
+      // up and the chain gets that height.
+      const farY = (z: number) => ndcY(tmpV2.set(box.x, 0, z));
+      if (farY(box.z0) < yTop - 0.01) {
+        let zlo = box.z0 - 12;
+        let zhi = box.z0;
+        for (let i = 0; i < 26; i++) {
+          const mid = (zlo + zhi) / 2;
+          if (farY(mid) > yTop) zlo = mid;
+          else zhi = mid;
+        }
+        box.z0 = zhi;
+      }
+    }
 
     // hand plane
     this.handDh = this.camDist * 0.45;
@@ -701,7 +752,9 @@ export class TableViewImpl implements TableView {
 
     // seats
     this.topZ = box.z0 + 1.0;
-    this.sideX = box.x - 0.8;
+    this.edgeMode = this.portrait && this.htmlPlates;
+    // portrait (HTML plates): the side stacks stand tight against the frame, out of the felt's width
+    this.sideX = this.edgeMode ? box.x + EDGE_STACK_OUT : box.x - 0.8;
     this.sideZ = (box.z0 + box.z1) / 2 - (this.portrait ? 1.2 : 0.5);
     // portrait: the partner's row is centred (its HTML plate sits under it); the 3D plate needs room beside it
     this.topOffX = this.portrait && !this.htmlPlates ? -1.2 : 0;
@@ -711,8 +764,14 @@ export class TableViewImpl implements TableView {
     // chain bounds: between the hands
     const cz0 = this.topZ + 1.7;
     const cz1 = box.z1;
-    const cx = this.sideX - (this.portrait ? 1.4 : 2.8);
+    const cx = this.edgeMode ? box.x - 0.8 - 1.4 : this.sideX - (this.portrait ? 1.4 : 2.8);
     this.bounds = { cx: 0, cz: (cz0 + cz1) / 2, w: cx * 2, h: cz1 - cz0 };
+    this.chainAvoid = [];
+    this.chainMaxCell = MAX_CELL;
+    this.chainSoftMin = 0;
+    this.chainVertical = undefined;
+    if (this.edgeMode) this.readSafeArea();
+    else this.safeL = this.safeR = 0;
 
     // shadow camera centred on the table
     this.keyLight.target.position.set(0, 0, this.bounds.cz);
@@ -738,8 +797,40 @@ export class TableViewImpl implements TableView {
     this.fader.scale.set(W + 4, H + 4, 1);
     this.fader.position.set(W / 2, H / 2, 0);
 
-    this.layoutRes = layoutChain(this.chain, this.bounds, { maxCell: MAX_CELL });
+    this.layoutRes = this.fitChain(this.chain);
     if (this.req && this.req.selected >= 0) this.computeGhosts(this.req.selected);
+  }
+
+  /**
+   * Chain layout for the current bounds. `preview` (drag placeholders / drop zones) keeps the live
+   * cell size, orientation and slide so a ghost lands exactly where the tile will.
+   */
+  private fitChain(chain: PlacedTile[], preview = false): ChainLayoutResult {
+    const avoid = this.chainAvoid.length ? this.chainAvoid : undefined;
+    if (preview) {
+      const r = this.layoutRes;
+      return layoutChain(chain, this.bounds, { cell: r.cell, vertical: r.vertical, shift: r.shift, avoid });
+    }
+    return layoutChain(chain, this.bounds, {
+      maxCell: this.chainMaxCell,
+      softMinCell: this.chainSoftMin || undefined,
+      vertical: this.chainVertical,
+      avoid,
+    });
+  }
+
+  /** safe-area insets (left / right) from the CSS env(), measured on a throwaway probe */
+  private readSafeArea(): void {
+    this.safeL = this.safeR = 0;
+    if (typeof document === 'undefined' || !document.body) return;
+    const el = document.createElement('div');
+    el.style.cssText =
+      'position:fixed;visibility:hidden;pointer-events:none;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)';
+    document.body.append(el);
+    const cs = getComputedStyle(el);
+    this.safeL = parseFloat(cs.paddingLeft) || 0;
+    this.safeR = parseFloat(cs.paddingRight) || 0;
+    el.remove();
   }
 
   /** table-plane point under an overlay pixel (y up); false when the ray misses */
@@ -801,12 +892,16 @@ export class TableViewImpl implements TableView {
     };
     const m = { nx: 0, ny: 0, ty: 0, fy: 0 };
     /** the side plate sits inboard of the stack's near end, its top this fraction of its height above the foot */
-    const PLATE_RISE = 0.28;
+    // (edge plates sit in the same screen column as the stack: right under its near end instead)
+    const PLATE_RISE = this.edgeMode ? 0.02 : 0.28;
+    const edge = this.edgeMode;
+    for (let s = 0; s < 4; s++) B[s].edge = undefined;
     const topFree = H - HUD_PX; // y-up: nothing of ours above this line
     for (let attempt = 0; ; attempt++) {
       rowW = Math.round(D * 3.1);
       rowH = D;
-      stackW = Math.round(Math.max(D + 18, D * 1.45));
+      // edge plates: a narrow column (avatar + name under it), count badge on the inboard side
+      stackW = edge ? Math.round(D + 14) : Math.round(Math.max(D + 18, D * 1.45));
       stackH = Math.round(D * 1.36);
       // human: bottom-left, beside the hand when there is room, else just above its left end
       if (besideHand) setBox(0, 'row', Math.max(rowW / 2 + 10, this.handLeftPx - rowW / 2 - 16), ((-1 + bottomN + (TL * hsN) / 2 + 1) / 2) * H);
@@ -888,6 +983,24 @@ export class TableViewImpl implements TableView {
       }
       const base = { ...this.bounds };
       this.sideZ = sz;
+      if (edge) {
+        // the stack stands as far out as the frame allows, but its near end (the widest on screen) stays
+        // fully visible: its outer top corner keeps a few px from the screen edge
+        const limitPx = W - Math.max(this.safeL, this.safeR) - 5;
+        const outerTop = (x: number) => (
+          this.toScreen(tmpV2.set(x + Math.sin(lean) * TL * so + TH * so, Math.cos(lean) * TL * so, sz + 3.5 * pitch + TW * so * 0.5), scr), scr.x
+        );
+        let lo = box.x - 3;
+        let hi = box.x + EDGE_STACK_OUT;
+        if (outerTop(hi) > limitPx) {
+          for (let i = 0; i < 24; i++) {
+            const mid = (lo + hi) / 2;
+            if (outerTop(mid) > limitPx) hi = mid;
+            else lo = mid;
+          }
+          this.sideX = lo;
+        } else this.sideX = hi;
+      }
       sideMeasure(sz, m);
       // seat 1 (right) and seat 3 (left) mirror each other exactly
       if (beside) {
@@ -897,6 +1010,14 @@ export class TableViewImpl implements TableView {
         const x1 = THREE.MathUtils.clamp(scr.x - stackW / 2, stackW / 2 + 4, W - stackW / 2 - 4);
         setBox(1, 'stack', x1, cy);
         setBox(3, 'stack', W - x1, cy);
+      } else if (edge) {
+        // portrait: the plate hugs the screen edge (over the frame), right under the stack's near end
+        const inset = Math.max(this.safeL, this.safeR) + 4;
+        const py = m.ny + PLATE_RISE * stackH - stackH / 2;
+        setBox(1, 'stack', W - inset - stackW / 2, py);
+        setBox(3, 'stack', inset + stackW / 2, py);
+        B[1].edge = 'right';
+        B[3].edge = 'left';
       } else {
         // the plate tucks a little inboard, just below the stack's near end
         const x1 = THREE.MathUtils.clamp(m.nx - stackW * 0.62, stackW / 2 + 4, W - stackW / 2 - 4);
@@ -905,16 +1026,22 @@ export class TableViewImpl implements TableView {
       }
       // speech-bubble anchors, on each plate's table-centre side
       const bx0 = THREE.MathUtils.clamp(B[0].x, BUBBLE_W / 2 + 4, W - BUBBLE_W / 2 - 4);
-      this.setBubble(0, bx0, B[0].y + B[0].h / 2 + 6, 'up');
+      // edge mode: beside the human's plate (one compact keep-out band above the hand instead of a
+      // bubble zone poking up into the chain area)
+      if (edge && B[0].x + B[0].w / 2 + 6 + BUBBLE_W <= W - 6) this.setBubble(0, B[0].x + B[0].w / 2 + 6, B[0].y, 'right');
+      else this.setBubble(0, bx0, B[0].y + B[0].h / 2 + 6, 'up');
       // landscape: the side plates sit mid-height, so their bubbles go above them (a bubble beside the plate
       // would cut the chain area in two); portrait: beside the plate, toward the table centre
-      if (beside) this.setBubble(1, B[1].x, B[1].y + B[1].h / 2 + 6, 'up');
+      // edge plates: the compact bubble rises over the seat's own stack, clamped to the screen edge, so it
+      // grows inward without cutting the felt in two
+      if (beside || edge) this.setBubble(1, B[1].x, B[1].y + B[1].h / 2 + 6, 'up');
       else this.setBubble(1, B[1].x - B[1].w / 2 - 6, B[1].y, 'left');
       this.setBubble(2, B[2].x, B[2].y - B[2].h / 2 - 6, 'down');
-      if (beside) this.setBubble(3, B[3].x, B[3].y + B[3].h / 2 + 6, 'up');
+      if (beside || edge) this.setBubble(3, B[3].x, B[3].y + B[3].h / 2 + 6, 'up');
       else this.setBubble(3, B[3].x + B[3].w / 2 + 6, B[3].y, 'right');
       this.bounds = { ...base };
-      this.fitChainBounds();
+      if (edge) this.fitEdgeBounds(D);
+      else this.fitChainBounds();
       break;
     }
 
@@ -934,21 +1061,27 @@ export class TableViewImpl implements TableView {
 
   /** overlay rect (y up) of seat s's plate (which = 0) or bubble zone (which = 1) */
   private seatRect(s: number, which: 0 | 1, out: { x0: number; x1: number; y0: number; y1: number }): void {
+    const b = this.plateBoxes[s];
     if (which === 0) {
-      const b = this.plateBoxes[s];
       out.x0 = this.plateX[s] - b.w / 2;
       out.x1 = this.plateX[s] + b.w / 2;
       out.y0 = this.plateY[s] - b.h / 2;
       out.y1 = this.plateY[s] + b.h / 2;
+      // an edge plate's count badge pokes out above the avatar (its outer top corner)
+      if (b.edge) out.y1 += b.d * 0.26;
       return;
     }
     const x = this.bubX[s];
     const y = this.bubY[s];
     const d = this.bubDir[s];
-    out.x0 = d === 'left' ? x - BUBBLE_W : d === 'right' ? x : x - BUBBLE_W / 2;
-    out.x1 = out.x0 + BUBBLE_W;
-    out.y0 = d === 'up' ? y : d === 'down' ? y - BUBBLE_H : y - BUBBLE_H / 2;
-    out.y1 = out.y0 + BUBBLE_H;
+    const BW = b.edge ? BUBBLE_EDGE_W : BUBBLE_W;
+    const BH = b.edge ? BUBBLE_EDGE_H : BUBBLE_H;
+    out.x0 = d === 'left' ? x - BW : d === 'right' ? x : x - BW / 2;
+    // the UI clamps bubbles 6 px inside the view (edge plates' bubbles rely on it to grow inward)
+    if (b.edge) out.x0 = THREE.MathUtils.clamp(out.x0, 6, Math.max(6, this.W - BW - 6));
+    out.x1 = out.x0 + BW;
+    out.y0 = d === 'up' ? y : d === 'down' ? y - BH : y - BH / 2;
+    out.y1 = out.y0 + BH;
   }
 
   /**
@@ -1015,6 +1148,76 @@ export class TableViewImpl implements TableView {
     if (best) this.bounds = best;
     // never let the chain run under the side plates, even when no height cut fits
     else if (plateHalf >= 2.5) this.bounds = { ...base, w: plateHalf * 2 };
+  }
+
+  /**
+   * Portrait edge mode: the chain gets the whole felt between the partner's row and the human's hand,
+   * as wide as the felt (and the screen) allows; plates, bubble zones and the side stacks become keep-out
+   * rects the snake must dodge, so they only cost room where they actually are. Also sets the chain's
+   * size limits from on-screen px: at most ~0.8 of a hand tile, and a readability floor.
+   */
+  private fitEdgeBounds(D: number): void {
+    void D;
+    const base = this.bounds;
+    const W = this.W;
+    const H = this.H;
+    const so = OPP_SCALE;
+    const cz0 = base.cz - base.h / 2;
+    let cz1 = base.cz + base.h / 2;
+    // y-up px: a few px above the top of the human's fan
+    const nearPx = this.handTopPx + 8;
+    if (this.pxToTable(W / 2, nearPx, tmpV3)) cz1 = Math.max(cz0 + 3, tmpV3.z);
+    let half = this.box.x + 0.9 - 0.35;
+    // a rectangle: the screen edge is narrowest (in table units) at its near row
+    const inset = Math.max(this.safeL, this.safeR) + 6;
+    if (this.pxToTable(W - inset, nearPx, tmpV3)) half = Math.min(half, Math.abs(tmpV3.x));
+    this.bounds = { cx: 0, cz: (cz0 + cz1) / 2, w: half * 2, h: cz1 - cz0 };
+    const r = { x0: 0, x1: 0, y0: 0, y1: 0 };
+    const avoid: AvoidRect[] = [];
+    const pad = 0.2;
+    const addPx = () => {
+      let x0 = Infinity;
+      let x1 = -Infinity;
+      let z0 = Infinity;
+      let z1 = -Infinity;
+      for (const [px, py] of [
+        [r.x0, r.y0],
+        [r.x1, r.y0],
+        [r.x0, r.y1],
+        [r.x1, r.y1],
+      ]) {
+        // rays above the horizon: treat as far away
+        if (!this.pxToTable(px, py, tmpV3)) tmpV3.set(px < W / 2 ? -1e3 : 1e3, 0, -1e3);
+        x0 = Math.min(x0, tmpV3.x);
+        x1 = Math.max(x1, tmpV3.x);
+        z0 = Math.min(z0, tmpV3.z);
+        z1 = Math.max(z1, tmpV3.z);
+      }
+      if (z1 + pad < cz0 || z0 - pad > cz1) return;
+      avoid.push({ x0: x0 - pad, x1: x1 + pad, z0: z0 - pad, z1: z1 + pad });
+    };
+    for (let s = 0; s < 4; s++) {
+      this.seatRect(s, 0, r);
+      addPx();
+      this.seatRect(s, 1, r);
+      addPx();
+    }
+    // side stacks and the zone their tiles are revealed in at the end of a hand
+    const zHalf = 3.5 * TW * so * 1.12 * this.sidePitchK + 0.45;
+    const xIn = this.sideX - SIDE_REVEAL_X - (TL * so) / 2 - 0.25;
+    avoid.push({ x0: xIn, x1: xIn + 20, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
+    avoid.push({ x0: -xIn - 20, x1: -xIn, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
+    this.chainAvoid = avoid;
+    this.chainVertical = true;
+    // size limits in on-screen px, measured at the middle of the chain area
+    const scr = { x: 0, y: 0 };
+    this.toScreen(tmpV2.set(-0.5, 0, this.bounds.cz), scr);
+    const xa = scr.x;
+    this.toScreen(tmpV2.set(0.5, 0, this.bounds.cz), scr);
+    const ppw = Math.max(1e-3, scr.x - xa);
+    const handLen = (TL * this.handHs * H) / (2 * this.handHalfH);
+    this.chainMaxCell = (CHAIN_MAX_OF_HAND * handLen) / (TL * ppw);
+    this.chainSoftMin = Math.min(this.chainMaxCell, Math.max(CHAIN_MIN_PX, CHAIN_MIN_OF_HAND * handLen) / (TL * ppw));
   }
 
   private layoutSpritePlates(plateBesideHand: boolean, bottomN: number, hsN: number, handHalfLen: number): void {
@@ -1232,12 +1435,86 @@ export class TableViewImpl implements TableView {
     return t.s;
   }
 
+  /**
+   * Attract-ring geometry: radius derived from the tile size so the 28 standing tiles never touch,
+   * then the whole ring (radius + tiles) is scaled uniformly until its screen projection fits the
+   * free band between the logo and the menu buttons. Cached per viewport/camera; no allocations.
+   */
+  private idleGeoFor(): RingGeo {
+    const g = this.idleGeo;
+    const k = this.idleGeoKey;
+    if (k[0] === this.W && k[1] === this.H && k[2] === this.camDist && k[3] === this.bounds.cz) return g;
+    k[0] = this.W;
+    k[1] = this.H;
+    k[2] = this.camDist;
+    k[3] = this.bounds.cz;
+    const cam = (this.idleCam ??= new THREE.PerspectiveCamera());
+    cam.position.copy(this.baseCamPos);
+    cam.quaternion.copy(this.baseCamQuat);
+    cam.updateMatrixWorld(true);
+    cam.projectionMatrix.copy(this.camera.projectionMatrix);
+    cam.projectionMatrixInverse.copy(this.camera.projectionMatrixInverse);
+    const p = this.idleScratch;
+    const hw1 = ringHalfWidth(IDLE_DIMS, IDLE_TILT);
+    // free band (NDC) between the logo and the menu buttons
+    const yTop = 0.44;
+    const yBot = -0.42;
+    const xMax = 0.86;
+    let minY = 0;
+    let maxY = 0;
+    let maxX = 0;
+    const span = (s: number, z: number): void => {
+      const ro = g.r + (IDLE_DIMS.t / 2 + hw1) * s;
+      const top = (TL + IDLE_LIFT + IDLE_BOB) * s;
+      minY = Infinity;
+      maxY = -Infinity;
+      maxX = 0;
+      for (let j = 0; j < 24; j++) {
+        const a = (j / 24) * Math.PI * 2;
+        for (let h = 0; h < 2; h++) {
+          p.set(Math.cos(a) * ro, h ? top : 0, z + Math.sin(a) * ro).project(cam);
+          minY = Math.min(minY, p.y);
+          maxY = Math.max(maxY, p.y);
+          maxX = Math.max(maxX, Math.abs(p.x));
+        }
+      }
+    };
+    // ring at tile scale s, centred vertically in the band: does it fit? (sets idleCz)
+    const fits = (s: number): boolean => {
+      fitRing(g, 28, IDLE_DIMS, IDLE_TILT, IDLE_GAP, s, Infinity);
+      let zlo = this.bounds.cz - 8;
+      let zhi = this.bounds.cz + 8;
+      for (let it = 0; it < 16; it++) {
+        const z = (zlo + zhi) / 2;
+        span(s, z);
+        // nearer the camera (+z) projects lower
+        if ((minY + maxY) / 2 > (yTop + yBot) / 2) zlo = z;
+        else zhi = z;
+      }
+      this.idleCz = (zlo + zhi) / 2;
+      span(s, this.idleCz);
+      return maxX <= xMax && maxY <= yTop && minY >= yBot;
+    };
+    let lo = 0.2;
+    let hi = IDLE_BASE_S;
+    if (fits(hi)) lo = hi;
+    else
+      for (let it = 0; it < 16; it++) {
+        const mid = (lo + hi) / 2;
+        if (fits(mid)) lo = mid;
+        else hi = mid;
+      }
+    fits(lo);
+    return g;
+  }
+
   private idlePose(i: number, time: number, out: V3, outQ: Q): number {
-    const R = Math.min(this.bounds.w, this.bounds.h) * 0.36;
+    const g = this.idleGeoFor();
+    const R = g.r;
     const a = (i / 28) * Math.PI * 2 + time * 0.18;
-    const s = 0.8;
-    const bob = Math.sin(time * 1.6 + i * 0.7) * 0.18;
-    out.set(Math.cos(a) * R, (TL * s) / 2 + 0.25 + bob, this.bounds.cz + Math.sin(a) * R * 0.8);
+    const s = g.s;
+    const bob = (Math.sin(time * 1.6 + i * 0.7) * 0.5 + 0.5) * IDLE_BOB * s;
+    out.set(Math.cos(a) * R, (TL * s) / 2 + IDLE_LIFT * s + bob, this.idleCz + Math.sin(a) * R);
     // stand upright, face pointing outward
     const ox = Math.cos(a);
     const oz = Math.sin(a);
@@ -1246,7 +1523,7 @@ export class TableViewImpl implements TableView {
     const az = bz.crossVectors(ax, ay);
     tmpM.makeBasis(ax, ay, az);
     outQ.setFromRotationMatrix(tmpM);
-    tmpQ2.setFromAxisAngle(ay, Math.sin(time * 0.9 + i) * 0.12);
+    tmpQ2.setFromAxisAngle(ay, Math.sin(time * 0.9 + i) * IDLE_TILT);
     outQ.premultiply(tmpQ2);
     return s;
   }
@@ -1532,7 +1809,7 @@ export class TableViewImpl implements TableView {
     this.idleActive = false;
     this.chain = [];
     this.ends = null;
-    this.layoutRes = layoutChain([], this.bounds, { maxCell: MAX_CELL });
+    this.layoutRes = this.fitChain([]);
     const dealt = ev.hands.map((h) => h.map((t) => t.id));
     this.hands = dealt.map((h) => h.slice());
     this.sortHuman();
@@ -1689,7 +1966,7 @@ export class TableViewImpl implements TableView {
     const prev = this.layoutRes;
     this.chain.push(ev.placed);
     this.ends = ev.ends;
-    this.layoutRes = layoutChain(this.chain, this.bounds, { maxCell: MAX_CELL });
+    this.layoutRes = this.fitChain(this.chain);
     // a winning (domino) play gets the signature finish; a blocking play is placed normally
     const slam = ev.finishing ?? ev.tilesLeft === 0;
 
@@ -2070,7 +2347,7 @@ export class TableViewImpl implements TableView {
     this.chain = [];
     this.ends = null;
     this.hands = [[], [], [], []];
-    this.layoutRes = layoutChain([], this.bounds, { maxCell: MAX_CELL });
+    this.layoutRes = this.fitChain([]);
     this.dust.clear();
     this.confetti.clear();
     for (const p of this.popups) p.sprite.visible = false;
@@ -2269,7 +2546,7 @@ export class TableViewImpl implements TableView {
 
     this.chain = h.chain.slice();
     this.ends = h.ends ? { left: h.ends.left, right: h.ends.right } : null;
-    this.layoutRes = layoutChain(this.chain, this.bounds, { maxCell: MAX_CELL });
+    this.layoutRes = this.fitChain(this.chain);
     this.hands = [0, 1, 2, 3].map((s) => (h.hands[s] ?? []).map((t) => t.id));
     this.sortHuman();
 
@@ -2820,7 +3097,7 @@ export class TableViewImpl implements TableView {
         const end = m.side === 'left' ? this.ends.left : this.ends.right;
         placed = { tile, seat: 0, side: m.side, outer: (tile.a === end ? tile.b : tile.a) as Pip };
       }
-      const res = layoutChain(this.chain.concat(placed), this.bounds, { cell: this.layoutRes.cell });
+      const res = this.fitChain(this.chain.concat(placed), true);
       const p = res.poses[res.poses.length - 1];
       const key = `${p.x.toFixed(3)},${p.z.toFixed(3)}`;
       if (seen.has(key)) continue;

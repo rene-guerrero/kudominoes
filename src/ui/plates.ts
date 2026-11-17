@@ -15,7 +15,7 @@ interface PlateEl {
   name: HTMLElement;
   count: HTMLElement;
   num: Text;
-  last: { tf: string; w: number; h: number; d: number; layout: string; visible: boolean; active: boolean; winner: boolean; count: number; pips: number | null };
+  last: { tf: string; w: number; h: number; d: number; layout: string; edge: string; visible: boolean; active: boolean; winner: boolean; count: number; pips: number | null };
 }
 
 export class SeatPlates {
@@ -36,7 +36,7 @@ export class SeatPlates {
       const count = h('span.plate-count', h('i.plate-tile'), num);
       const root = h('div.plate', { class: `seat-${s} team-${s % 2}` }, h('div.plate-info', name, count), av);
       this.el.append(root);
-      return { root, av, dot, name, count, num, last: { tf: '', w: 0, h: 0, d: 0, layout: '', visible: false, active: false, winner: false, count: -1, pips: null } };
+      return { root, av, dot, name, count, num, last: { tf: '', w: 0, h: 0, d: 0, layout: '', edge: '', visible: false, active: false, winner: false, count: -1, pips: null } };
     });
     this.setAvatars(true);
   }
@@ -87,11 +87,15 @@ export class SeatPlates {
       const b = plates[s];
       const p = this.p[s];
       const L = p.last;
-      if (b.w !== L.w || b.h !== L.h || b.d !== L.d || b.layout !== L.layout) {
+      const edge = b.edge ?? '';
+      if (b.w !== L.w || b.h !== L.h || b.d !== L.d || b.layout !== L.layout || edge !== L.edge) {
         L.w = b.w;
         L.h = b.h;
         L.d = b.d;
         L.layout = b.layout;
+        L.edge = edge;
+        p.root.classList.toggle('edge-l', edge === 'left');
+        p.root.classList.toggle('edge-r', edge === 'right');
         const st = p.root.style;
         st.width = `${b.w}px`;
         st.height = `${b.h}px`;
@@ -151,7 +155,8 @@ export class SeatPlates {
     }
     const anchor = box.bubble;
     const dir = anchor?.dir ?? (seat === 3 ? 'right' : seat === 1 ? 'left' : seat === 2 ? 'down' : 'up');
-    b.className = `plate-bubble dir-${dir}${strong ? ' strong' : ''}`;
+    // edge plates (portrait sides) get the compact bubble, rising over their stack and growing inward
+    b.className = `plate-bubble dir-${dir}${strong ? ' strong' : ''}${box.edge ? ' edge' : ''}`;
     b.textContent = text;
     b.style.transform = 'none';
     b.getAnimations().forEach((a) => a.cancel());
@@ -186,7 +191,10 @@ export class SeatPlates {
     x = Math.max(6, Math.min(W - bw - 6, x));
     y = Math.max(6, Math.min(H - bh - 6, y));
     b.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
-    const origin = dir === 'right' ? '0% 50%' : dir === 'left' ? '100% 50%' : dir === 'down' ? '50% 0%' : '30% 100%';
+    // grow out of the anchor (after clamping, an edge plate's bubble starts at its outer end)
+    const ox = anchor && (dir === 'up' || dir === 'down') ? `${Math.round(Math.max(0, Math.min(1, (anchor.x - x) / bw)) * 100)}%` : null;
+    const origin =
+      dir === 'right' ? '0% 50%' : dir === 'left' ? '100% 50%' : dir === 'down' ? `${ox ?? '50%'} 0%` : `${ox ?? '30%'} 100%`;
     b.style.transformOrigin = origin;
     const base = b.style.transform;
     const rm = prefersReducedMotion();

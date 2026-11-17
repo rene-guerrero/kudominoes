@@ -6,7 +6,13 @@
  * U-turns (two corner tiles) before reaching the bounds, folding back on its own half of the table
  * (right arm folds toward +lateral, left arm toward -lateral, point-symmetric so they never meet).
  * Doubles are placed crosswise on straight runs. If the result does not fit the bounds at the
- * preferred cell size, the cell size is shrunk until it does (auto-fit).
+ * preferred cell size, the cell size is shrunk until it does (auto-fit), in fine steps so it shrinks
+ * as little as possible.
+ *
+ * Optional keep-out rects (`avoid`: plates, stacks, speech-bubble zones that poke into the bounds) are
+ * honoured too: before shrinking, the whole snake may slide a cell or two away from them. A soft
+ * readability floor (`softMinCell`) is only crossed when nothing fits above it: first the other
+ * orientation is tried at sizes >= the floor, and only then does the cell keep shrinking.
  *
  * Output is in world XZ (y up). `rotY` follows three.js: rotation about +Y; a tile's local +X axis
  * points at its `b` pip half (the renderer maps pip `a` to local -X and `b` to local +X).
@@ -37,13 +43,32 @@ export interface ChainLayoutResult {
   fits: boolean;
   /** true when the primary axis is world Z (portrait-ish bounds) */
   vertical: boolean;
+  /** slide applied to dodge `avoid` rects (cell units, primary frame) */
+  shift: { x: number; y: number };
+}
+
+/** world-XZ keep-out rect */
+export interface AvoidRect {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
 }
 
 export interface ChainLayoutOptions {
   maxCell?: number;
+  /** hard floor of the auto-fit */
   minCell?: number;
+  /** readability floor: crossed only when nothing (either orientation) fits at or above it */
+  softMinCell?: number;
   /** force a cell size (no fitting); used for ghost previews */
   cell?: number;
+  /** keep-out rects inside the bounds (world XZ) */
+  avoid?: readonly AvoidRect[];
+  /** force the primary axis (default: the longer side of the bounds) */
+  vertical?: boolean;
+  /** with `cell`: reuse this slide (cell units, primary frame) so previews match the live layout */
+  shift?: { x: number; y: number };
 }
 
 const DX = [1, 0, -1, 0];
@@ -78,7 +103,29 @@ function orientAlong(d: number, tileB: number, outer: number): number {
   return ANG[d] + (outer === tileB ? 0 : Math.PI);
 }
 
-function placeOnArm(arm: Arm, a: number, b: number, outer: number, HW: number, HH: number): P2 {
+/** keep-out rect in the primary cell frame */
+interface Obs {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
+function hits(obs: readonly Obs[], x0: number, x1: number, y0: number, y1: number): boolean {
+  for (const o of obs) if (x1 > o.x0 + EPS && x0 < o.x1 - EPS && y1 > o.y0 + EPS && y0 < o.y1 - EPS) return true;
+  return false;
+}
+
+/** does the rect spanning [a0, a1] along direction d and [l0, l1] toward direction lat, from (ox, oy), hit one? */
+function spanHits(obs: readonly Obs[], d: number, a0: number, a1: number, lat: number, l0: number, l1: number, ox: number, oy: number): boolean {
+  const xa = ox + DX[d] * a0 + DX[lat] * l0;
+  const ya = oy + DY[d] * a0 + DY[lat] * l0;
+  const xb = ox + DX[d] * a1 + DX[lat] * l1;
+  const yb = oy + DY[d] * a1 + DY[lat] * l1;
+  return hits(obs, Math.min(xa, xb), Math.max(xa, xb), Math.min(ya, yb), Math.max(ya, yb));
+}
+
+function placeOnArm(arm: Arm, a: number, b: number, outer: number, HW: number, HH: number, obs?: readonly Obs[]): P2 {
   const dbl = a === b;
   const d = arm.dir;
   if (arm.turned) {
@@ -91,7 +138,13 @@ function placeOnArm(arm: Arm, a: number, b: number, outer: number, HW: number, H
   const npy = arm.py + DY[d] * adv;
   const along = DX[d] !== 0 ? npx * DX[d] : npy * DY[d];
   const limit = DX[d] !== 0 ? HW : HH;
-  if (along + 1 <= limit + EPS) {
+  // turn early in front of a keep-out rect: the straight tile and the room a corner would need after it
+  // (one cell further on, reaching two cells out to the fold side) must be clear
+  const cw = dbl ? 1 : 0.5;
+  const blocked =
+    !!obs &&
+    (spanHits(obs, d, 0, adv, arm.lat, -cw, cw, arm.px, arm.py) || spanHits(obs, d, adv, adv + 1, arm.lat, -0.5, 1.5, arm.px, arm.py));
+  if (along + 1 <= limit + EPS && !blocked) {
     const cx = arm.px + DX[d] * adv * 0.5;
     const cy = arm.py + DY[d] * adv * 0.5;
     arm.px = npx;
@@ -117,7 +170,7 @@ function turn(arm: Arm, nd: number, b: number, outer: number): P2 {
   return mk(cx, cy, orientAlong(nd, b, outer), false, DX[nd] !== 0);
 }
 
-function rawLayout(chain: PlacedTile[], HW: number, HH: number): P2[] {
+function rawLayout(chain: PlacedTile[], HW: number, HH: number, obs?: readonly Obs[]): P2[] {
   const out: P2[] = [];
   if (chain.length === 0) return out;
   const first = chain[0];
@@ -136,7 +189,7 @@ function rawLayout(chain: PlacedTile[], HW: number, HH: number): P2[] {
   for (let i = 1; i < chain.length; i++) {
     const p = chain[i];
     const arm = p.side === 'left' ? left : right;
-    out.push(placeOnArm(arm, p.tile.a, p.tile.b, p.outer, HW, HH));
+    out.push(placeOnArm(arm, p.tile.a, p.tile.b, p.outer, HW, HH, obs));
   }
   return out;
 }
@@ -174,7 +227,14 @@ function shiftToFit(ps: P2[], HW: number, HH: number): void {
   }
 }
 
-function valid(ps: P2[], HW: number, HH: number): boolean {
+interface Frame {
+  vertical: boolean;
+  cx: number;
+  cz: number;
+  cell: number;
+}
+
+function valid(ps: P2[], HW: number, HH: number, avoid: readonly AvoidRect[] | undefined, f: Frame): boolean {
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
     if (p.x - p.hx < -HW - EPS || p.x + p.hx > HW + EPS) return false;
@@ -183,8 +243,78 @@ function valid(ps: P2[], HW: number, HH: number): boolean {
       const q = ps[j];
       if (Math.abs(p.x - q.x) < p.hx + q.hx - EPS && Math.abs(p.y - q.y) < p.hy + q.hy - EPS) return false;
     }
+    if (avoid && avoid.length) {
+      // the tile's AABB in world XZ (same frame mapping as the output poses)
+      const c = f.cell;
+      const wx = f.vertical ? f.cx - p.y * c : f.cx + p.x * c;
+      const wz = f.vertical ? f.cz - p.x * c : f.cz - p.y * c;
+      const hx = (f.vertical ? p.hy : p.hx) * c;
+      const hz = (f.vertical ? p.hx : p.hy) * c;
+      for (const r of avoid) {
+        if (wx + hx > r.x0 + EPS && wx - hx < r.x1 - EPS && wz + hz > r.z0 + EPS && wz - hz < r.z1 - EPS) return false;
+      }
+    }
   }
   return true;
+}
+
+/** slides tried in order (cell units, primary frame) before shrinking when keep-out rects are in play */
+const SHIFTS: [number, number][] = [
+  [0, 0],
+  [0, 1],
+  [0, -1],
+  [1, 0],
+  [-1, 0],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+  [0, 2],
+  [0, -2],
+  [2, 0],
+  [-2, 0],
+];
+
+interface Trial {
+  ps: P2[];
+  shift: { x: number; y: number };
+}
+
+/** layout at one cell size; with keep-out rects, the first slide that clears them */
+function tryCell(
+  chain: PlacedTile[],
+  PW: number,
+  PH: number,
+  cell: number,
+  vertical: boolean,
+  bounds: ChainBounds,
+  avoid: readonly AvoidRect[] | undefined,
+  fixedShift?: { x: number; y: number },
+): { trial: Trial; fits: boolean } {
+  const HW = PW / cell;
+  const HH = PH / cell;
+  const f: Frame = { vertical, cx: bounds.cx, cz: bounds.cz, cell };
+  // keep-out rects in the primary cell frame (inverse of the output mapping)
+  let obs: Obs[] | undefined;
+  if (avoid && avoid.length) {
+    obs = avoid.map((r) => ({
+      x0: vertical ? (bounds.cz - r.z1) / cell : (r.x0 - bounds.cx) / cell,
+      x1: vertical ? (bounds.cz - r.z0) / cell : (r.x1 - bounds.cx) / cell,
+      y0: vertical ? (bounds.cx - r.x1) / cell : (bounds.cz - r.z1) / cell,
+      y1: vertical ? (bounds.cx - r.x0) / cell : (bounds.cz - r.z0) / cell,
+    }));
+  }
+  const base = rawLayout(chain, HW, HH, obs);
+  shiftToFit(base, HW, HH);
+  const shifts: [number, number][] = fixedShift ? [[fixedShift.x, fixedShift.y]] : avoid && avoid.length ? SHIFTS : [[0, 0]];
+  let first: Trial | null = null;
+  for (const [sx, sy] of shifts) {
+    const ps = sx === 0 && sy === 0 ? base : base.map((p) => ({ ...p, x: p.x + sx, y: p.y + sy }));
+    const trial = { ps, shift: { x: sx, y: sy } };
+    first ??= trial;
+    if (valid(ps, HW, HH, avoid, f)) return { trial, fits: true };
+  }
+  return { trial: first!, fits: false };
 }
 
 export function layoutChain(
@@ -192,26 +322,58 @@ export function layoutChain(
   bounds: ChainBounds,
   opts: ChainLayoutOptions = {},
 ): ChainLayoutResult {
-  const vertical = bounds.h > bounds.w;
-  // primary-frame half extents in world units
-  const PW = (vertical ? bounds.h : bounds.w) / 2;
-  const PH = (vertical ? bounds.w : bounds.h) / 2;
+  const prefVertical = opts.vertical ?? bounds.h > bounds.w;
   const maxCell = opts.maxCell ?? 1;
-  const minCell = opts.minCell ?? 0.2;
+  const minCell = Math.min(maxCell, opts.minCell ?? 0.2);
+  const softMin = Math.min(maxCell, Math.max(minCell, opts.softMinCell ?? minCell));
+  const avoid = opts.avoid;
+  const half = (v: boolean) => ({ PW: (v ? bounds.h : bounds.w) / 2, PH: (v ? bounds.w : bounds.h) / 2 });
 
-  let cell = opts.cell ?? maxCell;
-  let ps = rawLayout(chain, PW / cell, PH / cell);
-  shiftToFit(ps, PW / cell, PH / cell);
-  let fits = valid(ps, PW / cell, PH / cell);
-  if (opts.cell === undefined) {
-    while (!fits && cell > minCell) {
-      cell = Math.max(minCell, cell * 0.94);
-      ps = rawLayout(chain, PW / cell, PH / cell);
-      shiftToFit(ps, PW / cell, PH / cell);
-      fits = valid(ps, PW / cell, PH / cell);
+  /** the largest cell in [lo, hi] (scanning down in fine steps) that fits; null when none does */
+  const scan = (v: boolean, hi: number, lo: number) => {
+    const { PW, PH } = half(v);
+    let cell = hi;
+    for (;;) {
+      const r = tryCell(chain, PW, PH, cell, v, bounds, avoid);
+      if (r.fits) return { trial: r.trial, cell };
+      if (cell <= lo + 1e-9) return null;
+      cell = Math.max(lo, cell * 0.97);
+    }
+  };
+
+  let vertical = prefVertical;
+  let cell: number;
+  let trial: Trial;
+  let fits: boolean;
+  if (opts.cell !== undefined) {
+    cell = opts.cell;
+    const { PW, PH } = half(vertical);
+    const r = tryCell(chain, PW, PH, cell, vertical, bounds, avoid, opts.shift);
+    trial = r.trial;
+    fits = r.fits;
+  } else {
+    let best = scan(prefVertical, maxCell, softMin);
+    if (!best && softMin > minCell) {
+      // readability first: the other orientation, still at or above the soft floor
+      const alt = scan(!prefVertical, maxCell, softMin);
+      if (alt) {
+        best = alt;
+        vertical = !prefVertical;
+      } else best = scan(prefVertical, softMin, minCell);
+    }
+    if (best) {
+      cell = best.cell;
+      trial = best.trial;
+      fits = true;
+    } else {
+      cell = minCell;
+      const { PW, PH } = half(vertical);
+      trial = tryCell(chain, PW, PH, cell, vertical, bounds, avoid).trial;
+      fits = false;
     }
   }
 
+  const ps = trial.ps;
   const poses: TilePose[] = new Array(ps.length);
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
@@ -228,5 +390,5 @@ export function layoutChain(
     // 2D frame: y = north = world -Z
     poses[i] = { x: bounds.cx + x * cell, z: bounds.cz - y * cell, rotY: ang, crosswise: p.cw };
   }
-  return { poses, cell, fits, vertical };
+  return { poses, cell, fits, vertical, shift: trial.shift };
 }

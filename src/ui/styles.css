@@ -447,6 +447,22 @@ body[data-mock] .menu,
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 233, 184, 0.55) rgba(0, 0, 0, 0.25);
+}
+/* always-visible, grabbable vertical scrollbar (phones included) */
+.scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 233, 184, 0.55);
+  border-radius: 5px;
+  min-height: 44px;
 }
 .content {
   width: min(100%, 720px);
@@ -1577,6 +1593,19 @@ body[data-mock] .menu,
 .plate.stack .plate-count.pips {
   background: #ef7a5a;
 }
+/* portrait side plates hug the screen edge: narrow pill, count badge on the avatar's outer top corner
+   (inside the box, so nothing pokes into the felt) */
+.plate.stack.edge-l .plate-info,
+.plate.stack.edge-r .plate-info {
+  padding: 0 3px;
+}
+.plate.stack.edge-l .plate-count {
+  right: auto;
+  left: -2px;
+}
+.plate.stack.edge-r .plate-count {
+  right: -2px;
+}
 /* face picker (Ajustes): full-size faces in a horizontally scrollable row */
 .face-opt {
   flex: 0 0 auto;
@@ -1853,6 +1882,16 @@ body[data-mock] .menu,
     0 6px 14px rgba(0, 0, 0, 0.35);
   font-size: 17px;
 }
+/* compact bubble of an edge plate (portrait sides): rises over the seat's stack, keeps the felt clear */
+.plate-bubble.edge {
+  max-width: 76px;
+  padding: 6px 7px 7px;
+  border-radius: 13px;
+  font-size: 13px;
+}
+.plate-bubble.edge.strong {
+  font-size: 13px;
+}
 
 /* ───────────────────────── settings: tabs, rules groups, scrollers ───────────────────────── */
 .set-layout {
@@ -1955,7 +1994,7 @@ body[data-mock] .menu,
   }
   .set-tabs {
     flex-direction: column;
-    width: 190px;
+    width: calc(var(--sal) + 224px);
     padding: 14px 12px calc(var(--sab) + 14px) calc(var(--sal) + 14px);
     border-bottom: 0;
     border-right: 2px solid rgba(0, 0, 0, 0.22);
@@ -1969,6 +2008,9 @@ body[data-mock] .menu,
     padding: 10px 14px;
     font-size: 15px;
   }
+  .set-tab-label {
+    white-space: nowrap;
+  }
   .set-scroll {
     flex: 1;
   }
@@ -1979,7 +2021,11 @@ body[data-mock] .menu,
     padding-bottom: 6px;
   }
   .set-tabs {
-    width: 160px;
+    width: calc(var(--sal) + 212px);
+  }
+  .set-tab {
+    font-size: 14px;
+    padding: 8px 12px;
   }
 }
 .set-label-line {
@@ -2129,7 +2175,8 @@ body[data-mock] .menu,
   scroll-padding: 0 8px;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
-  touch-action: pan-x;
+  /* allow vertical swipes that start on a row to scroll the page */
+  touch-action: pan-x pan-y;
   scrollbar-width: none;
 }
 .hscroll::-webkit-scrollbar {

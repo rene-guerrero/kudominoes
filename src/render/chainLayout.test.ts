@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { PlacedTile, Pip, Tile, Side } from '../contracts';
-import { layoutChain, type ChainBounds, type TilePose } from './chainLayout';
+import { layoutChain, type AvoidRect, type ChainBounds, type ChainLayoutOptions, type TilePose } from './chainLayout';
 
 const ALL: Tile[] = [];
 for (let a = 0; a <= 6; a++) for (let b = a; b <= 6; b++) ALL.push({ id: ALL.length, a: a as Pip, b: b as Pip });
@@ -93,8 +93,8 @@ function halves(p: TilePose, cell: number, t: Tile): { x: number; z: number; pip
   ];
 }
 
-function check(chain: PlacedTile[], b: ChainBounds) {
-  const res = layoutChain(chain, b);
+function check(chain: PlacedTile[], b: ChainBounds, opts: ChainLayoutOptions = {}) {
+  const res = layoutChain(chain, b, opts);
   expect(res.fits).toBe(true);
   const { poses, cell } = res;
   const e = 1e-5;
@@ -118,6 +118,12 @@ function check(chain: PlacedTile[], b: ChainBounds) {
       const q = rects[j];
       const ov = Math.abs(p.x - q.x) < p.hx + q.hx - e && Math.abs(p.z - q.z) < p.hz + q.hz - e;
       expect(ov, `tiles ${i} and ${j} overlap`).toBe(false);
+    }
+  // clear of every keep-out rect
+  for (const q of rects)
+    for (const a of opts.avoid ?? []) {
+      const ov = q.x + q.hx > a.x0 + e && q.x - q.hx < a.x1 - e && q.z + q.hz > a.z0 + e && q.z - q.hz < a.z1 - e;
+      expect(ov, 'tile under a keep-out rect').toBe(false);
     }
   // joints: matching halves are edge-adjacent
   let lastRight = 0;
@@ -192,5 +198,63 @@ describe('layoutChain', () => {
     const base = layoutChain(c, BOUNDS[0]);
     const more = layoutChain(c.concat(randomChain(rng(1), 1)).slice(0, 12), BOUNDS[0], { cell: base.cell });
     expect(more.poses[5]).toEqual(base.poses[5]);
+  });
+
+  /** the real portrait composition at 360x740 (edge plates): full felt width, keep-out rects for the
+   * plates, bubble zones and side stacks; cell limits from on-screen px (max ~0.8 hand tile, floor ~52 px) */
+  const PORTRAIT: ChainBounds = { cx: 0, cz: 2.0, w: 12.0, h: 17.4 };
+  const P_AVOID: AvoidRect[] = [
+    { x0: -6.2, x1: -0.7, z0: 9, z1: 11 }, // human plate
+    { x0: 0.0, x1: 5.7, z0: 9, z1: 11 }, // human bubble (beside the plate)
+    { x0: 3.7, x1: 6.9, z0: 3.4, z1: 6.8 }, // right edge plate
+    { x0: 3.2, x1: 7, z0: 2, z1: 4 }, // its compact bubble
+    { x0: 0, x1: 5.7, z0: -7.3, z1: -4.6 }, // partner's bubble
+    { x0: -6.9, x1: -3.7, z0: 3.4, z1: 6.8 },
+    { x0: -7, x1: -3.2, z0: 2, z1: 4 },
+    { x0: 4.6, x1: 24.6, z0: -1.6, z1: 4.6 }, // side stacks + reveal zone
+    { x0: -24.6, x1: -4.6, z0: -1.6, z1: 4.6 },
+  ];
+  const P_OPTS: ChainLayoutOptions = { maxCell: 1.48, softMinCell: 1.04, vertical: true, avoid: P_AVOID };
+
+  it('portrait: chains dodge keep-out rects and keep the readability floor until late', () => {
+    const r = rng(2024);
+    let below = 0;
+    let total = 0;
+    for (let n = 0; n < 160; n++) {
+      const c = randomChain(r, 4 + (n % 17)); // 4..20 tiles
+      const res = check(c, PORTRAIT, P_OPTS);
+      total++;
+      if (res.cell < 1.04 - 1e-9) below++;
+      // early and mid-hand chains never drop below the readability floor
+      if (c.length <= 14) expect(res.cell).toBeGreaterThanOrEqual(1.04 - 1e-9);
+      // short chains always get the full size
+      if (c.length <= 4) expect(res.cell).toBeCloseTo(1.48, 6);
+    }
+    // the floor is only crossed late (long, lopsided chains)
+    expect(below / total).toBeLessThan(0.2);
+  });
+
+  it('portrait worst case: full 28-tile chains still fit, shrinking as little as needed', () => {
+    const r = rng(4242);
+    for (let n = 0; n < 40; n++) {
+      const c = chainFromLine(eulerLine(r), Math.floor(r() * 28), r);
+      const res = check(c, PORTRAIT, P_OPTS);
+      expect(res.cell).toBeGreaterThan(0.5);
+      // shrunk as little as possible: one fine step (3%) larger does not fit
+      if (res.cell < 1.04 * 0.97) {
+        const bigger = layoutChain(c, PORTRAIT, { cell: res.cell / 0.97, vertical: res.vertical, avoid: P_AVOID });
+        expect(bigger.fits).toBe(false);
+      }
+    }
+  });
+
+  it('portrait preview (forced cell + orientation + slide) reproduces the live poses', () => {
+    const r = rng(77);
+    for (let n = 0; n < 30; n++) {
+      const c = randomChain(r, 6 + (n % 14));
+      const live = layoutChain(c, PORTRAIT, P_OPTS);
+      const prev = layoutChain(c, PORTRAIT, { cell: live.cell, vertical: live.vertical, shift: live.shift, avoid: P_AVOID });
+      expect(prev.poses).toEqual(live.poses);
+    }
   });
 });
