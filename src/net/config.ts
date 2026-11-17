@@ -5,8 +5,8 @@
  * production: MP_SERVER_URL below.
  */
 
-// TODO(coordinator): set to the deployed Worker URL after `npx wrangler deploy` (server/).
-export const MP_SERVER_URL = 'https://kudominoes-rooms.<subdomain>.workers.dev';
+// deployed room server (server/, `npx wrangler deploy`)
+export const MP_SERVER_URL = 'https://kudominoes-rooms.renegue1256.workers.dev';
 
 /** the published web build; share links always point here (also from the Android app) */
 export const WEB_URL = 'https://rene-guerrero.github.io/kudominoes/';
