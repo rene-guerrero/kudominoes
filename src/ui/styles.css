@@ -87,6 +87,10 @@ button {
 .layer-hud > .hud {
   pointer-events: none;
 }
+/* the plates' speech bubbles (z-index inside) never float above screens or modals */
+.layer-hud {
+  isolation: isolate;
+}
 
 .boot-error {
   position: absolute;
@@ -2051,7 +2055,10 @@ body[data-mock] .menu,
   left: 0;
   top: 0;
   z-index: 5;
-  max-width: min(46vw, 220px);
+  /* never an ellipsis: the text wraps to as many lines as it needs; the box grows to its longest word */
+  width: max-content;
+  max-width: min(52vw, 210px);
+  min-width: min-content;
   padding: 7px 13px 8px;
   border-radius: 16px;
   background: var(--cream);
@@ -2059,9 +2066,11 @@ body[data-mock] .menu,
   font-weight: 900;
   font-size: 16px;
   line-height: 1.15;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+  text-wrap: balance;
   box-shadow:
     0 3px 0 #c9ae86,
     0 6px 14px rgba(0, 0, 0, 0.35);
@@ -2079,6 +2088,7 @@ body[data-mock] .menu,
 }
 /* compact bubble of an edge plate (portrait sides): rises over the seat's stack, keeps the felt clear */
 .plate-bubble.edge {
+  /* BUBBLE_EDGE_W in tableView.ts; a longer phrase wraps (taller), a long word widens the box */
   max-width: 76px;
   padding: 6px 7px 7px;
   border-radius: 13px;
@@ -3484,4 +3494,892 @@ button.ng-seat:hover {
 :root[data-quality='low'] .av-zzz span + span,
 .reduce-motion .av-zzz span + span {
   display: none;
+}
+
+/* ───────────────────────── pause: sound / music / vibration toggles + Cómo jugar ───────────────────────── */
+.pause-row {
+  container-type: inline-size;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+.audio-tg {
+  flex: 0 0 auto;
+  width: 46px;
+  height: auto;
+  min-height: 46px;
+  border-radius: 16px;
+  background: rgba(255, 246, 230, 0.12);
+  box-shadow:
+    0 4px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 0 2px rgba(255, 246, 230, 0.18);
+}
+.audio-tg svg {
+  width: 24px;
+  height: 24px;
+}
+.audio-tg[aria-pressed='true'] .off,
+.audio-tg[aria-pressed='false'] .on {
+  display: none;
+}
+.audio-tg[aria-pressed='false'] {
+  background: rgba(0, 0, 0, 0.22);
+  color: rgba(255, 246, 230, 0.5);
+  box-shadow:
+    0 4px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 0 2px rgba(255, 246, 230, 0.08);
+}
+.audio-tg:active {
+  transform: translateY(3px);
+}
+/* Cómo jugar takes the rest of the row; if its label cannot fit beside the toggles it gets its own line */
+.pause-row .pause-howto {
+  flex: 1 1 0;
+  min-width: max-content;
+  padding-left: 12px;
+  padding-right: 12px;
+  gap: 8px;
+  font-size: 16px;
+}
+/* the book icon only when the row has room for it (narrow phones: label only, still one row) */
+.pause-row .pause-howto .btn-icon {
+  display: none;
+}
+@container (min-width: 316px) {
+  .pause-row .pause-howto .btn-icon {
+    display: inline-grid;
+  }
+}
+.modal-wrap > .card.pause {
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+/* ───────────────────────── Acerca de ───────────────────────── */
+.menu-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 10px;
+}
+.about-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--cream-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.about-btn-icon {
+  display: inline-grid;
+  width: 17px;
+  height: 17px;
+}
+.about-btn-icon svg,
+.about-row-icon svg,
+.about-ico svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+.about-btn:focus-visible,
+.about-row:focus-visible,
+.about-link:focus-visible {
+  outline: 3px solid var(--mango);
+  outline-offset: 2px;
+}
+.modal-wrap > .card.about {
+  width: min(100%, 340px);
+  text-align: center;
+  padding: 24px 22px 20px;
+}
+.about-tile {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.about-tile .tile {
+  transform: rotate(-10deg);
+  filter: drop-shadow(0 5px 7px rgba(0, 0, 0, 0.35));
+}
+.about-name {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--cream);
+}
+.about-name .ku {
+  color: var(--mango);
+}
+.card.about p {
+  margin: 0;
+}
+.card.about .about-version {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.card.about .about-tagline {
+  margin: 14px 0 16px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--cream-2);
+}
+.card.about .about-made {
+  font-size: 15px;
+  color: var(--cream-2);
+}
+.card.about .about-source {
+  margin-top: 6px;
+}
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 4px;
+  border-radius: 8px;
+  color: #ffd98a;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+.about-ico {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+}
+.about-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
+.about-actions .btn {
+  min-width: 140px;
+}
+/* Ajustes → Juego: the last row */
+.set-card.about-card {
+  padding: 0;
+}
+.about-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: var(--cream);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+.about-row-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  color: var(--cream-2);
+}
+.about-row-label {
+  flex: 1;
+}
+.about-row-ver {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.about-row .rg-chev {
+  transform: rotate(-45deg);
+}
+/* short screens (phone landscape): tile beside the name, tighter spacing, so the card never scrolls */
+@media (max-height: 500px) {
+  .modal-wrap > .card.about {
+    width: min(100%, 380px);
+    padding: 16px 20px 14px;
+  }
+  .about-head {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: center;
+    align-items: center;
+    column-gap: 16px;
+  }
+  .about-head .about-tile {
+    grid-row: span 2;
+    margin: 0;
+  }
+  .about-head .about-name {
+    align-self: end;
+    text-align: left;
+  }
+  .card.about .about-head .about-version {
+    align-self: start;
+    text-align: left;
+  }
+  .card.about .about-tagline {
+    margin: 10px 0 8px;
+  }
+  .about-link {
+    min-height: 34px;
+  }
+  .card.about .about-source {
+    margin-top: 0;
+  }
+  .about-actions {
+    margin-top: 8px;
+  }
+}
+
+/* main menu: [Ajustes] [Cómo jugar] [about icon] on one line */
+.menu-actions .row.menu-row {
+  flex-wrap: nowrap;
+}
+.menu-actions .row.menu-row > .btn {
+  min-width: 0;
+}
+.menu-actions .row.menu-row > .btn.about-btn {
+  flex: 0 0 auto;
+  width: 52px;
+  min-width: 52px;
+  padding: 0;
+  justify-content: center;
+}
+.menu-row .about-btn-icon {
+  width: 22px;
+  height: 22px;
+}
+/* very narrow phones: drop the row's text-button icons together so both labels fit cleanly */
+@media (max-width: 379px) {
+  .menu-actions .row.menu-row > .btn:not(.about-btn) .btn-icon {
+    display: none;
+  }
+}
+.menu-actions .row.menu-row .btn-icon {
+  flex-shrink: 0;
+}
+
+/* ───────────────────────── puntos abajo: HUD chip beside the hand pill ───────────────────────── */
+.hand-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.abajo-chip {
+  display: none;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 99px;
+  background: rgba(29, 15, 8, 0.7);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 182, 39, 0.55);
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.abajo-chip.on {
+  display: inline-flex;
+  animation: fade-in 0.3s ease both;
+}
+.abajo-label {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--cream-2);
+}
+.abajo-num {
+  color: var(--mango);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 380px) {
+  .abajo-chip {
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+}
+
+/* ───────────────────────── hand summary: fixed header + footer, only the calculations scroll ───────────────────────── */
+.modal-wrap > .card.sheet.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(100%, 460px);
+  max-height: 100%;
+  overflow: hidden;
+  padding: 18px 18px 16px;
+}
+.sum-head {
+  flex: none;
+}
+.sum-head .summary-sub {
+  margin: 0 0 10px !important;
+}
+.sum-body {
+  --ft: 0px;
+  --fb: 0px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px;
+  margin: 0 -2px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
+}
+.sum-body.more-above {
+  --ft: 18px;
+}
+.sum-body.more-below {
+  --fb: 24px;
+}
+.sum-main,
+.sum-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.sum-seats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.sum-seat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 4px 6px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22);
+  animation: fade-up 0.35s calc(0.12s + var(--i) * 0.06s) var(--ease-out) both;
+}
+.sum-seat.winner {
+  box-shadow: inset 0 0 0 2px var(--mango);
+}
+.sum-seat-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.sum-seat .avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+.sum-seat .avatar.has-face {
+  width: 28px;
+  height: 28px;
+}
+.sum-seat.winner .avatar.has-face .face-static {
+  animation: face-bounce 0.9s 0.5s var(--ease-pop) 2 both;
+}
+.sum-seat-pips {
+  font-size: 15px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.sum-seat.us .sum-seat-pips {
+  color: var(--us);
+}
+.sum-seat.them .sum-seat-pips {
+  color: var(--them);
+}
+.sum-seat-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1px;
+  max-width: 100%;
+}
+.sum-seat-tiles .tile {
+  display: block;
+}
+.sum-points {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  animation: pop-in 0.45s 0.4s var(--ease-pop) both;
+}
+.sum-points .points-big {
+  font-size: 34px;
+  line-height: 1;
+}
+.sum-points.us .points-big {
+  color: var(--us);
+}
+.sum-points.them .points-big {
+  color: var(--them);
+}
+.sum-points.held .points-big {
+  color: var(--cream-2);
+  opacity: 0.8;
+}
+.sum-calc {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.sum-calc li {
+  animation: fade-up 0.3s calc(0.3s + var(--i) * 0.07s) var(--ease-out) both;
+}
+.sum-calc li.held,
+.sum-calc li.claim {
+  color: var(--mango);
+}
+.sum-calc li.muted {
+  color: var(--muted);
+  font-weight: 700;
+}
+.sum-calc li.us {
+  color: var(--us);
+}
+.sum-calc li.them {
+  color: var(--them);
+}
+.summary .score-block {
+  margin: 0;
+  padding: 10px 12px;
+  gap: 4px 12px;
+}
+.summary .big-num {
+  font-size: 32px;
+}
+.sum-foot {
+  flex: none;
+  display: flex;
+  padding-top: 12px;
+}
+.sum-foot .btn {
+  flex: 1 1 auto;
+}
+/* short landscape phones: one-line header, calculations and scores side by side */
+@media (max-height: 520px) and (orientation: landscape) {
+  .modal-wrap > .card.sheet.summary {
+    width: min(100%, 700px);
+    padding: 12px 16px;
+  }
+  .sum-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: center;
+    column-gap: 12px;
+    margin-bottom: 8px;
+  }
+  .sum-head .summary-title {
+    font-size: 28px;
+  }
+  .sum-head .summary-sub {
+    margin: 0 !important;
+  }
+  .sum-body {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .sum-main {
+    flex: 1.25 1 0;
+  }
+  .sum-side {
+    flex: 1 1 0;
+  }
+  .summary .big-num {
+    font-size: 28px;
+  }
+  .sum-points .points-big {
+    font-size: 28px;
+  }
+  .sum-foot {
+    padding-top: 8px;
+  }
+  .sum-foot .btn.lg {
+    min-height: 48px;
+  }
+}
+
+/* ───────────────────────── new game: mode switch (Parejas | Individual) ───────────────────────── */
+.ng2 .ng-left {
+  flex-direction: column;
+  gap: 10px;
+}
+.ng-felt-box {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ng-mode {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  max-width: 100%;
+}
+.ng-mode .seg {
+  flex-wrap: nowrap;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 14px;
+}
+.ng-mode .seg-opt {
+  min-height: 36px;
+  padding: 4px 12px;
+  border-radius: 11px;
+  white-space: nowrap;
+}
+.seg-opp .seg-opt {
+  min-width: 36px;
+  padding: 4px 0;
+}
+.ng-opp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ng-opp[hidden],
+.ng-seat[hidden] {
+  display: none;
+}
+.ng-opp-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* individual with two opponents: no top seat, the side seats sit a little higher */
+.ng-table.solo[data-opp='2'] .ng-seat.pos-left,
+.ng-table.solo[data-opp='2'] .ng-seat.pos-right {
+  top: 47%;
+}
+@media (max-width: 400px) {
+  .ng-mode {
+    gap: 6px;
+  }
+  .ng-mode .seg-opt {
+    padding: 4px 9px;
+    font-size: 13.5px;
+  }
+  .seg-opp .seg-opt {
+    min-width: 32px;
+    padding: 4px 0;
+  }
+  .ng-opp-label {
+    display: none;
+  }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .ng2 .ng-left {
+    gap: 6px;
+  }
+  .ng-mode .seg-opt {
+    min-height: 32px;
+    padding: 2px 10px;
+    font-size: 13.5px;
+  }
+  .seg-opp .seg-opt {
+    min-width: 32px;
+    padding: 2px 0;
+  }
+}
+@media (orientation: portrait) and (max-width: 760px) {
+  .ng2 .ng-left {
+    gap: 8px;
+  }
+}
+
+/* ───────────────────────── individual mode: per-player scoreboard + boneyard chip ───────────────────────── */
+.score-card.solo {
+  min-width: 0;
+  padding: 6px 9px 7px;
+  gap: 4px;
+}
+.solo-scores {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.solo-scores[hidden],
+.score-card .team[hidden] {
+  display: none;
+}
+.score-card.solo-grid .solo-scores {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 5px 12px;
+}
+.solo-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, auto) auto;
+  grid-template-rows: auto 3px;
+  column-gap: 6px;
+  row-gap: 2px;
+  align-items: center;
+}
+.solo-face {
+  grid-row: 1 / 3;
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  padding: 1px 1px 2px;
+  background: radial-gradient(circle at 50% 38%, #4a3a2c 0%, #2a1c14 62%, #160d08 100%);
+  box-shadow: 0 0 0 1.5px rgba(255, 246, 230, 0.28);
+}
+.solo-row.me .solo-face {
+  box-shadow: 0 0 0 1.5px var(--us);
+}
+.solo-face .face-static,
+.solo-face svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.solo-letter {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--cream);
+}
+.solo-name {
+  min-width: 0;
+  max-width: 8ch;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--cream-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.solo-row.me .solo-name {
+  color: var(--us);
+}
+.solo-pts {
+  min-width: 2ch;
+  text-align: right;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.solo-row.lead .solo-pts {
+  color: var(--mango);
+}
+.solo-row .bar {
+  grid-column: 2 / 4;
+  height: 3px;
+}
+.solo-row .fill {
+  background: var(--cream-2);
+  opacity: 0.75;
+}
+.solo-row.me .fill {
+  background: var(--us);
+  opacity: 1;
+}
+/* narrow phones, 3–4 players: two columns of face + score (the plates on the table carry the names) */
+@media (max-width: 639px) {
+  .score-card.solo-grid .solo-name {
+    display: none;
+  }
+  .score-card.solo-grid .solo-row {
+    grid-template-columns: 20px auto;
+  }
+  .score-card.solo-grid .solo-row .bar {
+    grid-column: 2 / 3;
+  }
+}
+@media (min-width: 900px) {
+  .score-card.solo {
+    width: auto;
+  }
+  .solo-pts {
+    font-size: 20px;
+  }
+  .solo-face {
+    width: 24px;
+    height: 24px;
+  }
+  .solo-row {
+    grid-template-columns: 24px minmax(0, auto) auto;
+  }
+}
+.pile-chip {
+  box-shadow: inset 0 0 0 1.5px rgba(255, 246, 230, 0.32);
+}
+.pile-chip .abajo-num {
+  color: var(--cream);
+}
+
+/* ───────────────────────── individual mode: hand summary, match end, Reglas switch ───────────────────────── */
+.sum-seats.n2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.sum-seats.n3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.score-block.solo-block {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.solo-score-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-rows: auto 4px;
+  column-gap: 8px;
+  row-gap: 3px;
+  align-items: center;
+}
+.solo-score-row .solo-face {
+  width: 24px;
+  height: 24px;
+}
+.solo-score-row .score-name {
+  min-width: 0;
+  text-align: left;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.solo-score-row.me .score-name {
+  color: var(--us);
+}
+.solo-score-row .big-num {
+  font-size: 24px;
+  text-align: right;
+}
+.summary .solo-score-row .big-num {
+  font-size: 24px;
+}
+.solo-score-row.me .big-num {
+  color: var(--us);
+}
+.solo-score-row .bar {
+  grid-column: 2 / 4;
+  height: 4px;
+}
+.solo-score-row .fill {
+  background: var(--cream-2);
+  opacity: 0.75;
+}
+.solo-score-row.me .fill {
+  background: var(--us);
+  opacity: 1;
+}
+.solo-block .score-target {
+  text-align: center;
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .score-block.solo-block {
+    gap: 4px;
+  }
+  .summary .solo-score-row .big-num {
+    font-size: 20px;
+  }
+}
+/* match end: final standings */
+.standings {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.standing {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
+  font-weight: 800;
+  animation: fade-up 0.35s calc(0.2s + var(--i) * 0.07s) var(--ease-out) both;
+}
+.standing.first {
+  box-shadow: inset 0 0 0 2px var(--mango);
+}
+.st-rank {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+.st-name {
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.standing.me .st-name {
+  color: var(--us);
+}
+.st-hands {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.st-pts {
+  min-width: 2ch;
+  font-size: 22px;
+  font-weight: 900;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.standing.first .st-pts {
+  color: var(--mango);
+}
+/* Ajustes → Reglas: Parejas | Individual */
+.seg.seg-rules-mode {
+  flex-wrap: nowrap;
+  margin-bottom: 10px;
+}
+.seg-rules-mode .seg-opt {
+  flex: 1 1 0;
+}
+/* APK download icon button shares the about icon button's square look */
+.menu-actions .row.menu-row > .btn.apk-btn {
+  text-decoration: none;
 }

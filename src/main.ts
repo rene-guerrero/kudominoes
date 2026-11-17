@@ -1,7 +1,7 @@
 import './ui/styles.css';
 import type { App } from './app/app';
 import { initAudio } from './audio/sfx';
-import { loadSave } from './app/save';
+import { loadSave, saveSummary } from './app/save';
 import { loadEngine, loadTableView } from './app/modules';
 import { loadSettings, saveSettings } from './app/settings';
 import { h, setReducedMotionPref } from './ui/dom';
@@ -99,9 +99,9 @@ async function boot() {
 
     // ── 1. early menu (same builder and data as App.showMenu) ──
     const s = loadSave();
-    const save = s ? { hand: s.match.hand?.handNo ?? 0, us: s.match.scores[0], them: s.match.scores[1] } : null;
+    const save = s ? saveSummary(s) : null;
     const noop = () => {};
-    const early = buildMenu({ save, onPlay: noop, onContinue: noop, onSettings: noop, onHowto: noop });
+    const early = buildMenu({ save, onPlay: noop, onContinue: noop, onSettings: noop, onHowto: noop, onAbout: noop });
     overlay.showScreen(early);
     hideBootSplash();
     mark('menu');

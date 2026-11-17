@@ -108,6 +108,7 @@ export const ICONS = {
   gear: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm8.6 4.9l-1.9-.4a6.9 6.9 0 0 1-.6 1.5l1.1 1.6-2 2-1.6-1.1c-.5.3-1 .5-1.5.6l-.4 1.9h-2.8l-.4-1.9a6.9 6.9 0 0 1-1.5-.6l-1.6 1.1-2-2 1.1-1.6c-.3-.5-.5-1-.6-1.5l-1.9-.4v-2.8l1.9-.4c.1-.5.3-1 .6-1.5L4.4 6.3l2-2 1.6 1.1c.5-.3 1-.5 1.5-.6l.4-1.9h2.8l.4 1.9c.5.1 1 .3 1.5.6l1.6-1.1 2 2-1.1 1.6c.3.5.5 1 .6 1.5l1.9.4z"/></svg>',
   book: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A1.5 1.5 0 0 0 5 19.5 1.5 1.5 0 0 0 6.5 21H20v-1.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 5.5v14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
   resume: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12a7 7 0 1 0 2.1-5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M4 3.5v4.5h4.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="12" cy="7.8" r="1.5"/><path d="M12 11v5.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
   home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v8.5a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19.5z"/></svg>',
 };
 

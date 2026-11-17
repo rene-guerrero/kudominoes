@@ -146,7 +146,8 @@ describe('legality', () => {
 describe('domino (se pegó)', () => {
   const dominoScenario = (rules = {}) =>
     scenario({
-      rules: { capicua: 0, ...rules },
+      // plain arithmetic: small wins on 0 would go abajo (tested in its own block)
+      rules: { capicua: 0, abajo: false, ...rules },
       hands: [[tid(3, 5)], [tid(6, 6), tid(1, 2)], [tid(4, 4)], [tid(0, 1)]],
       chain: [tid(3, 4)],
       ends: { left: 3, right: 5 },
@@ -265,7 +266,7 @@ describe('bonuses', () => {
   // opening: seat 0 leads 6-6, seat 1 has no 6 and passes
   const openScenario = (rules = {}, scores: [number, number] = [0, 0], starter: 0 | 1 = 0) =>
     scenario({
-      rules,
+      rules: { abajo: false, ...rules },
       scores,
       hands:
         starter === 0
@@ -303,6 +304,7 @@ describe('bonuses', () => {
 
   it('pase de salida is listed as an early bonus at hand end and not paid twice', () => {
     const m = scenario({
+      rules: { abajo: false },
       hands: [[tid(6, 6), tid(1, 1)], [tid(0, 0)], [tid(5, 6), tid(2, 2)], [tid(4, 6)]],
       ends: null,
       turn: 0,
@@ -606,6 +608,178 @@ describe('match end', () => {
   it('startHand refuses while a hand is in progress', () => {
     const m = startHand(createMatch(DEFAULT_RULES, 1)).match;
     expect(() => startHand(m)).toThrow();
+  });
+});
+
+describe('puntos abajo', () => {
+  // seat 0 goes out with 3-5 on the 3 end; the other seats keep `rest` (their pips decide the hand)
+  const out = (rest: number[][], o: { rules?: Record<string, string | number | boolean>; scores?: [number, number]; pot?: number; capicua?: boolean } = {}) => {
+    const m = scenario({
+      rules: o.rules,
+      scores: o.scores,
+      hands: [[tid(3, 5)], ...rest],
+      chain: [tid(3, 4)],
+      ends: { left: 3, right: o.capicua ? 5 : 6 },
+      turn: 0,
+    });
+    return play({ ...m, abajo: o.pot ?? 0 }, 3, 5, 'left');
+  };
+  // remaining pips: 20 = 6-6 + 4-4 + 0-0; 21 = 6-6 + 4-4 + 0-1; 15 = 6-6 + 1-2 + 0-0; 6 = 1-1 + 2-2 + 0-0
+  const P20 = [[tid(6, 6)], [tid(4, 4)], [tid(0, 0)]];
+  const P21 = [[tid(6, 6)], [tid(4, 4)], [tid(0, 1)]];
+  const P15 = [[tid(6, 6)], [tid(1, 2)], [tid(0, 0)]];
+  const P6 = [[tid(1, 1)], [tid(2, 2)], [tid(0, 0)]];
+
+  it('is on by default in Cubano clásico', () => {
+    expect(DEFAULT_RULES.abajo).toBe(true);
+    expect(createMatch(DEFAULT_RULES, 1).abajo).toBe(0);
+  });
+
+  it('a small win of a team on 0 goes to the pot (exactly 20 pips = 2 points is abajo)', () => {
+    const { match, events } = out(P20);
+    const e = ev(events, 'handEnd')!;
+    expect(e).toMatchObject({ winnerTeam: 0, points: 2, abajoAdded: 2, abajoPot: 2 });
+    expect(e.abajoClaimed).toBeUndefined();
+    expect(e.scores).toEqual([0, 0]);
+    expect(match.scores).toEqual([0, 0]);
+    expect(match.abajo).toBe(2);
+    expect(match.handsWon).toEqual([1, 0]);
+    expect(match.lastHandWinner).toBe(0);
+  });
+
+  it('the pot keeps growing with repeated small wins of teams on 0', () => {
+    expect(out(P6, { pot: 2 }).match).toMatchObject({ scores: [0, 0], abajo: 3 });
+    expect(out(P20, { pot: 7, scores: [0, 4] }).match).toMatchObject({ scores: [0, 4], abajo: 9 });
+  });
+
+  it('a win of 3 or more claims the whole pot, even for a team on 0', () => {
+    const { match, events } = out(P21, { pot: 4, scores: [0, 5] });
+    expect(ev(events, 'handEnd')).toMatchObject({ points: 3, abajoClaimed: 4, abajoPot: 0 });
+    expect(ev(events, 'handEnd')!.abajoAdded).toBeUndefined();
+    expect(match.scores).toEqual([7, 5]);
+    expect(match.abajo).toBe(0);
+  });
+
+  it('a small win of a team that already has points scores normally and claims the pot', () => {
+    const { match, events } = out(P6, { pot: 4, scores: [5, 0] });
+    expect(ev(events, 'handEnd')).toMatchObject({ points: 1, abajoClaimed: 4, abajoPot: 0 });
+    expect(match.scores).toEqual([10, 0]);
+  });
+
+  it('capicúa is applied first: 15 pips → 2, ×2 = 4 is not abajo (and claims the pot)', () => {
+    const { match, events } = out(P15, { capicua: true, pot: 2 });
+    const e = ev(events, 'handEnd')!;
+    expect(e.points).toBe(2);
+    expect(e.bonuses).toEqual([expect.objectContaining({ id: 'capicua', kind: 'double', points: 2 })]);
+    expect(e.bonuses[0].abajo).toBeUndefined();
+    expect(e).toMatchObject({ abajoClaimed: 2, abajoPot: 0 });
+    expect(match.scores).toEqual([6, 0]);
+  });
+
+  it('capicúa that stays small (6 pips → 1, ×2 = 2) goes abajo with its bonus flagged', () => {
+    const { match, events } = out(P6, { capicua: true });
+    const e = ev(events, 'handEnd')!;
+    expect(e.abajoAdded).toBe(2);
+    expect(e.bonuses).toEqual([expect.objectContaining({ id: 'capicua', abajo: true })]);
+    expect(match).toMatchObject({ scores: [0, 0], abajo: 2 });
+  });
+
+  it('claiming the pot can win the match', () => {
+    const { match, events } = out(P21, { pot: 4, scores: [15, 3] });
+    expect(match.scores).toEqual([22, 3]);
+    expect(match.over).toBe(true);
+    expect(match.winner).toBe(0);
+    expect(match.abajo).toBe(0);
+    expect(events.map((x) => x.type)).toEqual(['play', 'handEnd', 'matchEnd']);
+  });
+
+  it('a void hand leaves the pot unchanged', () => {
+    const H = [[tid(0, 1), tid(2, 4)], [tid(3, 3)], [tid(5, 6)], [tid(6, 6)]]; // s0 6, s1 6: tie
+    const m = scenario({ rules: { tranqueTie: 'void' }, hands: H, chain: BLOCK_CHAIN, ends: { left: 0, right: 1 }, turn: 0 });
+    const { match, events } = play({ ...m, abajo: 5 }, 0, 1, 'left');
+    expect(ev(events, 'handEnd')).toMatchObject({ winnerTeam: null, abajoPot: 5 });
+    expect(match).toMatchObject({ scores: [0, 0], abajo: 5 });
+  });
+
+  it('opening pass of a team on 0 goes to the pot (guard irrelevant); a team with points scores it and never claims', () => {
+    const open = (scores: [number, number], pot: number) => {
+      const m = scenario({
+        scores,
+        hands: [[tid(6, 6), tid(1, 1)], [tid(0, 0), tid(2, 3)], [tid(5, 6), tid(0, 2)], [tid(4, 6), tid(0, 1)]],
+        ends: null,
+        turn: 0,
+        starter: 0,
+        handNo: 2,
+      });
+      return pass(play({ ...m, abajo: pot }, 6, 6).match);
+    };
+    const a = open([0, 7], 3);
+    const p = ev(a.events, 'pass')!;
+    expect(p.bonus).toBeUndefined();
+    expect(p.bonusAbajo).toEqual(expect.objectContaining({ id: 'pase-salida', points: 2, team: 0, abajo: true }));
+    expect(p.abajoPot).toBe(5);
+    expect(a.match).toMatchObject({ scores: [0, 7], abajo: 5 });
+    expect((a.match.hand as { earlyBonuses?: unknown[] }).earlyBonuses).toEqual([expect.objectContaining({ abajo: true })]);
+    const b = open([4, 0], 3);
+    expect(ev(b.events, 'pass')!.bonus).toEqual(expect.objectContaining({ points: 2 }));
+    expect(b.match).toMatchObject({ scores: [6, 0], abajo: 3 });
+    // the guard still applies to a team with points
+    const c = open([18, 0], 3);
+    expect(ev(c.events, 'pass')!.bonusBlocked).toBeTruthy();
+    expect(c.match).toMatchObject({ scores: [18, 0], abajo: 3 });
+  });
+
+  it('a held opening pass is listed at hand end, and a small win of a team on 0 also goes abajo', () => {
+    const m = scenario({
+      hands: [[tid(6, 6), tid(1, 1)], [tid(0, 0)], [tid(5, 6), tid(2, 2)], [tid(4, 6)]],
+      ends: null,
+      turn: 0,
+      starter: 0,
+      handNo: 2,
+    });
+    let r = pass(play(m, 6, 6).match); // pase de salida for team 0 (on 0) → pot 2
+    r = play(r.match, 5, 6, 'right');
+    r = play(r.match, 4, 6, 'left'); // seat 3 (team 1, on 0) goes out: 6 pips → 1 → abajo
+    const e = ev(r.events, 'handEnd')!;
+    expect(e).toMatchObject({ winnerTeam: 1, abajoAdded: 1, abajoPot: 3 });
+    expect(e.earlyBonuses).toEqual([expect.objectContaining({ id: 'pase-salida', abajo: true })]);
+    expect(r.match).toMatchObject({ scores: [0, 0], abajo: 3 });
+  });
+
+  it('tied cerrado goes to la mano by default and scores (and claims) like any hand', () => {
+    expect(DEFAULT_RULES.tranqueTie).toBe('mano');
+    const H = [[tid(0, 1), tid(2, 4)], [tid(3, 3)], [tid(5, 6)], [tid(6, 6)]]; // s0 6, s1 6: tie; 35 pips → 4
+    const mk = (starter: 0 | 3, scores: [number, number], pot: number) =>
+      play({ ...scenario({ hands: H, chain: BLOCK_CHAIN, ends: { left: 0, right: 1 }, turn: 0, starter, scores }), abajo: pot }, 0, 1, 'left');
+    const a = mk(3, [0, 0], 2);
+    expect(ev(a.events, 'handEnd')).toMatchObject({ reason: 'blocked', winnerTeam: 1, points: 4, abajoClaimed: 2 });
+    expect(a.match.scores).toEqual([0, 6]);
+    const b = mk(0, [3, 0], 0);
+    expect(ev(b.events, 'handEnd')!.winnerTeam).toBe(0);
+    expect(b.match.scores).toEqual([7, 0]);
+  });
+
+  it('setting off: the old behaviour, no pot', () => {
+    const { match, events } = out(P20, { rules: { abajo: false } });
+    const e = ev(events, 'handEnd')!;
+    expect(match.scores).toEqual([2, 0]);
+    expect(e.abajoAdded).toBeUndefined();
+    expect(e.abajoPot).toBeUndefined();
+  });
+
+  it('rounding none: the threshold is ×10 (≤ 20 pips abajo, 21 claims)', () => {
+    const a = out(P20, { rules: RAW });
+    expect(a.match).toMatchObject({ scores: [0, 0], abajo: 20 });
+    const b = out(P21, { rules: RAW, pot: 20 });
+    expect(b.match).toMatchObject({ scores: [41, 0], abajo: 0 });
+  });
+
+  it('old states without a pot field behave as an empty pot', () => {
+    const m = scenario({ hands: [[tid(3, 5)], ...P21], chain: [tid(3, 4)], ends: { left: 3, right: 6 }, turn: 0 });
+    delete (m as { abajo?: number }).abajo;
+    const r = play(m, 3, 5, 'left');
+    expect(r.match).toMatchObject({ scores: [3, 0], abajo: 0 });
+    expect(ev(r.events, 'handEnd')!.abajoClaimed).toBeUndefined();
   });
 });
 

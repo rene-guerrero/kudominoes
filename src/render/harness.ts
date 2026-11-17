@@ -63,7 +63,7 @@ class Sim {
   apply(m: Move): GameEvent[] {
     const ev: GameEvent[] = [];
     const s = m.seat;
-    if (m.kind === 'pass') {
+    if (m.kind !== 'play') {
       this.passes++;
       ev.push({ type: 'pass', seat: s, ends: this.ends! });
     } else {

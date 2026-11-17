@@ -1,16 +1,20 @@
-import type { Lineup, TableStyle } from '../contracts';
+import type { GameMode, Lineup, TableStyle } from '../contracts';
 import { character, LEVEL_STARS, ROSTER, type Character } from '../roster';
 import { tableThumb } from '../render';
 import { h, prefersReducedMotion } from './dom';
 import { loc, t, type Key } from './i18n';
-import { btn, ICONS } from './overlay';
+import { btn, ICONS, segmented } from './overlay';
 import { screenHeader } from './howto';
 import { liveFace, staticFace } from './avatars';
 
 type Slot = 1 | 2 | 3;
-/** partner first (the default active seat), then rival 1 (right, seat 1) and rival 2 (left, seat 3) */
+type Opp = 1 | 2 | 3;
+/** pairs: partner first (the default active seat), then rival 1 (right, seat 1) and rival 2 (left, seat 3) */
 const SLOTS: Slot[] = [2, 1, 3];
 const PICK_TITLE: Record<Slot, Key> = { 2: 'newgame.pickPartner', 1: 'newgame.pickRival1', 3: 'newgame.pickRival2' };
+/** individual: the opponents' seats by count, in turn order (1 opponent sits across, 2 at the sides) */
+const SOLO_SLOTS: Record<Opp, Slot[]> = { 1: [2], 2: [1, 3], 3: [1, 2, 3] };
+const SOLO_TITLES: Key[] = ['newgame.pickRival1', 'newgame.pickRival2', 'newgame.pickRival3'];
 
 const DICE =
   '<svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect x="7" y="7" width="34" height="34" rx="9" fill="#FFF6E6" stroke="#2A160D" stroke-width="2.5"/><circle cx="16.5" cy="16.5" r="3.4" fill="#2A160D"/><circle cx="24" cy="24" r="3.4" fill="#2A160D"/><circle cx="31.5" cy="31.5" r="3.4" fill="#2A160D"/><circle cx="31.5" cy="16.5" r="3.4" fill="#2A160D"/><circle cx="16.5" cy="31.5" r="3.4" fill="#2A160D"/></svg>';
@@ -30,18 +34,34 @@ export function levelBadge(c: Character): HTMLElement {
   );
 }
 
-export interface NewGameOpts {
-  /** last selection (character ids; a stored 'random' is drawn here) */
+export interface NewGameStart {
+  mode: GameMode;
+  /** the characters in seats 1..3 (individual: the seats not in play hold unused characters) */
   lineup: Lineup;
+  /** 4 in pairs; 2–4 in individual */
+  players: 2 | 3 | 4;
+}
+
+export interface NewGameOpts {
+  /** the mode chosen last time */
+  mode: GameMode;
+  /** last pairs selection (character ids; a stored 'random' is drawn here) */
+  lineup: Lineup;
+  /** last individual selection: number of opponents and the opponents in order */
+  soloOpponents: Opp;
+  soloLineup: string[];
   avatars: boolean;
   /** the human's face index and name for the bottom seat */
   humanFace: number;
   humanName: string;
   tableStyle: TableStyle;
-  presetName: string;
+  /** the rules preset name of a mode ("Cubano clásico" / "Personalizado") */
+  presetName(mode: GameMode): string;
   onChange(l: Lineup): void;
-  onRules(): void;
-  onStart(l: Lineup): void;
+  onSoloChange(list: string[], opponents: Opp): void;
+  onMode(mode: GameMode): void;
+  onRules(mode: GameMode): void;
+  onStart(o: NewGameStart): void;
   onBack(): void;
 }
 
@@ -50,15 +70,16 @@ const SHEET_MQ = '(orientation: portrait) and (max-width: 760px)';
 const sheetMode = () => window.matchMedia(SHEET_MQ).matches;
 
 /**
- * Character selection: a small top-down table with the four seats as in the game (partner on top,
- * rivals left/right, you at the bottom) and one 5×2 grid of all ten characters. Tap a seat to make it
- * active, tap a character to seat it there; a character seated elsewhere swaps seats. On wide layouts the
- * grid sits beside the table; on a phone in portrait it slides up as a bottom sheet.
+ * Character selection: the mode switch (Parejas | Individual), a small top-down table with the seats as
+ * in the game and one 5×2 grid of all ten characters. Pairs: partner on top, rivals left/right, you at the
+ * bottom. Individual: 1–3 opponents (across; at the sides; or all three seats), no partner. Tap a seat to
+ * make it active, tap a character to seat it there; a character seated elsewhere swaps seats. On wide
+ * layouts the grid sits beside the table; on a phone in portrait it slides up as a bottom sheet.
  */
 export function buildNewGame(o: NewGameOpts): HTMLElement {
   // a stored 'random' (older choice) is resolved now: the seats always show real characters
-  const seen = new Set<string>();
   const pool = ROSTER.map((c) => c.id);
+  const seen = new Set<string>();
   const fix = (id: string) => {
     const v = pool.includes(id) && !seen.has(id) ? id : (pool.find((x) => !seen.has(x) && !Object.values(o.lineup).includes(x)) ?? pool.find((x) => !seen.has(x))!);
     seen.add(v);
@@ -68,8 +89,17 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
   const l1 = fix(o.lineup[1]);
   const l3 = fix(o.lineup[3]);
   let lu: Lineup = { 1: l1, 2: l2, 3: l3 };
-  let active: Slot = 2;
-  let shown: string = lu[active]; // the character described under the grid
+  // individual: three distinct opponents in order (only the first `opp` play)
+  const sl: string[] = [];
+  for (const id of [...o.soloLineup, 'carlos', 'rosa', 'andres', ...pool]) if (pool.includes(id) && !sl.includes(id) && sl.length < 3) sl.push(id);
+  let opp: Opp = o.soloOpponents;
+  let mode: GameMode = o.mode;
+
+  const slots = (): Slot[] => (mode === 'pairs' ? SLOTS : SOLO_SLOTS[opp]);
+  const idAt = (s: Slot): string => (mode === 'pairs' ? lu[s] : sl[SOLO_SLOTS[opp].indexOf(s)]);
+  const titleOf = (s: Slot): Key => (mode === 'pairs' ? PICK_TITLE[s] : opp === 1 ? 'newgame.pickRival' : SOLO_TITLES[SOLO_SLOTS[opp].indexOf(s)]);
+  let active: Slot = slots()[0];
+  let shown: string = idAt(active); // the character described under the grid
 
   // ── table with seats ──
   const felt = h('div.ng-table', { role: 'group', 'aria-label': t('newgame.players') });
@@ -80,7 +110,7 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
     const face = h('span.ng-seat-face');
     const name = h('span.ng-seat-name');
     const meta = h('span.ng-seat-meta');
-    const b = h('button.ng-seat', { type: 'button', class: `pos-${s === 2 ? 'top' : s === 1 ? 'right' : 'left'} ${s === 2 ? 'us' : 'them'}` }, face, name, meta);
+    const b = h('button.ng-seat', { type: 'button', class: `pos-${s === 2 ? 'top' : s === 1 ? 'right' : 'left'}` }, face, name, meta);
     b.addEventListener('click', () => {
       setActive(s);
       if (sheetMode()) openSheet();
@@ -131,12 +161,23 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
 
   const renderSeat = (s: Slot) => {
     const el = seatEls.get(s)!;
-    const c = character(lu[s]);
+    const inUse = slots().includes(s);
+    el.btn.hidden = !inUse;
+    if (!inUse) return;
+    const partner = mode === 'pairs' && s === 2;
+    el.btn.classList.toggle('us', partner);
+    el.btn.classList.toggle('them', !partner);
+    const c = character(idAt(s));
     el.face.replaceChildren(faceNode(c, true));
     el.name.textContent = c.name;
-    const role = s === 2 ? t('newgame.rolePartner') : t('role.rival');
+    const role = partner ? t('newgame.rolePartner') : t('role.rival');
     el.meta.replaceChildren(c.level === 'master' ? levelBadge(c) : h('span', `${role} · ${levelLabel(c)}`));
-    el.btn.setAttribute('aria-label', `${t(PICK_TITLE[s])}: ${c.name}, ${levelLabel(c)}`);
+    el.btn.setAttribute('aria-label', `${t(titleOf(s))}: ${c.name}, ${levelLabel(c)}`);
+  };
+  const renderSeats = () => {
+    for (const s of SLOTS) renderSeat(s);
+    felt.classList.toggle('solo', mode === 'individual');
+    felt.dataset.opp = mode === 'individual' ? String(opp) : '';
   };
 
   // ── grid of characters ──
@@ -163,7 +204,7 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
       if (e.pointerType === 'mouse') describe(c.id);
     });
     b.addEventListener('pointerleave', (e) => {
-      if (e.pointerType === 'mouse') describe(lu[active]);
+      if (e.pointerType === 'mouse') describe(idAt(active));
     });
     b.addEventListener('focus', () => describe(c.id));
     b.addEventListener('keydown', (e) => {
@@ -184,20 +225,20 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
       el.btn.classList.toggle('active', s === active);
       el.btn.setAttribute('aria-pressed', String(s === active));
     }
-    title.textContent = t(PICK_TITLE[active]);
+    title.textContent = t(titleOf(active));
     for (const cell of cells) {
-      const seat = SLOTS.find((s) => lu[s] === cell.id) ?? null;
+      const seat = slots().find((s) => idAt(s) === cell.id) ?? null;
       const here = seat === active;
       cell.b.setAttribute('aria-selected', String(here));
       cell.b.classList.toggle('elsewhere', seat !== null && !here);
-      cell.tag.textContent = seat !== null && !here ? (seat === 2 ? t('newgame.rolePartner') : t('role.rival')) : '';
+      cell.tag.textContent = seat !== null && !here ? (mode === 'pairs' && seat === 2 ? t('newgame.rolePartner') : t('role.rival')) : '';
     }
     describe(shown);
   };
 
   const setActive = (s: Slot) => {
     active = s;
-    shown = lu[s];
+    shown = idAt(s);
     refresh();
   };
 
@@ -206,24 +247,78 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
     seatEls.get(s)!.face.animate([{ transform: 'scale(.82)' }, { transform: 'scale(1.06)', offset: 0.6 }, { transform: 'scale(1)' }], { duration: 320, easing: 'ease-out' });
   };
 
+  const emit = () => {
+    if (mode === 'pairs') o.onChange({ ...lu });
+    else o.onSoloChange(sl.slice(), opp);
+  };
+
   const pick = (id: string) => {
-    const prev = lu[active];
+    const prev = idAt(active);
     if (prev !== id) {
-      const other = SLOTS.find((s) => lu[s] === id) ?? null;
-      const next = { ...lu };
-      // never a dead end: a character seated elsewhere swaps with the active seat's character
-      if (other !== null) next[other] = prev;
-      next[active] = id;
-      lu = next;
+      let other: Slot | null;
+      if (mode === 'pairs') {
+        other = SLOTS.find((s) => lu[s] === id) ?? null;
+        const next = { ...lu };
+        // never a dead end: a character seated elsewhere swaps with the active seat's character
+        if (other !== null) next[other] = prev;
+        next[active] = id;
+        lu = next;
+      } else {
+        // the three remembered opponents stay distinct: swap places in the list
+        const ai = SOLO_SLOTS[opp].indexOf(active);
+        const oi = sl.indexOf(id);
+        if (oi >= 0) sl[oi] = prev;
+        sl[ai] = id;
+        other = oi >= 0 && oi < opp ? SOLO_SLOTS[opp][oi] : null;
+      }
       renderSeat(active);
       if (other !== null) renderSeat(other);
-      o.onChange({ ...lu });
+      emit();
       bump(active);
       if (other !== null) bump(other);
     }
     shown = id;
     refresh();
     if (sheetMode()) closeSheet();
+  };
+
+  // ── mode switch (Parejas | Individual) and the number of opponents ──
+  const oppCtl = h('div.ng-opp', h('span.ng-opp-label', t('newgame.opponents')));
+  const oppSeg = segmented<number>(
+    [1, 2, 3].map((n) => ({ value: n, label: String(n) })),
+    opp,
+    (v) => {
+      opp = v as Opp;
+      active = slots()[0];
+      shown = idAt(active);
+      renderSeats();
+      refresh();
+      emit();
+    },
+    t('newgame.opponentsAria'),
+  );
+  oppSeg.classList.add('seg-opp');
+  oppCtl.append(oppSeg);
+  const rulesValue = h('span.preset-v');
+  const modeSeg = segmented<GameMode>(
+    (['pairs', 'individual'] as GameMode[]).map((m) => ({ value: m, label: t(`mode.${m}` as Key) })),
+    mode,
+    (v) => {
+      mode = v;
+      active = slots()[0];
+      shown = idAt(active);
+      applyMode();
+      renderSeats();
+      refresh();
+      o.onMode(mode);
+    },
+    t('mode.label'),
+  );
+  modeSeg.classList.add('seg-mode');
+  const modeRow = h('div.ng-mode', modeSeg, oppCtl);
+  const applyMode = () => {
+    oppCtl.hidden = mode !== 'individual';
+    rulesValue.textContent = o.presetName(mode);
   };
 
   // ── bottom sheet (phone portrait) ──
@@ -237,7 +332,7 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
     pickPanel.classList.add('open');
     scrim.classList.add('open');
     root.classList.add('sheet-open');
-    requestAnimationFrame(() => (cells.find((c) => c.id === lu[active])?.b ?? cells[0].b).focus({ preventScroll: true }));
+    requestAnimationFrame(() => (cells.find((c) => c.id === idAt(active))?.b ?? cells[0].b).focus({ preventScroll: true }));
   };
   const closeSheet = () => {
     if (!sheetOpen) return;
@@ -285,24 +380,26 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
 
   // ── footer: rules line + Sorpréndeme + Comenzar ──
   const rulesLink = h('button.link-btn', { type: 'button' }, t('newgame.change'));
-  rulesLink.addEventListener('click', o.onRules);
-  const rulesLine = h('div.ng-rules', h('span.preset-k', `${t('newgame.rules')}:`), h('span.preset-v', o.presetName), h('span.ng-dot', '·'), rulesLink);
+  rulesLink.addEventListener('click', () => o.onRules(mode));
+  const rulesLine = h('div.ng-rules', h('span.preset-k', `${t('newgame.rules')}:`), rulesValue, h('span.ng-dot', '·'), rulesLink);
   let shuffling = 0;
-  const draw = (): Lineup => {
+  const draw = (): string[] => {
     const p = ROSTER.map((c) => c.id);
     const d = () => p.splice(Math.floor(Math.random() * p.length), 1)[0];
-    return { 1: d(), 2: d(), 3: d() };
+    return [d(), d(), d()];
   };
   const surprise = btn(
     t('newgame.surprise'),
     () => {
       const settle = () => {
-        lu = draw();
-        for (const s of SLOTS) renderSeat(s);
-        shown = lu[active];
+        const ids = draw();
+        if (mode === 'pairs') lu = { 1: ids[0], 2: ids[1], 3: ids[2] };
+        else sl.splice(0, 3, ...ids);
+        renderSeats();
+        shown = idAt(active);
         refresh();
-        o.onChange({ ...lu });
-        for (const s of SLOTS) bump(s);
+        emit();
+        for (const s of slots()) bump(s);
       };
       if (prefersReducedMotion()) return settle();
       // a short shuffle: the seats flick through faces before they settle
@@ -312,11 +409,11 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
         if (my !== shuffling || !root.isConnected) return;
         if (++n >= 7) return settle();
         const tmp = draw();
-        for (const s of SLOTS) {
+        slots().forEach((s, i) => {
           const el = seatEls.get(s)!;
-          el.face.replaceChildren(faceNode(character(tmp[s]), false));
-          el.name.textContent = character(tmp[s]).name;
-        }
+          el.face.replaceChildren(faceNode(character(tmp[i]), false));
+          el.name.textContent = character(tmp[i]).name;
+        });
         setTimeout(step, 60 + n * 14);
       };
       step();
@@ -324,19 +421,34 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
     'ghost ng-surprise',
     h('span.btn-icon', { html: DICE }),
   );
-  const start = btn(t('newgame.start'), () => o.onStart({ ...lu }), 'primary ng-start', h('span.btn-icon', { html: ICONS.play }));
+  const start = btn(
+    t('newgame.start'),
+    () => {
+      if (mode === 'pairs') return o.onStart({ mode, lineup: { ...lu }, players: 4 });
+      // seats in play get the chosen opponents; the others hold unused characters (never seen)
+      const used = new Set(SOLO_SLOTS[opp].map((s) => idAt(s)));
+      const spare = pool.filter((id) => !used.has(id));
+      const l = { 1: '', 2: '', 3: '' } as Lineup;
+      for (const s of SLOTS) l[s] = SOLO_SLOTS[opp].includes(s) ? idAt(s) : spare.shift()!;
+      o.onStart({ mode, lineup: l, players: (opp + 1) as 2 | 3 | 4 });
+    },
+    'primary ng-start',
+    h('span.btn-icon', { html: ICONS.play }),
+  );
   start.dataset.autofocus = '';
   const foot = h('div.ng-foot', rulesLine, h('div.ng-buttons', surprise, start));
 
-  const left = h('div.ng-left', felt);
-  feltRo.observe(left);
+  const feltBox = h('div.ng-felt-box', felt);
+  const left = h('div.ng-left', modeRow, feltBox);
+  feltRo.observe(feltBox);
   root = h(
     'section.screen.panel-screen.newgame.ng2',
     screenHeader(t('newgame.title'), o.onBack),
     h('div.ng-body', left, h('div.ng-right', pickPanel, foot)),
     scrim,
   );
-  for (const s of SLOTS) renderSeat(s);
+  applyMode();
+  renderSeats();
   refresh();
   return root;
 }

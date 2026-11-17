@@ -1,21 +1,24 @@
-import type { AppSettings, Bonus, EngineApi, FrameStats, GameEvent, Lineup, MatchState, Seat, SfxName, TableView, TableViewOptions } from '../contracts';
+import type { AppSettings, Bonus, EngineApi, FrameStats, GameEvent, GameMode, Lineup, MatchState, Seat, SfxName, TableView, TableViewOptions } from '../contracts';
+import { ALL_TILES } from '../engine/tiles';
+import { staticFace, faceOfSeat } from '../ui/avatars';
 import { character, profileOf, randomLineup } from '../roster';
 import { hapticTick, playSfx, setAudioPrefs, setAudioSuspended } from '../audio/sfx';
 import { buildHowto } from '../ui/howto';
 import { Hud } from '../ui/hud';
 import { loc, setLang, t, type Key } from '../ui/i18n';
 import { buildMenu } from '../ui/menu';
+import { buildAbout } from '../ui/about';
 import { confirmDialog, Overlay } from '../ui/overlay';
 import { buildSettings, presetName, type SettingsTab } from '../ui/settings';
 import { buildNewGame } from '../ui/newgame';
 import { setTileTheme } from '../ui/tiles';
 import { buildHandSummary, buildMatchEnd, buildPause, buildStarterChooser } from '../ui/summary';
-import { prefersReducedMotion, setReducedMotionPref, setUiQuality } from '../ui/dom';
+import { h, prefersReducedMotion, setReducedMotionPref, setUiQuality } from '../ui/dom';
 import { AvatarController } from '../ui/avatars';
 import { SeatPlates } from '../ui/plates';
 import { GameSession, type SessionHooks } from './controller';
-import { clearSave, loadSave, saveGame } from './save';
-import { findTarget, RANDOM, sanitizeLineupSetting, saveSettings } from './settings';
+import { clearSave, loadSave, saveGame, saveSummary } from './save';
+import { findTarget, RANDOM, rulesFor, sanitizeLineupSetting, saveSettings } from './settings';
 import { QualityGovernor, resolveQuality } from './perf';
 
 type Names = [string, string, string, string];
@@ -50,6 +53,11 @@ export class App {
   private lineup: Lineup;
   /** auto quality: steps the level down when the renderer reports sustained slow frames */
   private governor = new QualityGovernor();
+  /** the match being played: its mode and seats in play (individual: 2–4 players) */
+  private mode: GameMode = 'pairs';
+  private seats: Seat[] = [0, 1, 2, 3];
+  /** individual: the seat that drew last (one "Robo" bubble per run of draws) */
+  private lastDrawSeat: Seat | null = null;
 
   constructor(private deps: AppDeps) {
     this.engine = deps.engine;
@@ -155,7 +163,7 @@ export class App {
     this.screen = 'menu';
     this.hud.show(false);
     const s = loadSave();
-    const save = s ? { hand: s.match.hand?.handNo ?? 0, us: s.match.scores[0], them: s.match.scores[1] } : null;
+    const save = s ? saveSummary(s) : null;
     this.overlay.showScreen(
       buildMenu({
         save,
@@ -163,11 +171,26 @@ export class App {
         onContinue: () => this.continueSaved(),
         onSettings: () => this.showSettings(),
         onHowto: () => this.showHowto(),
+        onAbout: () => this.showAbout(),
       }),
     );
   }
 
-  private showSettings(tab?: SettingsTab): void {
+  /** Acerca de: a small modal over the menu or Ajustes; Esc / Cerrar / Android back close it */
+  private showAbout(): void {
+    let close = () => {};
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'GoBack' || e.key === 'BrowserBack') done();
+    };
+    const done = () => {
+      window.removeEventListener('keydown', onKey);
+      close();
+    };
+    close = this.overlay.openModal(buildAbout(done));
+    window.addEventListener('keydown', onKey);
+  }
+
+  private showSettings(tab?: SettingsTab, rulesMode?: GameMode): void {
     const from = this.screen;
     this.screen = 'settings';
     const back = () => {
@@ -176,11 +199,16 @@ export class App {
       else this.showMenu();
     };
     if (tab) this.settings = { ...this.settings, settingsTab: tab };
+    // Reglas opens on the mode asked for (the new-game sheet's mode, or the match being played)
+    const rm = rulesMode ?? (from === 'game' ? this.mode : undefined);
+    if (rm) this.settings = { ...this.settings, rulesTabMode: rm };
     const build = () =>
       buildSettings({
         settings: this.settings,
         ruleDescriptors: this.engine.RULE_SETTINGS,
         defaultRules: this.engine.DEFAULT_RULES,
+        ruleDescriptorsIndividual: this.engine.RULE_SETTINGS_INDIVIDUAL,
+        defaultRulesIndividual: this.engine.DEFAULT_RULES_INDIVIDUAL,
         presets: this.engine.RULE_PRESETS ?? [],
         matchInProgress: !!this.session || !!loadSave(),
         confirm: (o) => confirmDialog(this.overlay, o),
@@ -190,10 +218,12 @@ export class App {
           this.settings = resolveQuality({ ...next, autoQuality: this.settings.autoQuality });
           saveSettings(this.settings);
           this.applySetting(key);
-          if (key === 'rules' && from === 'game') this.rulesNoticePending = true;
+          if ((key === 'rules' && from === 'game' && this.mode === 'pairs') || (key === 'rulesIndividual' && from === 'game' && this.mode === 'individual'))
+            this.rulesNoticePending = true;
           if (key === 'language') this.overlay.showScreen(build());
         },
         onBack: back,
+        onAbout: () => this.showAbout(),
       });
     this.returnToPause = from === 'game';
     this.overlay.showScreen(build());
@@ -206,29 +236,49 @@ export class App {
     this.overlay.showScreen(buildHowto(() => (from === 'game' ? this.backToPause() : this.showMenu())));
   }
 
-  /** the new-game sheet: pick the partner and the two rivals, the rules preset, Comenzar */
+  /** the new-game sheet: the mode (Parejas | Individual), the characters, the rules preset, Comenzar */
   private showNewGame(): void {
     this.screen = 'newgame';
     this.overlay.showScreen(
       buildNewGame({
+        mode: this.settings.mode ?? 'pairs',
         lineup: sanitizeLineupSetting(this.settings.lineup),
+        soloOpponents: this.settings.soloOpponents ?? 2,
+        soloLineup: this.settings.soloLineup ?? [],
         avatars: this.settings.avatars !== false,
         humanFace: this.settings.avatarFace ?? 0,
         humanName: this.settings.playerName || t('seat.you'),
         tableStyle: this.settings.tableStyle ?? 'green',
-        presetName: presetName(this.engine.RULE_PRESETS ?? [], this.settings.rules),
+        presetName: (mode) => presetName(this.engine.RULE_PRESETS ?? [], rulesFor(this.settings, mode), mode),
         onChange: (lineup) => {
           this.settings = { ...this.settings, lineup };
           saveSettings(this.settings);
         },
-        onRules: () => this.showSettings('rules'),
-        onStart: (lineup) => {
+        onSoloChange: (soloLineup, soloOpponents) => {
+          this.settings = { ...this.settings, soloLineup, soloOpponents };
+          saveSettings(this.settings);
+        },
+        onMode: (mode) => {
+          this.settings = { ...this.settings, mode };
+          saveSettings(this.settings);
+        },
+        onRules: (mode) => this.showSettings('rules', mode),
+        onStart: (o) => {
           clearSave();
-          this.startMatch(this.engine.createMatch({ ...this.settings.rules }), false, resolveLineup(lineup));
+          this.settings = { ...this.settings, mode: o.mode };
+          saveSettings(this.settings);
+          const lineup = o.mode === 'pairs' ? resolveLineup(o.lineup) : o.lineup;
+          this.startMatch(this.newMatch(o.mode, o.players), false, lineup);
         },
         onBack: () => this.showMenu(),
       }),
     );
+  }
+
+  /** a fresh match of a mode with the stored rules of that mode */
+  private newMatch(mode: GameMode, players: 2 | 3 | 4): MatchState {
+    const rules = { ...rulesFor(this.settings, mode) };
+    return mode === 'individual' ? this.engine.createMatch(rules, undefined, { mode, players }) : this.engine.createMatch(rules);
   }
 
   private backToPause(): void {
@@ -314,6 +364,9 @@ export class App {
   private startMatch(match: MatchState, resume: boolean, lineup: Lineup): void {
     this.stopSession();
     this.lineup = { ...lineup };
+    this.mode = match.mode ?? 'pairs';
+    this.seats = (match.seats ?? [0, 1, 2, 3]).slice();
+    this.lastDrawSeat = null;
     this.applyLineupFaces();
     this.ensureView();
     this.view.reset();
@@ -326,7 +379,9 @@ export class App {
     this.avatars.setPaused(false);
     this.avatars.setHold(false);
     this.hud.setScores(match.scores);
+    this.hud.setAbajo(match.abajo ?? 0);
     this.hud.setTarget(findTarget(this.engine, match.rules));
+    this.setupSoloHud(match);
     if (match.hand) this.hud.setHand(match.hand.handNo);
     this.hud.show(true);
 
@@ -349,8 +404,8 @@ export class App {
       .then((res) => {
         if (this.session !== session) return; // superseded
         this.session = null;
-        // a rematch keeps the same characters
-        if (res === 'rematch') this.startMatch(this.engine.createMatch({ ...this.settings.rules }), false, this.lineup);
+        // a rematch keeps the same mode, players and characters
+        if (res === 'rematch') this.startMatch(this.newMatch(this.mode, this.seats.length as 2 | 3 | 4), false, this.lineup);
         else if (res === 'menu') this.toMenu();
       })
       .catch((err) => {
@@ -360,6 +415,21 @@ export class App {
           this.toMenu();
         }
       });
+  }
+
+  /** individual mode: the per-player scoreboard (in turn order from the human) and the boneyard chip */
+  private setupSoloHud(match: MatchState): void {
+    if (this.mode !== 'individual') {
+      this.hud.setPlayers(null);
+      this.hud.setPile(null);
+      return;
+    }
+    const avatarsOn = this.settings.avatars !== false;
+    const i = Math.max(0, this.seats.indexOf(0));
+    const order = [...this.seats.slice(i), ...this.seats.slice(0, i)];
+    this.hud.setPlayers(order.map((s) => ({ seat: s, name: this.names[s], face: avatarsOn ? h('span.face-static', staticFace(faceOfSeat(s), 'idle')) : null })));
+    this.hud.setSeatScores(match.seatScores ?? [0, 0, 0, 0]);
+    this.hud.setPile(pileOf(match));
   }
 
   private stopSession(): void {
@@ -401,7 +471,16 @@ export class App {
     const lu = this.lineup;
     this.closePause = this.overlay.openModal(
       buildPause({
-        levels: ([2, 1, 3] as const).map((s) => ({ name: this.names[s], level: t(`settings.difficulty.${character(lu[s]).level}` as Key), partner: s === 2 })),
+        levels: ([2, 1, 3] as const)
+          .filter((s) => this.seats.includes(s))
+          .map((s) => ({ name: this.names[s], level: t(`settings.difficulty.${character(lu[s]).level}` as Key), partner: s === 2 && this.mode === 'pairs' })),
+        audio: { sound: this.settings.sound, music: this.settings.music, vibration: this.settings.vibration },
+        // the same settings fields as Ajustes → Imagen y sonido, applied live
+        onAudio: (key, on) => {
+          this.settings = { ...this.settings, [key]: on };
+          saveSettings(this.settings);
+          this.applySetting(key);
+        },
         onResume: () => this.resume(),
         onSettings: () => {
           this.closePause?.();
@@ -437,6 +516,14 @@ export class App {
 
   private noticeBonuses(bonuses: Bonus[]): void {
     for (const b of bonuses) {
+      if (b.seat !== undefined) {
+        // individual: the player's name
+        const name = this.names[b.seat];
+        const you = b.seat === 0;
+        if (b.kind === 'double') this.hud.notice(you ? t('notice.capicuaDoubleSoloYou') : t('notice.capicuaDoubleSolo', { name }));
+        else this.hud.notice(t(you ? 'notice.bonusSoloYou' : 'notice.bonusSolo', { label: loc(b.label), n: b.points, name }));
+        continue;
+      }
       const team = b.team === 0 ? t('team.us') : t('team.them');
       if (b.kind === 'double') this.hud.notice(t('notice.capicuaDouble', { team }));
       else this.hud.notice(b.points ? t('notice.bonus', { label: loc(b.label), n: b.points, team }) : t('notice.bonusNoPts', { label: loc(b.label), team }));
@@ -452,22 +539,41 @@ export class App {
           case 'handStart':
             this.hud.setHand(ev.handNo);
             this.hud.setScores(ev.scores);
+            if (ev.seatScores) this.hud.setSeatScores(ev.seatScores);
+            if (this.mode === 'individual') this.hud.setPile(match.rules.boneyardDraw === false || !ev.boneyard?.length ? null : ev.boneyard.length);
             this.hud.setEnds(null);
             this.plates.clearBubbles();
+            this.lastDrawSeat = null;
             break;
           case 'play':
             this.hud.setEnds(ev.ends);
+            this.lastDrawSeat = null;
+            break;
+          case 'draw':
+            // one "Robo" bubble per run of draws; the boneyard chip counts down
+            if (!replay && this.lastDrawSeat !== ev.seat) this.callout(ev.seat, 'say.draw');
+            this.lastDrawSeat = ev.seat;
+            this.hud.setPile(ev.boneyardLeft > 0 ? ev.boneyardLeft : null);
+            if (ev.seatScores) this.hud.setSeatScores(ev.seatScores, !replay);
+            if (!replay && ev.bonus) this.noticeBonuses([ev.bonus]);
+            if (!replay && ev.bonusBlocked) this.hud.notice(t('notice.paseSalidaBlocked'));
             break;
           case 'pass':
             this.hud.setEnds(ev.ends);
+            this.lastDrawSeat = null;
             // the one and only "Paso" callout, as a bubble on the passer's plate
             if (!replay) this.callout(ev.seat, 'say.pass');
             if (ev.scores) this.hud.setScores(ev.scores, !replay);
-            if (!replay && ev.bonus) {
+            if (ev.seatScores) this.hud.setSeatScores(ev.seatScores, !replay);
+            if (!replay && ev.bonus && ev.bonus.seat !== undefined) this.noticeBonuses([ev.bonus]);
+            else if (!replay && ev.bonus) {
               const team = ev.bonus.team === 0 ? t('team.us') : t('team.them');
               this.hud.notice(t('notice.bonus', { label: loc(ev.bonus.label), n: ev.bonus.points, team }));
             }
             if (!replay && ev.bonusBlocked) this.hud.notice(t('notice.paseSalidaBlocked'));
+            if (ev.abajoPot !== undefined) this.hud.setAbajo(ev.abajoPot, !replay);
+            if (!replay && ev.bonusAbajo) this.hud.notice(t('notice.abajoPase', { n: ev.bonusAbajo.points }));
+            if (!replay && ev.abajoClaimed) this.hud.notice(t(ev.bonus?.team === 1 ? 'notice.abajoClaimThem' : 'notice.abajoClaimUs', { n: ev.abajoClaimed }));
             break;
           case 'handEnd': {
             if (!replay) {
@@ -480,9 +586,14 @@ export class App {
               }
             }
             this.hud.setScores(ev.scores, true);
+            if (ev.seatScores) this.hud.setSeatScores(ev.seatScores, true);
+            if (this.mode === 'individual') this.hud.setPile(null);
+            if (ev.abajoPot !== undefined) this.hud.setAbajo(ev.abajoPot, !replay);
             // rare events nothing else on screen explains get a short notice in the top bar
             if (!replay) {
               if (ev.winnerTeam === null) this.hud.notice(t('notice.void'));
+              if (ev.abajoAdded) this.hud.notice(ev.abajoAdded === 1 ? t('notice.abajoAdded1') : t('notice.abajoAdded', { n: ev.abajoAdded }));
+              if (ev.abajoClaimed) this.hud.notice(t(ev.winnerTeam === 1 ? 'notice.abajoClaimThem' : 'notice.abajoClaimUs', { n: ev.abajoClaimed }));
               this.noticeBonuses(ev.bonuses);
             }
             break;
@@ -528,6 +639,9 @@ export class App {
         // the restored table is final: HUD in place, faces calm, no reactions
         const h = match.hand;
         this.hud.setScores(match.scores);
+        this.hud.setAbajo(match.abajo ?? 0);
+        if (match.seatScores) this.hud.setSeatScores(match.seatScores);
+        if (this.mode === 'individual') this.hud.setPile(pileOf(match));
         if (h) {
           this.hud.setHand(h.handNo);
           this.hud.setEnds(h.over ? null : h.ends);
@@ -542,6 +656,15 @@ export class App {
         this.avatars.perk(0);
         hapticTick();
         const h = m.hand;
+        if (this.mode === 'individual') {
+          // individual, first hand: the double six (or the highest double / tile) must open
+          const id = h && h.chain.length === 0 ? h.openTile : null;
+          if (id !== null && id !== undefined) {
+            const tl = ALL_TILES[id];
+            this.hud.notice(id === 27 ? t('notice.openDouble6') : t('notice.openTile', { tile: tl.a === tl.b ? t(`tile.double.${tl.a}` as Key) : `${tl.b}-${tl.a}` }));
+          }
+          return;
+        }
         if (!mustPass && h && h.chain.length === 0 && h.handNo === 1 && m.rules.firstStarter === 'double6') this.hud.notice(t('notice.openDouble6'));
       },
       showHandSummary: (ev, match, prevScores) =>
@@ -558,6 +681,7 @@ export class App {
               target: findTarget(this.engine, match.rules),
               matchOver: match.over,
               speed: this.settings.animationSpeed === 'fast' ? 0.6 : 1,
+              ...(this.mode === 'individual' ? { seats: this.seats, prevSeatScores: soloPrev(ev) } : {}),
             },
             () => {
               close();
@@ -574,7 +698,12 @@ export class App {
           this.avatars.setHold(true);
           const card = buildMatchEnd(
             ev,
-            { names: this.names, handsWon: match.handsWon, avatars: this.settings.avatars !== false },
+            {
+              names: this.names,
+              handsWon: match.handsWon,
+              avatars: this.settings.avatars !== false,
+              ...(this.mode === 'individual' ? { seats: this.seats, seatHandsWon: match.seatHandsWon } : {}),
+            },
             () => {
               close();
               resolve('rematch');
@@ -637,5 +766,22 @@ function resolveLineup(l: Lineup): Lineup {
 
 /** points a team gained at this hand end = base (if winner) + its bonuses (early bonuses were credited before) */
 function delta(ev: Extract<GameEvent, { type: 'handEnd' }>, team: 0 | 1): number {
-  return (ev.winnerTeam === team ? ev.points : 0) + ev.bonuses.filter((b) => b.team === team).reduce((a, b) => a + b.points, 0);
+  // points held abajo never reached the scores; a claimed pot did
+  const won = ev.winnerTeam === team && ev.abajoAdded === undefined ? ev.points + (ev.abajoClaimed ?? 0) : 0;
+  return won + ev.bonuses.filter((b) => b.team === team && !b.abajo).reduce((a, b) => a + b.points, 0);
+}
+
+/** individual: the scores by seat before this hand end (the winner's base points and bonuses taken off) */
+function soloPrev(ev: Extract<GameEvent, { type: 'handEnd' }>): number[] {
+  const out = (ev.seatScores ?? [0, 0, 0, 0]).slice();
+  if (ev.winnerSeat !== null) out[ev.winnerSeat] -= ev.points;
+  for (const b of ev.bonuses) if (b.seat !== undefined) out[b.seat] -= b.points;
+  return out.map((v) => Math.max(0, v));
+}
+
+/** individual: tiles left in the boneyard while drawing is on (null = no chip) */
+function pileOf(m: MatchState): number | null {
+  const h = m.hand;
+  if (m.mode !== 'individual' || m.rules.boneyardDraw === false || !h || h.over || !h.boneyard?.length) return null;
+  return h.boneyard.length;
 }

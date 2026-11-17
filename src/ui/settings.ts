@@ -1,9 +1,9 @@
-import type { AppSettings, RulePreset, RuleSettings, SettingDescriptor, SettingValue, TableStyle, TileBack, TileTheme } from '../contracts';
+import type { AppSettings, GameMode, RulePreset, RuleSettings, SettingDescriptor, SettingValue, TableStyle, TileBack, TileTheme } from '../contracts';
 import { TABLE_STYLES, TILE_BACKS } from '../contracts';
 import { tableThumb, tileBackThumb } from '../render';
 import { h } from './dom';
 import { loc, t, tMaybe, type Key } from './i18n';
-import { segmented, toggle } from './overlay';
+import { ICONS, segmented, toggle } from './overlay';
 import { screenHeader } from './howto';
 import { staticFace } from './avatars';
 import { FACE_COUNT } from './faces';
@@ -17,7 +17,10 @@ export interface SettingsOpts {
   settings: AppSettings;
   ruleDescriptors: SettingDescriptor[];
   defaultRules: AppSettings['rules'];
-  /** named rule sets; the first is the classic one ("Cubano clásico") */
+  /** individual mode's rule descriptors / defaults (when present, Reglas gets a Parejas | Individual switch) */
+  ruleDescriptorsIndividual?: SettingDescriptor[];
+  defaultRulesIndividual?: RuleSettings;
+  /** named rule sets; the first of each mode is its classic one ("Cubano clásico") */
   presets: RulePreset[];
   matchInProgress: boolean;
   confirm(o: { title: string; body: string; ok: string; cancel: string; danger?: boolean }): Promise<boolean>;
@@ -26,6 +29,8 @@ export interface SettingsOpts {
   onBack(): void;
   /** the level auto quality runs at right now (read after a change, for the "ahora:" line) */
   resolvedQuality?(): AppSettings['quality'];
+  /** opens the Acerca de card (a row at the bottom of the Juego tab) */
+  onAbout?(): void;
 }
 
 // ───────────────────────── small pieces ─────────────────────────
@@ -180,10 +185,24 @@ function sameAs(rules: RuleSettings, preset: RuleSettings, descriptors: SettingD
   return descriptors.every((d) => (rules[d.key] ?? d.default) === (preset[d.key] ?? d.default));
 }
 
-/** name of the preset these rules match, or "Personalizado" */
-export function presetName(presets: RulePreset[], rules: RuleSettings): string {
-  const p = presets.find((x) => Object.keys(x.rules).every((k) => x.rules[k] === rules[k]));
+/** name of the preset (of that mode) these rules match, or "Personalizado" */
+export function presetName(presets: RulePreset[], rules: RuleSettings, mode: GameMode = 'pairs'): string {
+  const p = presets.find((x) => (x.mode ?? 'pairs') === mode && Object.keys(x.rules).every((k) => x.rules[k] === rules[k]));
   return p ? loc(p.label) : t('settings.preset.custom');
+}
+
+/** Juego tab, last: a quiet full-width row that opens Acerca de */
+function aboutRow(onClick: () => void): HTMLElement {
+  const b = h(
+    'button.about-row',
+    { type: 'button' },
+    h('span.about-row-icon', { html: ICONS.info }),
+    h('span.about-row-label', t('settings.about')),
+    h('span.about-row-ver', __APP_VERSION__),
+    h('span.rg-chev', { 'aria-hidden': 'true' }),
+  );
+  b.addEventListener('click', onClick);
+  return h('section.card.set-card.about-card', b);
 }
 
 // ───────────────────────── screen ─────────────────────────
@@ -242,6 +261,7 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
         'section.card.set-card',
         row(t('settings.language'), seg('language', ['es', 'en'], (v) => (v === 'es' ? 'Español' : 'English'))),
       ),
+      o.onAbout ? aboutRow(o.onAbout) : null,
     );
 
   // graphics quality: Automática (per device, lowered when frames are slow) or a fixed level
@@ -291,18 +311,31 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
     );
 
   // ── Reglas: presets + collapsible groups, rendered generically from engine descriptors ──
+  // Parejas | Individual: each mode has its own rule list, values and "Cubano clásico"
   let openGroup: string | null = null;
+  const hasSolo = !!o.ruleDescriptorsIndividual?.length;
+  let rmode: GameMode = hasSolo && s.rulesTabMode === 'individual' ? 'individual' : 'pairs';
   const rulesWrap = h('div.set-tab-body');
-  const groups = new Map<string, SettingDescriptor[]>();
-  for (const d of o.ruleDescriptors) {
-    if (!groups.has(d.group)) groups.set(d.group, []);
-    groups.get(d.group)!.push(d);
-  }
-  const classic = o.presets[0] ?? { id: 'default', label: { es: 'Cubano clásico', en: 'Classic Cuban' }, rules: o.defaultRules };
+  const groupsOf = (list: SettingDescriptor[]) => {
+    const groups = new Map<string, SettingDescriptor[]>();
+    for (const d of list) {
+      if (!groups.has(d.group)) groups.set(d.group, []);
+      groups.get(d.group)!.push(d);
+    }
+    return groups;
+  };
   const renderRules = () => {
-    const isClassic = sameAs(s.rules, classic.rules, o.ruleDescriptors);
-    const setRule = (key: string, v: SettingValue) => {
-      set('rules', { ...s.rules, [key]: v });
+    const solo = rmode === 'individual';
+    const descriptors = solo ? o.ruleDescriptorsIndividual! : o.ruleDescriptors;
+    const groups = groupsOf(descriptors);
+    const key: 'rules' | 'rulesIndividual' = solo ? 'rulesIndividual' : 'rules';
+    const cur: RuleSettings = solo ? (s.rulesIndividual ?? o.defaultRulesIndividual ?? {}) : s.rules;
+    const classic =
+      o.presets.find((p) => (p.mode ?? 'pairs') === rmode) ??
+      ({ id: 'default', label: { es: 'Cubano clásico', en: 'Classic Cuban' }, rules: solo ? (o.defaultRulesIndividual ?? {}) : o.defaultRules } as RulePreset);
+    const isClassic = sameAs(cur, classic.rules, descriptors);
+    const setRule = (k: string, v: SettingValue) => {
+      set(key, { ...cur, [k]: v });
       renderRules();
     };
     const presetBtn = (label: string, on: boolean, onClick?: () => void) => {
@@ -321,7 +354,7 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
         });
         if (!ok) return;
       }
-      set('rules', { ...classic.rules });
+      set(key, { ...classic.rules });
       renderRules();
     };
     const presets = h(
@@ -330,6 +363,22 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
       presetBtn(loc(classic.label), isClassic, isClassic ? undefined : () => void restore()),
       presetBtn(t('settings.preset.custom'), !isClassic),
     );
+    // which mode's rules are shown: a segmented switch at the very top, the line under it says which
+    const modeSwitch = hasSolo
+      ? segmented<GameMode>(
+          (['pairs', 'individual'] as GameMode[]).map((m) => ({ value: m, label: t(`mode.${m}` as Key) })),
+          rmode,
+          (v) => {
+            rmode = v;
+            openGroup = null;
+            s = { ...s, rulesTabMode: v };
+            o.onChange(s, 'rulesTabMode');
+            renderRules();
+          },
+          t('mode.label'),
+        )
+      : null;
+    modeSwitch?.classList.add('seg-rules-mode');
 
     const groupEls = [...groups].map(([g, list]) => {
       const open = openGroup === g;
@@ -337,7 +386,7 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
       const head = h(
         'button.rg-head',
         { type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId },
-        h('span.rg-text', h('span.rg-title', prettyGroup(g)), h('span.rg-sum', groupSummary(list, s.rules))),
+        h('span.rg-text', h('span.rg-title', prettyGroup(g)), h('span.rg-sum', groupSummary(list, cur))),
         h('span.rg-chev', { 'aria-hidden': 'true' }),
       );
       head.addEventListener('click', () => {
@@ -348,17 +397,17 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
       const body = h('div.rg-body', { id: bodyId, hidden: !open });
       if (open) {
         for (const d of list) {
-          const cur = s.rules[d.key] ?? d.default;
+          const val = cur[d.key] ?? d.default;
           let ctl: Node;
-          if (d.type === 'toggle') ctl = toggle(Boolean(cur), (v) => setRule(d.key, v), loc(d.label));
+          if (d.type === 'toggle') ctl = toggle(Boolean(val), (v) => setRule(d.key, v), loc(d.label));
           else
             ctl = segmented(
-              (d.options ?? []).map((op) => ({ value: op.value, label: optionLabel(d, op, s.rules) })),
-              cur,
+              (d.options ?? []).map((op) => ({ value: op.value, label: optionLabel(d, op, cur) })),
+              val,
               (v) => setRule(d.key, v),
               loc(d.label),
             );
-          const longOpts = d.type === 'select' && ((d.options?.length ?? 0) > 2 || (d.options ?? []).some((op) => optionLabel(d, op, s.rules).length > 9));
+          const longOpts = d.type === 'select' && ((d.options?.length ?? 0) > 2 || (d.options ?? []).some((op) => optionLabel(d, op, cur).length > 9));
           body.append(row(loc(d.label), ctl, d.help ? loc(d.help) : undefined, longOpts));
         }
       }
@@ -366,7 +415,13 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
     });
 
     rulesWrap.replaceChildren(
-      h('section.card.set-card.preset-card', h('p.set-help.lead', t('settings.rulesHelp')), presets, o.matchInProgress ? h('p.warn', { role: 'note' }, t('settings.rulesWarn')) : null),
+      h(
+        'section.card.set-card.preset-card',
+        modeSwitch,
+        h('p.set-help.lead', hasSolo ? `${t(solo ? 'settings.rulesForIndividual' : 'settings.rulesForPairs')} ${t('settings.rulesNext')}` : t('settings.rulesHelp')),
+        presets,
+        o.matchInProgress ? h('p.warn', { role: 'note' }, t('settings.rulesWarn')) : null,
+      ),
       ...groupEls,
     );
   };

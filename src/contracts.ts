@@ -28,13 +28,27 @@ export type Seat = 0 | 1 | 2 | 3;
 export type Team = 0 | 1;
 export const teamOf = (s: Seat): Team => (s % 2) as Team;
 
+/**
+ * Game modes. 'pairs' (default) = two partnerships (seats 0&2 vs 1&3). 'individual' = every player for
+ * themselves, 2–4 players: the human (seat 0) plus 1–3 CPU players seated around the table (SEATS_FOR).
+ */
+export type GameMode = 'pairs' | 'individual';
+
+/**
+ * Seats in use for a number of players (turn order counter-clockwise, as always): 2 players face each
+ * other (bottom/top), 3 players sit bottom/right/left (the top is free), 4 players use every seat.
+ */
+export const SEATS_FOR: Record<2 | 3 | 4, Seat[]> = { 2: [0, 2], 3: [0, 1, 3], 4: [0, 1, 2, 3] };
+
 /** The chain (la mesa) has two open ends, addressed as 'left' and 'right'. */
 export type Side = 'left' | 'right';
 
 export type Move =
   /** slam: optional, cosmetic — the tile is slammed on the table (a signal to the partner). Ignored for legality. */
   | { kind: 'play'; seat: Seat; tileId: number; side: Side; slam?: boolean }
-  | { kind: 'pass'; seat: Seat };
+  | { kind: 'pass'; seat: Seat }
+  /** individual mode with a boneyard ("pozo"): no tile fits, take one from the boneyard (the turn stays) */
+  | { kind: 'draw'; seat: Seat };
 
 /** A tile as it sits on the table. `outer` is the pip value facing the open end on its side. */
 export interface PlacedTile {
@@ -73,11 +87,15 @@ export interface SettingDescriptor {
    * UI replaces with the shown value.
    */
   scale?: { key: string; when: SettingValue; factor: number };
+  /** optional per-mode wording for a descriptor shared by both modes (e.g. "the pair" → "the player") */
+  byMode?: Partial<Record<GameMode, { label?: { es: string; en: string }; help?: { es: string; en: string } }>>;
 }
 
 /** A named rule set (e.g. "Cubano clásico"). */
 export interface RulePreset {
   id: string;
+  /** the mode this preset is for (missing = 'pairs') */
+  mode?: GameMode;
   label: { es: string; en: string };
   rules: RuleSettings;
 }
@@ -125,6 +143,14 @@ export interface HandState {
    * returns [] and the controller must call EngineApi.chooseStarter(match, seat).
    */
   pendingStarterChoice?: Team | null;
+  /**
+   * optional (individual mode, 2–3 players): the undealt tiles ("pozo"), drawn from the END. Hidden
+   * information: only the engine and the renderer (to show a face-down pile) may look at it. With the
+   * boneyard rule off the tiles are simply set aside. Missing = no boneyard.
+   */
+  boneyard?: Tile[];
+  /** optional (individual mode): the tile that must open this hand (first hand: 6-6, else highest double / tile) */
+  openTile?: number | null;
 }
 
 export interface MatchState {
@@ -137,6 +163,21 @@ export interface MatchState {
   winner: Team | null;
   /** opaque RNG state so matches are reproducible from a seed */
   rng: number;
+  /**
+   * optional: points held "abajo" (rule 'abajo'): a shared pot fed by small wins of a team on 0 and
+   * claimed by the next hand that scores normally. Missing (old saves) = 0.
+   */
+  abajo?: number;
+  /** optional: game mode (missing = 'pairs', old saves) */
+  mode?: GameMode;
+  /** optional: seats in play, in turn order (missing = all four) */
+  seats?: Seat[];
+  /** optional (individual): scores by Seat (inactive seats stay 0). `scores` stays [0, 0] then. */
+  seatScores?: number[];
+  /** optional (individual): hands won by Seat */
+  seatHandsWon?: number[];
+  /** optional (individual): the seat that won the match */
+  winnerSeat?: Seat | null;
 }
 
 export interface Bonus {
@@ -147,11 +188,30 @@ export interface Bonus {
   team: Team;
   /** optional: 'double' = this bonus repeats the hand's points (capicúa ×2) */
   kind?: 'double';
+  /** optional: these points went to the abajo pot instead of the team's score */
+  abajo?: boolean;
+  /**
+   * optional (individual mode): the player credited. `team` is then human-centric (0 = the human,
+   * 1 = anyone else) so team-based code keeps working; use `seat`.
+   */
+  seat?: Seat;
 }
 
 /** Events are what the renderer/UI animate. The engine returns them in order from every transition. */
 export type GameEvent =
-  | { type: 'handStart'; handNo: number; hands: Tile[][]; starter: Seat; scores: [number, number] }
+  | {
+      type: 'handStart';
+      handNo: number;
+      hands: Tile[][];
+      starter: Seat;
+      scores: [number, number];
+      /** optional: seats in play (missing = all four) */
+      seats?: Seat[];
+      /** optional (individual, 2–3 players): the boneyard, drawn from the end (renderer: face-down pile) */
+      boneyard?: Tile[];
+      /** optional (individual): scores by Seat */
+      seatScores?: number[];
+    }
   | {
       type: 'play';
       seat: Seat;
@@ -176,6 +236,27 @@ export type GameEvent =
       bonusBlocked?: Bonus;
       /** optional: scores after this pass (present when a bonus was credited) */
       scores?: [number, number];
+      /** optional: the opening-pass bonus of a team on 0, held abajo (added to the pot, not to `scores`) */
+      bonusAbajo?: Bonus;
+      /** optional: points the bonus took from the abajo pot (only if PASS_BONUS_CLAIMS_ABAJO) */
+      abajoClaimed?: number;
+      /** optional: the abajo pot after this pass (present when it changed) */
+      abajoPot?: number;
+      /** optional (individual): seat scores after this pass (present when a bonus was credited) */
+      seatScores?: number[];
+    }
+  | {
+      /** individual mode: `seat` takes `tile` from the boneyard. Only seat 0's tile may be shown face up. */
+      type: 'draw';
+      seat: Seat;
+      tile: Tile;
+      /** tiles left in the boneyard after this draw */
+      boneyardLeft: number;
+      ends: { left: Pip; right: Pip };
+      /** optional: the opening-pass bonus credited now (the player after the opener could not play the first tile) */
+      bonus?: Bonus;
+      bonusBlocked?: Bonus;
+      seatScores?: number[];
     }
   | {
       type: 'handEnd';
@@ -193,15 +274,41 @@ export type GameEvent =
       rounding?: string;
       /** optional: bonuses credited earlier in this hand (already in the scores before this event) */
       earlyBonuses?: Bonus[];
+      /**
+       * optional (rule 'abajo'): the winning team was on 0 and the hand was small, so its points
+       * (`points` + its bonuses, all flagged `abajo`) went to the pot. Value = points added to the pot.
+       */
+      abajoAdded?: number;
+      /** optional (rule 'abajo'): the winning team scored normally and also took this many points from the pot */
+      abajoClaimed?: number;
+      /** optional (rule 'abajo'): the pot after this hand (present whenever the rule is on) */
+      abajoPot?: number;
+      /**
+       * optional (individual): scores by Seat after this hand. `winnerTeam` is then human-centric
+       * (0 = the human won, 1 = someone else, null = void) and `scores` stays [0, 0].
+       */
+      seatScores?: number[];
+      /** optional (individual): seats that took part */
+      seats?: Seat[];
     }
-  | { type: 'matchEnd'; winner: Team; scores: [number, number]; bonuses: Bonus[] };
+  | {
+      type: 'matchEnd';
+      /** individual: human-centric (0 = the human won) — use winnerSeat */
+      winner: Team;
+      scores: [number, number];
+      bonuses: Bonus[];
+      /** optional (individual) */
+      winnerSeat?: Seat;
+      seatScores?: number[];
+    };
 
 /** Public engine API — exported from src/engine/index.ts. All functions are PURE (return new state). */
 export interface EngineApi {
   RULE_SETTINGS: SettingDescriptor[];
   DEFAULT_RULES: RuleSettings;
   ALL_TILES: Tile[];
-  createMatch(rules: RuleSettings, seed?: number): MatchState;
+  /** `setup` (optional): individual mode with 2–4 players; missing = pairs */
+  createMatch(rules: RuleSettings, seed?: number, setup?: MatchSetup): MatchState;
   /** Deals and starts the next hand. Call when match.hand is null or match.hand.over. */
   startHand(match: MatchState): { match: MatchState; events: GameEvent[] };
   /** Legal moves for the seat to move. If no tile fits, returns exactly one pass move. */
@@ -220,6 +327,16 @@ export interface EngineApi {
   starterPreference?(match: MatchState, seat: Seat): boolean;
   /** optional: a CPU team's decision, based only on each player's spoken preference */
   cpuStarter?(match: MatchState): Seat;
+  /** optional: the rule descriptors of individual mode (shared rules reuse the pairs descriptors) */
+  RULE_SETTINGS_INDIVIDUAL?: SettingDescriptor[];
+  /** optional: default rules of individual mode */
+  DEFAULT_RULES_INDIVIDUAL?: RuleSettings;
+}
+
+export interface MatchSetup {
+  mode: GameMode;
+  /** individual: 2, 3 or 4 players (pairs: always 4) */
+  players?: 2 | 3 | 4;
 }
 
 /** The characters in the CPU seats (roster ids): 1 = right rival, 2 = partner, 3 = left rival. */
@@ -301,6 +418,8 @@ export const TILE_BACKS: TileBack[] = ['ornate', 'ivory', 'red', 'navy', 'green'
 export interface RestoreState {
   hand: HandState;
   scores: [number, number];
+  /** optional: seats in play (missing = all four) */
+  seats?: Seat[];
   /** true when the saved hand is already over (summary pending / between hands) */
   handOver?: boolean;
 }
@@ -412,4 +531,14 @@ export interface AppSettings {
   tableStyle?: TableStyle;
   /** tile-back look; missing = 'ornate' */
   tileBack?: TileBack;
+  /** the mode of the last new game (missing = 'pairs') */
+  mode?: GameMode;
+  /** individual-mode rules (missing = the individual defaults) */
+  rulesIndividual?: RuleSettings;
+  /** individual mode: how many CPU opponents (1–3; missing = 2) */
+  soloOpponents?: 1 | 2 | 3;
+  /** individual mode: the last chosen opponents in order (roster ids; up to 3) */
+  soloLineup?: string[];
+  /** last mode shown in Ajustes → Reglas */
+  rulesTabMode?: GameMode;
 }

@@ -1,4 +1,4 @@
-import type { AppSettings, EngineApi, Lineup, RuleSettings, SettingDescriptor } from '../contracts';
+import type { AppSettings, EngineApi, GameMode, Lineup, RuleSettings, SettingDescriptor } from '../contracts';
 import { TABLE_STYLES, TILE_BACKS } from '../contracts';
 import { migrateRules, RULES_VERSION } from '../engine/rules';
 import { DEFAULT_LINEUP, isCharacter } from '../roster';
@@ -29,16 +29,28 @@ export function defaultSettings(engine: EngineApi): AppSettings {
     settingsTab: 'game',
     tableStyle: 'green',
     tileBack: 'ornate',
+    mode: 'pairs',
+    rulesIndividual: { ...(engine.DEFAULT_RULES_INDIVIDUAL ?? {}) },
+    soloOpponents: 2,
+    soloLineup: [],
+    rulesTabMode: 'pairs',
   };
+}
+
+/** the stored rules of a mode */
+export function rulesFor(s: AppSettings, mode: GameMode): RuleSettings {
+  return mode === 'individual' ? (s.rulesIndividual ?? {}) : s.rules;
 }
 
 const isQuality = (v: unknown): v is AppSettings['quality'] => v === 'low' || v === 'medium' || v === 'high';
 
 /** Keep only rules the engine knows, with values of the right type / one of the options. */
-export function sanitizeRules(engine: EngineApi, stored: unknown): RuleSettings {
-  const out: RuleSettings = { ...engine.DEFAULT_RULES };
+export function sanitizeRules(engine: EngineApi, stored: unknown, mode: GameMode = 'pairs'): RuleSettings {
+  const solo = mode === 'individual' && !!engine.RULE_SETTINGS_INDIVIDUAL;
+  const descriptors = solo ? engine.RULE_SETTINGS_INDIVIDUAL! : engine.RULE_SETTINGS;
+  const out: RuleSettings = { ...(solo ? (engine.DEFAULT_RULES_INDIVIDUAL ?? {}) : engine.DEFAULT_RULES) };
   const src = (stored && typeof stored === 'object' ? stored : {}) as Record<string, unknown>;
-  const byKey = new Map<string, SettingDescriptor>(engine.RULE_SETTINGS.map((d) => [d.key, d]));
+  const byKey = new Map<string, SettingDescriptor>(descriptors.map((d) => [d.key, d]));
   for (const key of Object.keys(out)) {
     const v = src[key];
     if (v === undefined) continue;
@@ -50,7 +62,7 @@ export function sanitizeRules(engine: EngineApi, stored: unknown): RuleSettings 
     out[key] = v as RuleSettings[string];
   }
   // descriptors whose key is absent from DEFAULT_RULES still get their default
-  for (const d of engine.RULE_SETTINGS) if (!(d.key in out)) out[d.key] = d.default;
+  for (const d of descriptors) if (!(d.key in out)) out[d.key] = d.default;
   return out;
 }
 
@@ -70,6 +82,14 @@ export function sanitizeLineupSetting(v: unknown): Lineup {
   const real = ids.filter((x) => x !== RANDOM);
   if (new Set(real).size !== real.length) return { ...DEFAULT_LINEUP };
   return { 1: ids[0] as string, 2: ids[1] as string, 3: ids[2] as string };
+}
+
+/** individual-mode opponents: up to three different known characters, in order */
+export function sanitizeSoloLineup(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const x of v) if (isCharacter(x) && !out.includes(x) && out.length < 3) out.push(x);
+  return out;
 }
 
 export function loadSettings(engine: EngineApi): AppSettings {
@@ -107,6 +127,12 @@ export function loadSettings(engine: EngineApi): AppSettings {
       settingsTab: s.settingsTab === 'game' || s.settingsTab === 'rules' || s.settingsTab === 'av' ? s.settingsTab : 'game',
       tableStyle: TABLE_STYLES.includes(s.tableStyle as never) ? s.tableStyle : def.tableStyle,
       tileBack: TILE_BACKS.includes(s.tileBack as never) ? s.tileBack : def.tileBack,
+      // individual mode (settings saved before it existed: pairs, individual defaults)
+      mode: s.mode === 'individual' ? 'individual' : 'pairs',
+      rulesIndividual: sanitizeRules(engine, s.rulesIndividual, 'individual'),
+      soloOpponents: s.soloOpponents === 1 || s.soloOpponents === 2 || s.soloOpponents === 3 ? s.soloOpponents : 2,
+      soloLineup: sanitizeSoloLineup(s.soloLineup),
+      rulesTabMode: s.rulesTabMode === 'individual' ? 'individual' : s.rulesTabMode === 'pairs' ? 'pairs' : s.mode === 'individual' ? 'individual' : 'pairs',
     });
   } catch {
     return resolveQuality(def);

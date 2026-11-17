@@ -1,8 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
 export default defineConfig({
   // relative base: GitHub Pages subpath and the Capacitor WebView both need it
   base: './',
+  // the app version shown in Acerca de (src/ui/about.ts)
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   server: { port: 5173, host: true },
   build: {
     // es2020 keeps ?. / ?? native (Chrome 80+) and lowers class fields / ??= / ||= for older WebViews;

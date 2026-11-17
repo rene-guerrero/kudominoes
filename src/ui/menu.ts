@@ -9,26 +9,43 @@ export interface MenuOpts {
   onContinue(): void;
   onSettings(): void;
   onHowto(): void;
+  onAbout(): void;
 }
 
+/**
+ * The brand mark: three fanned fichas with the 1|3 (the red 1) raised in front — the same 1|3 as the app
+ * icon and the boot splash. Always the classic ivory tiles, whatever the in-game tile theme.
+ */
 export function logo(): HTMLElement {
+  const o = { size: 34, theme: 'classic' as const };
   return h(
     'div.logo',
     h('div.logo-tiles', {
-      html: tileSvg(6, 6, { size: 34, cls: 'lt1' }) + tileSvg(6, 3, { size: 34, cls: 'lt2' }) + tileSvg(3, 1, { size: 34, cls: 'lt3' }),
+      html: tileSvg(6, 6, { ...o, cls: 'lt1' }) + tileSvg(3, 5, { ...o, cls: 'lt3' }) + tileSvg(1, 3, { ...o, cls: 'lt2' }),
     }),
     h('h1.logo-word', h('span.ku', 'Ku'), h('span', 'dominoes')),
   );
 }
 
-/** Android APK download — only on the published web build, never inside the installed app. */
-function apkLink(): HTMLElement | string {
+/** Android APK download icon (last in the row) — only on the published web build, never inside the installed app.
+ *  Dev: add ?apk=1 to the URL to preview it. */
+const DOWNLOAD_SVG =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10.5M7.5 10.5 12 15l4.5-4.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 17.5V19a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 19v-1.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+function apkBtn(): HTMLElement | null {
   const native = !!(window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
-  if (!import.meta.env.PROD || native) return '';
-  const a = h('a.apk-link', t('menu.apk')) as HTMLAnchorElement;
-  a.href = './kudominoes.apk';
-  a.download = 'kudominoes.apk';
+  const devPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('apk');
+  if (native || !(import.meta.env.PROD || devPreview)) return null;
+  const label = t('menu.apk');
+  const a = h('a.btn.ghost.about-btn.apk-btn', { href: './kudominoes.apk', download: 'kudominoes.apk', 'aria-label': label, title: label }, h('span.about-btn-icon', { html: DOWNLOAD_SVG })) as HTMLAnchorElement;
   return a;
+}
+
+/** square icon-only Acerca de button, last in the Ajustes / Cómo jugar row */
+function aboutBtn(onClick: () => void): HTMLButtonElement {
+  const label = t('menu.about');
+  const b = h('button.btn.ghost.about-btn', { type: 'button', 'aria-label': label, title: label }, h('span.about-btn-icon', { html: ICONS.info }));
+  b.addEventListener('click', onClick);
+  return b;
 }
 
 export function buildMenu(o: MenuOpts): HTMLElement {
@@ -44,12 +61,15 @@ export function buildMenu(o: MenuOpts): HTMLElement {
   }
   const settings = btn(t('menu.settings'), o.onSettings, 'ghost', icon(ICONS.gear));
   const howto = btn(t('menu.howto'), o.onHowto, 'ghost', icon(ICONS.book));
-  actions.append(h('div.row', settings, howto));
+  actions.append(h('div.row.menu-row', settings, howto, aboutBtn(o.onAbout), apkBtn()));
   (actions.firstElementChild as HTMLElement).dataset.autofocus = '';
 
+  // data-attract: the 3D attract scenes play behind this screen and react to taps on its empty area;
+  // data-attract-avoid: the scenes stay clear of these blocks (logo, buttons)
   return h(
     'section.screen.menu',
-    h('div.menu-hero', logo(), h('p.tagline', t('app.tagline'))),
-    h('div.menu-bottom', actions, apkLink(), h('p.menu-foot', t('menu.offline'))),
+    { 'data-attract': true },
+    h('div.menu-hero', { 'data-attract-avoid': true }, logo(), h('p.tagline', t('app.tagline'))),
+    h('div.menu-bottom', { 'data-attract-avoid': true }, actions),
   );
 }

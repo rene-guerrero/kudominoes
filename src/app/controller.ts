@@ -187,7 +187,7 @@ export class GameSession {
         const h = this.match.hand;
         hooks.setSfxMuted(true);
         try {
-          await this.wait(view.restore?.({ hand: h, scores: this.match.scores, handOver: h.over }) ?? Promise.resolve());
+          await this.wait(view.restore?.({ hand: h, scores: this.match.scores, handOver: h.over, seats: this.match.seats }) ?? Promise.resolve());
         } finally {
           hooks.setSfxMuted(false);
         }
@@ -220,15 +220,18 @@ export class GameSession {
         let handEnd: HandEnd | undefined;
         let matchEnd: MatchEnd | undefined;
         let prevScores: [number, number] = [...this.match.scores] as [number, number];
+        let lastMove: Move | null = null;
 
         while (this.match.hand && !this.match.hand.over) {
           await this.gate();
           const seat = this.match.hand.turn;
           const legal = engine.legalMoves(this.match);
           if (!legal.length) throw new Error('engine returned no legal moves');
-          const mustPass = legal.length === 1 && legal[0].kind === 'pass';
+          // forced: a single pass, or (individual) a single draw from the boneyard
+          const mustPass = legal.length === 1 && legal[0].kind !== 'play';
           view.setTurn(seat);
-          hooks.onTurn(seat, this.match, mustPass);
+          // a draw keeps the turn: the same player going on drawing / playing is not a new turn
+          if (!(lastMove?.kind === 'draw' && lastMove.seat === seat)) hooks.onTurn(seat, this.match, mustPass);
 
           let move: Move;
           if (seat === 0) {
@@ -240,7 +243,8 @@ export class GameSession {
             // keep the human's slam flag (cosmetic) on the matched legal move
             if (move.kind === 'play' && chosen?.kind === 'play' && chosen.slam) move = { ...move, slam: true };
           } else {
-            await this.sleep(this.thinkDelay(this.match, legal.length));
+            // drawing is forced and quick (one tile after another); everything else gets a think delay
+            await this.sleep(legal[0].kind === 'draw' ? (220 + Math.random() * 160) * this.deps.speed() : this.thinkDelay(this.match, legal.length));
             const pr = this.deps.profile(seat);
             move = engine.chooseMove(this.match, pr.level, pr.style);
             if (!legal.some((m) => sameMove(m, move))) move = legal[0];
@@ -249,6 +253,7 @@ export class GameSession {
           prevScores = [...this.match.scores] as [number, number];
           const before = this.match;
           const r = engine.applyMove(this.match, move);
+          lastMove = move;
           if (seat !== 0) this.maybeCpuSlam(before, seat, r.events);
           this.match = r.match;
           this.handEvents.push(...r.events);
@@ -278,6 +283,6 @@ export class GameSession {
 
 function sameMove(a: Move, b: Move | undefined | null): boolean {
   if (!b || a.kind !== b.kind || a.seat !== b.seat) return false;
-  if (a.kind === 'pass') return true;
+  if (a.kind !== 'play') return true;
   return b.kind === 'play' && a.tileId === b.tileId && a.side === b.side;
 }

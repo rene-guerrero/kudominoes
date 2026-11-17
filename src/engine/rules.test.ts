@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { engine, RULE_SETTINGS, DEFAULT_RULES, ALL_TILES, normalizeRules } from './index';
 import { CAPICUA_DOUBLE_BEFORE_ROUNDING, capicuaDoubleTotal, resolveHandCore, roundPoints, toScoreRules } from './scoring';
 import { matchTarget, migrateRules, readRules, RULE_PRESETS, RULES_VERSION, sameRules, scoreUnit } from './rules';
+import type { RuleSettings } from '../contracts';
 
 describe('tiles', () => {
   it('has 28 unique ordered tiles', () => {
@@ -55,6 +56,8 @@ describe('settings', () => {
       nextStarter: 'winnerTeam',
       scoring: 'all',
       tranqueWinner: 'lowestPlayer',
+      tranqueTie: 'mano',
+      abajo: true,
       capicua: 'double',
       paseSalida: 2,
       paseSalidaNoWin: true,
@@ -88,6 +91,23 @@ describe('settings', () => {
     expect(migrateRules({ nextStarter: 'rotate' }, 2).nextStarter).toBe('winnerTeam');
     // already current: kept as is
     expect(migrateRules({ ...DEFAULT_RULES, target: 30 }, RULES_VERSION).target).toBe(30);
+  });
+
+  it('migrates schema-3 rules: the old Cubano clásico moves to the new one, custom sets keep their choices', () => {
+    expect(RULES_VERSION).toBe(4);
+    // the old preset as stored by v3 (no abajo key, void tie): never changed → new defaults
+    const { abajo: _a, ...v3 }: RuleSettings = { ...DEFAULT_RULES, tranqueTie: 'void' };
+    void _a;
+    const m = migrateRules(v3, 3);
+    expect(sameRules(m, DEFAULT_RULES)).toBe(true);
+    expect(m).toMatchObject({ tranqueTie: 'mano', abajo: true });
+    // customised (Personalizado): every stored choice stays, including the void tie; abajo gets its default
+    const c = migrateRules({ ...v3, target: 30 }, 3);
+    expect(c).toMatchObject({ target: 30, tranqueTie: 'void', abajo: true });
+    expect(migrateRules({ ...v3, tranqueTie: 'blockerLoses' }, 3).tranqueTie).toBe('blockerLoses');
+    // schema 1/2: the old default void tie was never chosen → la mano
+    expect(migrateRules({ tranqueTie: 'void' }, 2).tranqueTie).toBe('mano');
+    expect(migrateRules({ tranqueTie: 'blockerLoses' }, 2).tranqueTie).toBe('blockerLoses');
   });
 });
 

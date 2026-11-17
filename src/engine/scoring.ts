@@ -50,9 +50,63 @@ export function roundPoints(pips: number, mode: Rounding): number {
  */
 export const CAPICUA_DOUBLE_BEFORE_ROUNDING = false;
 
+/**
+ * "Puntos abajo": a hand won by a team on 0 whose final points (after rounding, capicúa and the other
+ * hand bonuses of that team) are at most this many go to the shared abajo pot instead. On the tens
+ * scale; ×10 (20 pips) when rounding is 'none', like every other points-scale value.
+ */
+export const ABAJO_MAX = 2;
+
+/**
+ * Does an opening-pass bonus credited to a team that already has points claim the abajo pot?
+ * false (the default): no — only a hand win claims the pot; the pass bonus is not a hand win.
+ * This is the ONLY place that decides it (the engine reads it; the CPU rollouts assume false).
+ */
+export const PASS_BONUS_CLAIMS_ABAJO = false;
+
 /** Total hand points with capicúa ×2, given the raw pips and the rounding code. */
 export function capicuaDoubleTotal(pips: number, code: number): number {
   return CAPICUA_DOUBLE_BEFORE_ROUNDING ? roundCode(pips * 2, code) : roundCode(pips, code) * 2;
+}
+
+/**
+ * Resolve a finished hand of INDIVIDUAL play. Allocation-free.
+ * @param order the seats in play, in turn order (only these count)
+ * @param n how many entries of `order` are used
+ * @param tieVoid a tied cerrado is void (else it goes to the tied seat closest to `starter` in play order)
+ * @returns encoded like resolveHandCore: winnerSeat = (r & 7) - 1 (-1 = void hand), raw pips = r >> 3
+ *   (the winner scores the pips left in every OTHER player's hand; a boneyard never counts)
+ */
+export function resolveSoloCore(
+  blocked: boolean,
+  pips: ArrayLike<number>,
+  order: ArrayLike<number>,
+  n: number,
+  lastSeat: number,
+  starter: number,
+  tieVoid: boolean,
+): number {
+  let winner = -1;
+  if (!blocked) winner = lastSeat;
+  else {
+    let min = 1e9;
+    for (let i = 0; i < n; i++) if (pips[order[i]] < min) min = pips[order[i]];
+    let k0 = 0;
+    for (let i = 0; i < n; i++) if (order[i] === starter) k0 = i;
+    let ties = 0;
+    // walk the seats in play order from the opener: the first one on the minimum is the "mano"
+    for (let j = 0; j < n; j++) {
+      const s = order[(k0 + j) % n];
+      if (pips[s] !== min) continue;
+      if (winner < 0) winner = s;
+      ties++;
+    }
+    if (ties > 1 && tieVoid) winner = -1;
+  }
+  if (winner < 0) return 0;
+  let pts = 0;
+  for (let i = 0; i < n; i++) if (order[i] !== winner) pts += pips[order[i]];
+  return (pts << 3) | (winner + 1);
 }
 
 /** Lower pip count within a team; ties go to the seat that comes first in play order from `starter`. */

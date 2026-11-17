@@ -4,11 +4,8 @@
     <rect x="166" y="78" width="180" height="356" rx="38" fill="#fff6e6"/>
     <rect x="190" y="250" width="132" height="12" rx="6" fill="#c9b79c"/>
     <circle cx="256" cy="256" r="11" fill="#ffb627"/>
-    <g fill="#2a160d">
-      <circle cx="212" cy="122" r="17"/><circle cx="300" cy="122" r="17"/>
-      <circle cx="212" cy="167" r="17"/><circle cx="300" cy="167" r="17"/>
-      <circle cx="212" cy="212" r="17"/><circle cx="300" cy="212" r="17"/>
-    </g>
+    <!-- one: the single red pip (the brand mark is the 1|3) -->
+    <circle cx="256" cy="167" r="21" fill="#c8231b"/>
     <g fill="#2a160d">
       <circle cx="212" cy="300" r="17"/><circle cx="256" cy="345" r="17"/><circle cx="300" cy="390" r="17"/>
     </g>

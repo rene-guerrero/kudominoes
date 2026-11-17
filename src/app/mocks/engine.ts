@@ -151,7 +151,7 @@ function applyMove(match0: MatchState, move: Move) {
   const m = clone(match0);
   const h = m.hand!;
   const events: GameEvent[] = [];
-  if (move.kind === 'pass') {
+  if (move.kind !== 'play') {
     h.passesInRow++;
     if (h.ends) h.passedOn[move.seat].push(h.ends.left, h.ends.right);
     events.push({ type: 'pass', seat: move.seat, ends: { ...h.ends! } });

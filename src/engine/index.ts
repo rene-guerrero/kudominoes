@@ -1,13 +1,27 @@
 import type { EngineApi } from '../contracts';
 import { chooseMove } from './ai';
 import { applyMove, chooseStarter, cpuStarter, createMatch, legalMoves, startHand, starterPreference } from './game';
-import { DEFAULT_RULES, matchTarget, RULE_PRESETS, RULE_SETTINGS } from './rules';
+import { DEFAULT_RULES, DEFAULT_RULES_INDIVIDUAL, matchTarget, RULE_PRESETS, RULE_SETTINGS, RULE_SETTINGS_INDIVIDUAL } from './rules';
 import { ALL_TILES } from './tiles';
 
-export { RULE_SETTINGS, DEFAULT_RULES, RULE_PRESETS, RULES_VERSION, normalizeRules, migrateRules, sameRules, matchTarget, scoreUnit } from './rules';
+export {
+  RULE_SETTINGS,
+  RULE_SETTINGS_INDIVIDUAL,
+  DEFAULT_RULES,
+  DEFAULT_RULES_INDIVIDUAL,
+  RULE_PRESETS,
+  RULES_VERSION,
+  normalizeRules,
+  migrateRules,
+  sameRules,
+  matchTarget,
+  scoreUnit,
+  descriptorsFor,
+  defaultRulesFor,
+} from './rules';
 export { roundPoints, CAPICUA_DOUBLE_BEFORE_ROUNDING } from './scoring';
 export { ALL_TILES } from './tiles';
-export { createMatch, startHand, legalMoves, applyMove, chooseStarter, starterPreference, cpuStarter } from './game';
+export { createMatch, startHand, legalMoves, applyMove, chooseStarter, starterPreference, cpuStarter, modeOf, seatsOf, isSolo } from './game';
 export { chooseMove, styleWeights, MASTER_MS } from './ai';
 export type { AiOptions } from './ai';
 
@@ -25,6 +39,8 @@ export const engine: EngineApi = {
   chooseStarter,
   starterPreference,
   cpuStarter,
+  RULE_SETTINGS_INDIVIDUAL,
+  DEFAULT_RULES_INDIVIDUAL,
 };
 
 export default engine;

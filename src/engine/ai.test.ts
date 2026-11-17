@@ -7,7 +7,7 @@ import { DEFAULT_RULES } from './rules';
 import { scenario, tid } from './testutil';
 
 const sameMove = (a: Move, b: Move) =>
-  a.kind === b.kind && a.seat === b.seat && (a.kind === 'pass' || (b.kind === 'play' && a.tileId === b.tileId && a.side === b.side));
+  a.kind === b.kind && a.seat === b.seat && (a.kind !== 'play' || (b.kind === 'play' && a.tileId === b.tileId && a.side === b.side));
 
 function checkInvariants(m: MatchState) {
   const h = m.hand!;

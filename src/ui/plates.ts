@@ -190,6 +190,15 @@ export class SeatPlates {
     const H = this.el.clientHeight || window.innerHeight;
     x = Math.max(6, Math.min(W - bw - 6, x));
     y = Math.max(6, Math.min(H - bh - 6, y));
+    // a (wrapped, taller) bubble never covers the HUD: slide it just below any HUD box it would overlap
+    const o = this.el.getBoundingClientRect();
+    for (const hud of document.querySelectorAll<HTMLElement>('.hud-top > *')) {
+      const r = hud.getBoundingClientRect();
+      if (!r.width) continue;
+      const l = r.left - o.left;
+      const t = r.top - o.top;
+      if (x < l + r.width && x + bw > l && y < t + r.height && y + bh > t) y = Math.min(H - bh - 6, t + r.height + 4);
+    }
     b.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
     // grow out of the anchor (after clamping, an edge plate's bubble starts at its outer end)
     const ox = anchor && (dir === 'up' || dir === 'down') ? `${Math.round(Math.max(0, Math.min(1, (anchor.x - x) / bw)) * 100)}%` : null;

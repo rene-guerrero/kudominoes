@@ -1,8 +1,8 @@
 import type { Difficulty, MatchState, Move, Pip, PlayStyle, Seat, Tile } from '../contracts';
-import { movesFor } from './game';
+import { isSolo, matchRules, movesFor, nextIn, seatsOf } from './game';
 import { hashSeed, Rng } from './rng';
-import { readRules, scoreUnit, type Rules } from './rules';
-import { capicuaDoubleTotal, resolveHandCore, roundCode, toScoreRules, type ScoreRules } from './scoring';
+import { scoreUnit, type Rules } from './rules';
+import { ABAJO_MAX, capicuaDoubleTotal, PASS_BONUS_CLAIMS_ABAJO, resolveHandCore, resolveSoloCore, roundCode, toScoreRules, type ScoreRules } from './scoring';
 import { ALL_TILES, TILE_A, TILE_B } from './tiles';
 
 /**
@@ -42,13 +42,30 @@ interface SeatView {
   moves: Move[];
   /** match scores by team (public) */
   scores: [number, number];
+  /** points held abajo (public) */
+  abajo: number;
+  /** individual mode: no partner (partner = -1), every other seat in play is an opponent */
+  solo: boolean;
+  /** seats in play, in turn order */
+  seats: readonly Seat[];
+  /** next / previous seat in play, by seat */
+  next: number[];
+  prev: number[];
+  /** tiles in the boneyard (public count; set-aside tiles when drawing is off) */
+  pile: number;
+  /** individual: scores by seat (public) */
+  seatScores: number[];
 }
 
 function buildView(match: MatchState): SeatView {
   const hand = match.hand!;
   const seat = hand.turn;
-  const partner = ((seat + 2) & 3) as Seat;
-  const rules = readRules(match.rules);
+  const solo = isSolo(match);
+  const seats = seatsOf(match);
+  const partner = (solo ? -1 : (seat + 2) & 3) as Seat;
+  const rules = matchRules(match);
+  const next = [0, 1, 2, 3].map((s) => (seats.includes(s as Seat) ? nextIn(seats, s) : (s + 1) & 3));
+  const prev = [0, 1, 2, 3].map((s) => seats[(seats.indexOf(s as Seat) + seats.length - 1) % seats.length] ?? ((s + 3) & 3));
   const tableCount = [0, 0, 0, 0, 0, 0, 0];
   const onTable = new Array<boolean>(28).fill(false);
   const partnerW = [0, 0, 0, 0, 0, 0, 0];
@@ -70,6 +87,11 @@ function buildView(match: MatchState): SeatView {
   });
   const passBits = hand.passedOn.map((ps) => ps.reduce<number>((m, v) => m | (1 << v), 0));
   for (let v = 0; v < 7; v++) {
+    if (solo) {
+      // every opponent passed on v (or drew on it)
+      if (seats.every((s) => s === seat || passBits[s] & (1 << v))) oppW[v] = -3;
+      continue;
+    }
     if (passBits[partner] & (1 << v)) partnerW[v] = -3;
     if (passBits[(seat + 1) & 3] & (1 << v) && passBits[(seat + 3) & 3] & (1 << v)) oppW[v] = -3;
   }
@@ -102,6 +124,13 @@ function buildView(match: MatchState): SeatView {
     sr: toScoreRules(rules),
     moves,
     scores: [match.scores[0], match.scores[1]],
+    abajo: match.abajo ?? 0,
+    solo,
+    seats,
+    next,
+    prev,
+    pile: hand.boneyard?.length ?? 0,
+    seatScores: (match.seatScores ?? [0, 0, 0, 0]).slice(),
   };
 }
 
@@ -172,13 +201,13 @@ export function styleWeights(style?: PlayStyle): StyleWeights {
 }
 
 export function heuristicScore(v: SeatView, m: Move, w: StyleWeights = BASE_WEIGHTS): number {
-  if (m.kind === 'pass') return 0;
+  if (m.kind !== 'play') return 0;
   const t = ALL_TILES[m.tileId];
   const ne = endsAfter(v.ends, t, m.side);
   const rem = v.hand.filter((x) => x.id !== t.id);
   if (rem.length === 0) return 1000 + t.a + t.b;
-  const nextOpp = (v.seat + 1) & 3;
-  const prevOpp = (v.seat + 3) & 3;
+  const nextOpp = v.next[v.seat];
+  const prevOpp = v.prev[v.seat];
   let s = (t.a + t.b) * w.heavy;
   if (t.a === t.b) s += w.double + (v.chainLen < 8 ? w.doubleEarly : 0);
 
@@ -193,7 +222,8 @@ export function heuristicScore(v: SeatView, m: Move, w: StyleWeights = BASE_WEIG
   for (let p = 0; p < 7; p++) if (mine(p) > 0) suits++;
   s += w.diversity * suits;
 
-  const pk = w.ignorePartner ? 0 : w.partner;
+  // individual: the partner-aware terms are simply off (partnerW stays 0)
+  const pk = w.ignorePartner || v.solo ? 0 : w.partner;
   let nextVoid = 0;
   for (const e of distinctEnds) {
     const bit = 1 << e;
@@ -201,8 +231,8 @@ export function heuristicScore(v: SeatView, m: Move, w: StyleWeights = BASE_WEIG
       s += w.nextVoid;
       nextVoid++;
     }
-    if (v.passBits[prevOpp] & bit) s += 1.5;
-    if (v.passBits[v.partner] & bit) s -= 3.5 * pk;
+    if (prevOpp !== nextOpp && v.passBits[prevOpp] & bit) s += 1.5;
+    if (!v.solo && v.passBits[v.partner] & bit) s -= 3.5 * pk;
     s += 1.2 * pk * v.partnerW[e] - 1.0 * v.oppW[e];
   }
   if (nextVoid === distinctEnds.length) s += w.bothVoid;
@@ -227,11 +257,14 @@ export function heuristicScore(v: SeatView, m: Move, w: StyleWeights = BASE_WEIG
     const avg = unkN ? unkPips / unkN : 0;
     const pips = [0, 0, 0, 0];
     for (let k = 0; k < 4; k++) pips[k] = k === v.seat ? rem.reduce((a, x) => a + x.a + x.b, 0) : v.counts[k] * avg;
-    const res = resolveHandCore(v.sr, true, pips, v.seat, v.starter);
+    const res = v.solo
+      ? resolveSoloCore(true, pips.map(Math.round), v.seats, v.seats.length, v.seat, v.starter, v.rules.soloTie === 'void')
+      : resolveHandCore(v.sr, true, pips, v.seat, v.starter);
     const win = (res & 7) - 1;
     const pts = res >> 3;
+    const ours = v.solo ? win === v.seat : (win & 1) === (v.seat & 1);
     if (win < 0) s -= 5;
-    else if ((win & 1) === (v.seat & 1)) s += (15 + pts * 0.3) * w.tranque;
+    else if (ours) s += (15 + pts * 0.3) * w.tranque;
     else s -= 15 + pts * 0.3;
   }
   return s;
@@ -239,18 +272,24 @@ export function heuristicScore(v: SeatView, m: Move, w: StyleWeights = BASE_WEIG
 
 // ───────────────────────── fast simulation (hard) ─────────────────────────
 
-const BH = new Int8Array(28); // base hands, 7 slots per seat
-const BC = new Int8Array(4);
-const WH = new Int8Array(28); // work copy
-const WC = new Int8Array(4);
+/**
+ * Hands in the simulation arrays: S slots per seat (individual play with a boneyard can grow a hand past
+ * 7 tiles). Slot 4 (PILE) is the boneyard / the set-aside tiles: unknown, never constrained by passes.
+ */
+const S = 28;
+const PILE = 4;
+const BH = new Int8Array(5 * S); // base hands
+const BC = new Int8Array(5);
+const WH = new Int8Array(5 * S); // work copy
+const WC = new Int8Array(5);
 const BT = new Int8Array(7); // tiles on table per pip
 const WT = new Int8Array(7);
-const BP = new Int16Array(4); // pass bitmasks
-const WP = new Int16Array(4);
+const BP = new Int16Array(5); // pass bitmasks (PILE: always 0)
+const WP = new Int16Array(5);
 const PIPS = new Int32Array(4);
 const UNK = new Int8Array(28);
 const ORD = new Int8Array(28);
-const CAP = new Int8Array(4);
+const CAP = new Int8Array(5);
 let rs = 1; // xorshift state for rollouts
 
 function rnd(): number {
@@ -275,26 +314,60 @@ interface SimCtx {
   paseCorrido: number;
   /** stronger (and a little slower) playout policy: keeps suit control, plays doubles sooner, less noise */
   smart: boolean;
+  /** puntos abajo: max hand points that go abajo for a team on 0 (-1 = rule off) */
+  abajoMax: number;
+  /** bit per team: that team is on 0 (its small wins go abajo) */
+  zeroMask: number;
+  /** the opening pass, if it happens, goes to the pot (the starter team is on 0) */
+  paseAbajo: boolean;
+  /** individual play: every seat for itself (swings are +pts for me, -pts for anyone else) */
+  solo: boolean;
+  /** seats in play, in turn order, and how many */
+  order: Int8Array;
+  n: number;
+  /** next seat in play, by seat */
+  next: Int8Array;
+  /** individual: a player who cannot play draws from PILE */
+  draw: boolean;
+  /** individual: a tied cerrado is void */
+  tieVoid: boolean;
 }
 
-function teamSwing(ctx: SimCtx, team: number, pts: number): number {
-  return (team & 1) === (ctx.me & 1) ? pts : -pts;
+/** the abajo pot during one playout (starts at the public pot; an opening pass on 0 adds to it) */
+let simPot = 0;
+
+/** swing for ctx.me of `pts` won by `seat` (pairs: by its team) */
+function teamSwing(ctx: SimCtx, seat: number, pts: number): number {
+  if (ctx.solo) return seat === ctx.me ? pts : -pts;
+  return (seat & 1) === (ctx.me & 1) ? pts : -pts;
 }
 
-function finishSim(ctx: SimCtx, blocked: boolean, lastSeat: number, bonus: number, capicua = false): number {
+/**
+ * Point swing of a finished playout. `winExtra` = fixed bonuses of the seat that went out (capicúa /
+ * double blank): part of the winning team's hand points, so they count for the abajo threshold.
+ * Points sent abajo are worth 0 (the pot goes to whoever next scores normally); a normal win also
+ * takes the pot.
+ */
+function finishSim(ctx: SimCtx, blocked: boolean, lastSeat: number, bonus: number, capicua = false, winExtra = 0): number {
   for (let s = 0; s < 4; s++) {
     let p = 0;
     for (let i = 0; i < WC[s]; i++) {
-      const id = WH[s * 7 + i];
+      const id = WH[s * S + i];
       p += TILE_A[id] + TILE_B[id];
     }
     PIPS[s] = p;
   }
-  const res = resolveHandCore(ctx.sr, blocked, PIPS, lastSeat, ctx.starter);
+  const res = ctx.solo
+    ? resolveSoloCore(blocked, PIPS, ctx.order, ctx.n, lastSeat, ctx.starter, ctx.tieVoid)
+    : resolveHandCore(ctx.sr, blocked, PIPS, lastSeat, ctx.starter);
   const w = (res & 7) - 1;
   if (w < 0) return bonus;
   const raw = res >> 3;
-  const pts = capicua && ctx.capicuaDouble ? capicuaDoubleTotal(raw, ctx.sr.round) : roundCode(raw, ctx.sr.round);
+  let pts = (capicua && ctx.capicuaDouble ? capicuaDoubleTotal(raw, ctx.sr.round) : roundCode(raw, ctx.sr.round)) + winExtra;
+  if (ctx.abajoMax >= 0) {
+    if ((ctx.zeroMask >> (w & 1)) & 1 && pts <= ctx.abajoMax) pts = 0;
+    else pts += simPot;
+  }
   return bonus + teamSwing(ctx, w, pts);
 }
 
@@ -302,12 +375,14 @@ const isCapicua = (a: number, b: number, pl: number, pr: number) => pl !== pr &&
 
 /** Plays the hand out from the work arrays. Returns the point swing for ctx.me's team. */
 function rollout(ctx: SimCtx, turn: number, L: number, R: number, passes: number, lastSeat: number, placed: number, bonus: number): number {
-  for (let guard = 0; guard < 200; guard++) {
+  let drew = false; // individual: the seat to move already drew this turn
+  for (let guard = 0; guard < 300; guard++) {
     const seat = turn;
-    const base = seat * 7;
+    const base = seat * S;
     const n = WC[seat];
-    const nextOpp = (seat + 1) & 3;
-    const partner = (seat + 2) & 3;
+    const nextOpp = ctx.next[seat];
+    // individual: no partner (PILE's pass bits are always 0, so the partner terms vanish)
+    const partner = ctx.solo ? PILE : (seat + 2) & 3;
     let bestI = -1;
     let bestLeft = false;
     let bestScore = -1e9;
@@ -347,14 +422,36 @@ function rollout(ctx: SimCtx, turn: number, L: number, R: number, passes: number
       }
     }
     if (bestI < 0) {
+      // the opening pass (individual: the next player cannot play the first tile with their dealt tiles)
+      if (placed === 1 && passes === 0 && !drew && ctx.paseSalida) {
+        if (ctx.paseAbajo) simPot += ctx.paseSalida;
+        else if (PASS_BONUS_CLAIMS_ABAJO && ctx.abajoMax >= 0) {
+          bonus += teamSwing(ctx, ctx.starter, ctx.paseSalida + simPot);
+          simPot = 0;
+        } else bonus += teamSwing(ctx, ctx.starter, ctx.paseSalida);
+      }
+      if (ctx.draw && WC[PILE] > 0) {
+        // draw one random tile from the boneyard; the same seat tries again
+        WP[seat] = (1 << L) | (1 << R);
+        drew = true;
+        const pb = PILE * S;
+        const k = (rnd() * WC[PILE]) | 0;
+        const dt = WH[pb + k];
+        WH[pb + k] = WH[pb + WC[PILE] - 1];
+        WC[PILE]--;
+        WH[base + n] = dt;
+        WC[seat] = n + 1;
+        continue;
+      }
       WP[seat] |= (1 << L) | (1 << R);
-      if (placed === 1 && passes === 0 && ctx.paseSalida) bonus += teamSwing(ctx, ctx.starter, ctx.paseSalida);
+      drew = false;
       passes++;
       if (passes === 3 && ctx.paseCorrido) bonus += teamSwing(ctx, lastSeat, ctx.paseCorrido);
-      if (passes >= 4) return finishSim(ctx, true, lastSeat, bonus);
+      if (passes >= ctx.n) return finishSim(ctx, true, lastSeat, bonus);
       turn = nextOpp;
       continue;
     }
+    drew = false;
     const id = WH[base + bestI];
     WH[base + bestI] = WH[base + n - 1];
     WC[seat] = n - 1;
@@ -371,9 +468,8 @@ function rollout(ctx: SimCtx, turn: number, L: number, R: number, passes: number
     lastSeat = seat;
     if (n === 1) {
       const cap = isCapicua(a, b, pl, pr);
-      if (ctx.capicua && cap) bonus += teamSwing(ctx, seat, ctx.capicua);
-      if (ctx.chuchazo && id === 0) bonus += teamSwing(ctx, seat, ctx.chuchazo);
-      return finishSim(ctx, false, seat, bonus, cap);
+      const extra = (ctx.capicua && cap ? ctx.capicua : 0) + (ctx.chuchazo && id === 0 ? ctx.chuchazo : 0);
+      return finishSim(ctx, false, seat, bonus, cap, extra);
     }
     if (WT[L] === 7 && WT[R] === 7) return finishSim(ctx, true, seat, bonus);
     turn = nextOpp;
@@ -382,11 +478,15 @@ function rollout(ctx: SimCtx, turn: number, L: number, R: number, passes: number
 }
 
 /** per seat × tile likelihood weights for the deal sampler (master's inference); 1 = neutral */
-const TWT = new Float64Array(4 * 28);
+const TWT = new Float64Array(5 * 28).fill(1);
 let useTwt = false;
 
-/** Deal the unknown tiles to the other three seats consistently with their public passes. */
+/**
+ * Deal the unknown tiles to the other seats (and, in individual play, to the boneyard / set-aside pile:
+ * slot PILE, never constrained) consistently with their public passes.
+ */
 function sampleHidden(me: number, unkN: number, rng: Rng): void {
+  const slots = BC[PILE] > 0 ? 5 : 4;
   for (let attempt = 0; attempt < 40; attempt++) {
     // shuffle unknown tiles
     for (let i = unkN - 1; i > 0; i--) {
@@ -397,37 +497,37 @@ function sampleHidden(me: number, unkN: number, rng: Rng): void {
     }
     // most constrained tiles first
     let k = 0;
-    for (let ec = 0; ec <= 3; ec++) {
+    for (let ec = 0; ec <= slots - 1; ec++) {
       for (let i = 0; i < unkN; i++) {
         const id = UNK[i];
         const mask = (1 << TILE_A[id]) | (1 << TILE_B[id]);
         let c = 0;
-        for (let s = 0; s < 4; s++) if (s !== me && (BP[s] & mask) === 0) c++;
+        for (let s = 0; s < slots; s++) if (s !== me && (BP[s] & mask) === 0) c++;
         if (c === ec) ORD[k++] = id;
       }
     }
-    for (let s = 0; s < 4; s++) CAP[s] = s === me ? 0 : BC[s];
-    const fill = [0, 0, 0, 0];
+    for (let s = 0; s < 5; s++) CAP[s] = s === me ? 0 : BC[s];
+    const fill = [0, 0, 0, 0, 0];
     let ok = true;
     for (let i = 0; i < unkN && ok; i++) {
       const id = ORD[i];
       const mask = (1 << TILE_A[id]) | (1 << TILE_B[id]);
       let tot = 0;
-      for (let s = 0; s < 4; s++) if (CAP[s] > 0 && (attempt === 39 || (BP[s] & mask) === 0)) tot += useTwt ? CAP[s] * TWT[s * 28 + id] : CAP[s];
+      for (let s = 0; s < slots; s++) if (CAP[s] > 0 && (attempt === 39 || (BP[s] & mask) === 0)) tot += useTwt ? CAP[s] * TWT[s * 28 + id] : CAP[s];
       if (tot <= 0) {
         ok = false;
         break;
       }
       let r = useTwt ? rng.next() * tot : rng.int(tot);
       let pick = -1;
-      for (let s = 0; s < 4; s++) {
+      for (let s = 0; s < slots; s++) {
         if (CAP[s] > 0 && (attempt === 39 || (BP[s] & mask) === 0)) {
           pick = s; // float rounding: the last eligible seat takes it if r never goes below 0
           r -= useTwt ? CAP[s] * TWT[s * 28 + id] : CAP[s];
           if (r < 0) break;
         }
       }
-      BH[pick * 7 + fill[pick]++] = id;
+      BH[pick * S + fill[pick]++] = id;
       CAP[pick]--;
     }
     if (ok) return;
@@ -501,9 +601,10 @@ let nodes = 0;
 function solve(ctx: SimCtx, turn: number, L: number, R: number, passes: number, lastSeat: number, bonus: number, alpha: number, beta: number): number {
   if (++nodes > NODE_CAP) return finishSim(ctx, true, lastSeat, bonus); // safety valve
   const seat = turn;
-  const base = seat * 7;
+  const base = seat * S;
   const n = WC[seat];
-  const maxing = (seat & 1) === (ctx.me & 1);
+  // individual: paranoid search (every other player minimises my swing)
+  const maxing = ctx.solo ? seat === ctx.me : (seat & 1) === (ctx.me & 1);
   let best = maxing ? -1e9 : 1e9;
   let any = false;
   for (let i = 0; i < n; i++) {
@@ -526,12 +627,10 @@ function solve(ctx: SimCtx, turn: number, L: number, R: number, passes: number, 
       let val: number;
       if (n === 1) {
         const cap = isCapicua(a, b, L, R);
-        let bon = bonus;
-        if (ctx.capicua && cap) bon += teamSwing(ctx, seat, ctx.capicua);
-        if (ctx.chuchazo && id === 0) bon += teamSwing(ctx, seat, ctx.chuchazo);
-        val = finishSim(ctx, false, seat, bon, cap);
+        const extra = (ctx.capicua && cap ? ctx.capicua : 0) + (ctx.chuchazo && id === 0 ? ctx.chuchazo : 0);
+        val = finishSim(ctx, false, seat, bonus, cap, extra);
       } else if (WT[nL] === 7 && WT[nR] === 7) val = finishSim(ctx, true, seat, bonus);
-      else val = solve(ctx, (seat + 1) & 3, nL, nR, 0, seat, bonus, alpha, beta);
+      else val = solve(ctx, ctx.next[seat], nL, nR, 0, seat, bonus, alpha, beta);
       // unmake
       WT[a]--;
       if (a !== b) WT[b]--;
@@ -554,8 +653,8 @@ function solve(ctx: SimCtx, turn: number, L: number, R: number, passes: number, 
   const p2 = passes + 1;
   let bon = bonus;
   if (p2 === 3 && ctx.paseCorrido) bon += teamSwing(ctx, lastSeat, ctx.paseCorrido);
-  if (p2 >= 4) return finishSim(ctx, true, lastSeat, bon);
-  return solve(ctx, (seat + 1) & 3, L, R, p2, lastSeat, bon, alpha, beta);
+  if (p2 >= ctx.n) return finishSim(ctx, true, lastSeat, bon);
+  return solve(ctx, ctx.next[seat], L, R, p2, lastSeat, bon, alpha, beta);
 }
 
 // ───────────────────────── simulation players (hard / master) ─────────────────────────
@@ -589,7 +688,10 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
     BC[s] = v.counts[s];
     BP[s] = v.passBits[s];
   }
-  for (let i = 0; i < v.hand.length; i++) BH[me * 7 + i] = v.hand[i].id;
+  // individual: the boneyard / set-aside tiles are unknown too (count public, contents hidden)
+  BC[PILE] = v.pile;
+  BP[PILE] = 0;
+  for (let i = 0; i < v.hand.length; i++) BH[me * S + i] = v.hand[i].id;
   for (let p = 0; p < 7; p++) BT[p] = v.tableCount[p];
   useTwt = master;
   if (master) inferWeights(match, me);
@@ -598,7 +700,13 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
   const target = v.rules.target * unit;
   const starterTeam = v.starter & 1;
   let paseSalida = v.rules.paseSalida * unit;
-  if (v.rules.paseSalidaNoWin && v.scores[starterTeam] + paseSalida >= target) paseSalida = 0;
+  const abajoOn = v.rules.abajo && !v.solo;
+  const paseAbajo = abajoOn && v.scores[starterTeam] === 0;
+  const passClaim = abajoOn && PASS_BONUS_CLAIMS_ABAJO ? v.abajo : 0;
+  const starterScore = v.solo ? v.seatScores[v.starter] : v.scores[starterTeam];
+  if (!paseAbajo && v.rules.paseSalidaNoWin && starterScore + paseSalida + passClaim >= target) paseSalida = 0;
+  const order = new Int8Array(4);
+  v.seats.forEach((s, i) => (order[i] = s));
   const ctx: SimCtx = {
     me,
     sr: v.sr,
@@ -609,12 +717,21 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
     paseSalida,
     paseCorrido: v.rules.paseCorrido * unit,
     smart: master,
+    abajoMax: abajoOn ? ABAJO_MAX * unit : -1,
+    zeroMask: abajoOn ? (v.scores[0] === 0 ? 1 : 0) | (v.scores[1] === 0 ? 2 : 0) : 0,
+    paseAbajo,
+    solo: v.solo,
+    order,
+    n: v.seats.length,
+    next: Int8Array.from([0, 1, 2, 3, 0].map((s) => v.next[s] ?? 0)),
+    draw: v.solo && v.rules.boneyardDraw && v.pile > 0,
+    tieVoid: v.rules.soloTie === 'void',
   };
   // master: the match situation matters — points beyond what wins the match are worth little, and
   // reaching the target (or letting them reach it) is worth more than its face value
   const myTeam = me & 1;
-  const needUs = Math.max(1, target - v.scores[myTeam]);
-  const needThem = Math.max(1, target - v.scores[1 - myTeam]);
+  const needUs = Math.max(1, target - (v.solo ? v.seatScores[me] : v.scores[myTeam]));
+  const needThem = Math.max(1, target - (v.solo ? Math.max(...v.seats.filter((s) => s !== me).map((s) => v.seatScores[s])) : v.scores[1 - myTeam]));
   const bonusWin = 0.5 * target;
   const util = (x: number): number => {
     if (!master) return x;
@@ -624,7 +741,8 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
   };
   let left = 0;
   for (let s = 0; s < 4; s++) left += v.counts[s];
-  const endgame = master && left <= (opts.endgameTiles ?? ENDGAME_TILES);
+  // (the exact search has no chance nodes: not while tiles can still be drawn)
+  const endgame = master && !ctx.draw && left <= (opts.endgameTiles ?? ENDGAME_TILES);
 
   // rollout values are compared on a pips-like scale so the heuristic tie-break keeps its weight
   const toPipScale = 10 / unit;
@@ -637,12 +755,13 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
     for (let mi = 0; mi < moves.length; mi++) {
       const m = moves[mi];
       if (m.kind !== 'play') continue;
+      simPot = v.abajo;
       WH.set(BH);
       WC.set(BC);
       WT.set(BT);
       WP.set(BP);
       // apply candidate move
-      const base = me * 7;
+      const base = me * S;
       const n = WC[me];
       let idx = 0;
       while (WH[base + idx] !== m.tileId) idx++;
@@ -669,18 +788,16 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
       if (a !== b) WT[b]++;
       let val: number;
       if (n === 1) {
-        let bonus = 0;
         const cap = isCapicua(a, b, pl, pr);
-        if (ctx.capicua && cap) bonus += ctx.capicua;
-        if (ctx.chuchazo && m.tileId === 0) bonus += ctx.chuchazo;
-        val = finishSim(ctx, false, me, bonus, cap);
+        const extra = (ctx.capicua && cap ? ctx.capicua : 0) + (ctx.chuchazo && m.tileId === 0 ? ctx.chuchazo : 0);
+        val = finishSim(ctx, false, me, 0, cap, extra);
       } else if (WT[L] === 7 && WT[R] === 7) {
         val = finishSim(ctx, true, me, 0);
       } else if (endgame) {
         nodes = 0;
-        val = solve(ctx, (me + 1) & 3, L, R, 0, me, 0, -1e9, 1e9);
+        val = solve(ctx, ctx.next[me], L, R, 0, me, 0, -1e9, 1e9);
       } else {
-        val = rollout(ctx, (me + 1) & 3, L, R, 0, me, v.chainLen + 1, 0);
+        val = rollout(ctx, ctx.next[me], L, R, 0, me, v.chainLen + 1, 0);
       }
       acc[mi] += util(val) * toPipScale;
     }
@@ -713,6 +830,8 @@ export function chooseMove(match: MatchState, difficulty: Difficulty, opts: AiOp
   const hand = match.hand;
   if (!hand || hand.over || match.over) throw new Error('no hand in progress');
   if (hand.pendingStarterChoice != null) throw new Error('starter choice pending');
+  // individual play has no partner: the team player plays a balanced game
+  if (style === 'teamPlayer' && isSolo(match)) style = 'balanced';
   const v = buildView(match);
   const moves = v.moves;
   if (moves.length === 1) return moves[0];

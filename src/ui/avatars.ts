@@ -1104,7 +1104,8 @@ export class AvatarController {
       case 'matchEnd':
         for (const a of this.av) {
           if (a.stage > 0) this.wake(a, 'gentle');
-          const won = a.seat % 2 === ev.winner;
+          // individual: only the winning player (pairs: the winning team)
+          const won = ev.winnerSeat !== undefined ? a.seat === ev.winnerSeat : a.seat % 2 === ev.winner;
           a.next = null;
           this.setExpr(a, won ? 'happy' : 'sad', 5, rand(0, 0.2));
           if (won) this.hopOnce(a, 9, 0.5, t + rand(0.05, 0.25), 3);
@@ -1124,7 +1125,8 @@ export class AvatarController {
       if (a.stage > 0) this.wake(a, big ? 'startle' : 'gentle');
       a.sleepAt = Infinity;
       const team = a.seat % 2;
-      const res: Expr = ev.winnerTeam === null ? 'meh' : team === ev.winnerTeam ? 'happy' : 'sad';
+      const won = ev.seats ? a.seat === ev.winnerSeat : team === ev.winnerTeam;
+      const res: Expr = ev.winnerTeam === null ? 'meh' : won ? 'happy' : 'sad';
       const lead = big ? 0.9 : 0.25;
       if (big) {
         this.setExpr(a, 'amazed', lead, rand(0, 0.12));

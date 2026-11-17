@@ -23,7 +23,7 @@ import { layoutChain, type AvoidRect, type ChainBounds, type ChainLayoutResult }
 import { Animator, ease, lerp, clamp01, type Ease } from './tween';
 import * as tex from './textures';
 import { Particles } from './particles';
-import { fitRing, ringHalfWidth, type RingGeo, type TileDims } from './idleRing';
+import { MenuDirector, type Fit, type FitBox, type MenuHost } from './menuScenes';
 import { PerfHud } from './perfHud';
 
 type V3 = THREE.Vector3;
@@ -35,13 +35,6 @@ const TW = 0.94;
 const TH = 0.3;
 const OPP_SCALE = 0.72;
 const MAX_CELL = 1;
-/** main-menu attract ring (see idleRing.ts); lengths at tile scale 1 */
-const IDLE_DIMS: TileDims = { l: TL, w: TW, t: TH };
-const IDLE_TILT = 0.12;
-const IDLE_GAP = 0.12;
-const IDLE_BASE_S = 0.8;
-const IDLE_LIFT = 0.1;
-const IDLE_BOB = 0.4;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const Q_FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
@@ -93,7 +86,8 @@ const QUALITY: Record<Quality, QualityCfg> = {
   },
 };
 
-type Loc = 'idle' | 'pool' | 'hand' | 'chain' | 'reveal';
+/** 'pile' = the boneyard of individual play (face down at one side of the felt) */
+type Loc = 'idle' | 'pool' | 'hand' | 'chain' | 'reveal' | 'pile';
 
 interface TileObj {
   id: number;
@@ -283,6 +277,11 @@ export class TableViewImpl implements TableView {
   // state
   private tiles: TileObj[] = [];
   private hands: number[][] = [[], [], [], []];
+  /** seats in play (individual play: 2 → bottom/top, 3 → bottom/right/left); plates of the others are hidden */
+  private active: boolean[] = [true, true, true, true];
+  /** individual: the boneyard tiles left (drawn from the end) and their fixed slots (the order at the deal) */
+  private pile: number[] = [];
+  private pileOrder: number[] = [];
   private chain: PlacedTile[] = [];
   private ends: { left: Pip; right: Pip } | null = null;
   private layoutRes: ChainLayoutResult = { poses: [], cell: MAX_CELL, fits: true, vertical: false, shift: { x: 0, y: 0 } };
@@ -293,14 +292,20 @@ export class TableViewImpl implements TableView {
   private busy = 0;
   private needsSettle = false;
   private idleActive = false;
-  private idleMix = 0;
-  private idleFrom: { pos: V3; quat: Q; s: number }[] = [];
-  private idleTime = 0;
-  private idleGeo: RingGeo = { n: 28, r: 4, s: 0.8 };
-  private idleGeoKey = [NaN, NaN, NaN, NaN];
+  /** this frame: the attract scenes run (idle + menu on screen) */
+  private menuOn = false;
+  /** main-menu attract scenes (menuScenes.ts), driven while idleActive and the menu is on screen */
+  private menuDir!: MenuDirector;
   private idleCam: THREE.PerspectiveCamera | null = null;
   private idleScratch = new THREE.Vector3();
-  private idleCz = 0;
+  /** the menu element ([data-attract]) last seen; null once it left */
+  private menuEl: HTMLElement | null = null;
+  private menuSeen = false;
+  private menuPoll = 0;
+  /** dev only: attract-scene time scale */
+  private menuDev = { speed: 1 };
+  /** pending tap on the menu's empty table area */
+  private tapPtr = { id: -1, x: 0, y: 0, t: 0 };
 
   // layout
   private W = 1;
@@ -408,10 +413,242 @@ export class TableViewImpl implements TableView {
       this.resizeObs.observe(this.container);
     }
     window.addEventListener('resize', this.onResize);
+    this.menuDir = new MenuDirector(this.menuHost());
+    if (import.meta.env.DEV) {
+      // dev-only console handle: __kudoMenu.speed = 0 freezes the attract scenes for frame captures
+      (window as unknown as { __kudoMenu: unknown }).__kudoMenu = Object.assign(this.menuDev, { director: this.menuDir });
+    }
+    window.addEventListener('pointerdown', this.onMenuDown, { passive: true });
+    window.addEventListener('pointerup', this.onMenuUp, { passive: true });
+    window.addEventListener('pointercancel', this.onMenuCancel, { passive: true });
     this.onResize();
     this.prewarm();
     this.reset();
   }
+
+  // ───────────────────────── main-menu attract scenes ─────────────────────────
+
+  private menuHost(): MenuHost {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const view = this;
+    return {
+      tiles: this.tiles,
+      fit: (box, maxS, out) => this.menuFit(box, maxS, out),
+      offscreen: (x, y, z, r) => this.menuOffscreen(x, y, z, r),
+      get lite() {
+        return view.q.lite;
+      },
+      rnd: Math.random,
+    };
+  }
+
+  /** the menu screen ([data-attract], set by ui/menu.ts) if it is on screen and not leaving */
+  private menuOnScreen(): HTMLElement | null {
+    let el = this.menuEl;
+    if (!el || !el.isConnected || el.classList.contains('leaving')) {
+      el = typeof document !== 'undefined' ? document.querySelector<HTMLElement>('[data-attract]:not(.leaving)') : null;
+      this.menuEl = el;
+    }
+    if (el) this.menuSeen = true;
+    return el;
+  }
+
+  /**
+   * Scenes play while the view is idle and the menu is visible. Once a menu has been seen, its absence
+   * (Ajustes, Cómo jugar…) parks them: the loop sleeps and a slow poll wakes it when the menu returns.
+   * Without any menu ever (dev harness) they always play.
+   */
+  private menuLive(): boolean {
+    if (!this.idleActive) return false;
+    const on = !!this.menuOnScreen() || !this.menuSeen;
+    if (!on && !this.menuPoll) {
+      this.menuPoll = window.setInterval(() => {
+        if (this.disposed || !this.idleActive || this.menuOnScreen()) {
+          clearInterval(this.menuPoll);
+          this.menuPoll = 0;
+          this.lastT = 0;
+          this.kick();
+        }
+      }, 400);
+    }
+    return on;
+  }
+
+  /**
+   * Free screen rect for the attract scene (css px, y down), always centred: logo above the buttons →
+   * the full width (centred on the screen) between the logo's bottom and the buttons' top; logo beside
+   * the buttons (landscape phones) → the gap between them, or a screen-centred band when that gap is too
+   * narrow (the scene then runs behind the dimmed buttons). The scene is scaled to fit, never shifted.
+   */
+  private menuFreeRect(out: { x0: number; y0: number; x1: number; y1: number }): void {
+    const W = this.W;
+    const H = this.H;
+    const pad = 16;
+    out.x0 = W * 0.06;
+    out.x1 = W * 0.94;
+    out.y0 = H * 0.3;
+    out.y1 = H * 0.7;
+    const el = this.menuOnScreen();
+    if (!el) return;
+    const base = this.container.getBoundingClientRect();
+    const obs: DOMRect[] = [];
+    el.querySelectorAll<HTMLElement>('[data-attract-avoid]').forEach((o) => {
+      const r = o.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) obs.push(new DOMRect(r.x - base.x, r.y - base.y, r.width, r.height));
+    });
+    if (obs.length < 2) return;
+    const [logo, buttons] = obs;
+    if (logo.bottom <= buttons.top + 4) {
+      out.x0 = pad;
+      out.x1 = W - pad;
+      out.y0 = logo.bottom + pad;
+      out.y1 = Math.max(out.y0 + 40, buttons.top - pad);
+    } else if (buttons.left - logo.right >= W * 0.15) {
+      out.x0 = logo.right + pad;
+      out.x1 = buttons.left - pad;
+      out.y0 = pad;
+      out.y1 = H - pad;
+    } else {
+      out.x0 = W * 0.28;
+      out.x1 = W * 0.72;
+      out.y0 = pad;
+      out.y1 = H - pad;
+    }
+  }
+
+  private freeRect = { x0: 0, y0: 0, x1: 0, y1: 0 };
+
+  /** base camera (no shake / punch) for the scene fits */
+  private fitCam(): THREE.PerspectiveCamera {
+    const cam = (this.idleCam ??= new THREE.PerspectiveCamera());
+    cam.position.copy(this.baseCamPos);
+    cam.quaternion.copy(this.baseCamQuat);
+    cam.updateMatrixWorld(true);
+    cam.projectionMatrix.copy(this.camera.projectionMatrix);
+    cam.projectionMatrixInverse.copy(this.camera.projectionMatrixInverse);
+    return cam;
+  }
+
+  /** scale + centre so the local box fits the free rect (projected with the real camera, height included) */
+  private menuFit(box: FitBox, maxS: number, out: Fit): void {
+    const fr = this.freeRect;
+    this.menuFreeRect(fr);
+    const W = this.W;
+    const H = this.H;
+    const nx0 = (fr.x0 / W) * 2 - 1;
+    const nx1 = (fr.x1 / W) * 2 - 1;
+    const ny0 = 1 - (fr.y1 / H) * 2;
+    const ny1 = 1 - (fr.y0 / H) * 2;
+    const cam = this.fitCam();
+    const p = this.idleScratch;
+    const ray = this.raycaster;
+    const bx = (box.x0 + box.x1) / 2;
+    const bz = (box.z0 + box.z1) / 2;
+    const place = (s: number): boolean => {
+      // centre: the point under the rect centre at half the box height, nudged until the projection is centred
+      this.ndc.set((nx0 + nx1) / 2, (ny0 + ny1) / 2);
+      ray.setFromCamera(this.ndc, cam);
+      this.plane.constant = -(box.h * s) / 2;
+      if (!ray.ray.intersectPlane(this.plane, p)) return false;
+      this.plane.constant = 0;
+      out.s = s;
+      out.cx = p.x - bx * s;
+      out.cz = p.z - bz * s;
+      for (let it = 0; it < 3; it++) {
+        let mnx = Infinity;
+        let mxx = -Infinity;
+        let mny = Infinity;
+        let mxy = -Infinity;
+        for (let c = 0; c < 8; c++) {
+          p.set(out.cx + (c & 1 ? box.x1 : box.x0) * s, c & 2 ? box.h * s : 0, out.cz + (c & 4 ? box.z1 : box.z0) * s).project(cam);
+          mnx = Math.min(mnx, p.x);
+          mxx = Math.max(mxx, p.x);
+          mny = Math.min(mny, p.y);
+          mxy = Math.max(mxy, p.y);
+        }
+        if (it === 2) return mnx >= nx0 && mxx <= nx1 && mny >= ny0 && mxy <= ny1;
+        // shift by the centre offset (converted at the table plane)
+        const dx = (nx0 + nx1) / 2 - (mnx + mxx) / 2;
+        const dy = (ny0 + ny1) / 2 - (mny + mxy) / 2;
+        this.ndc.set((nx0 + nx1) / 2, (ny0 + ny1) / 2);
+        ray.setFromCamera(this.ndc, cam);
+        if (!ray.ray.intersectPlane(this.plane, tmpV3)) return false;
+        this.ndc.set((nx0 + nx1) / 2 + dx, (ny0 + ny1) / 2 + dy);
+        ray.setFromCamera(this.ndc, cam);
+        if (!ray.ray.intersectPlane(this.plane, tmpV2)) return false;
+        out.cx += tmpV2.x - tmpV3.x;
+        out.cz += tmpV2.z - tmpV3.z;
+      }
+      return false;
+    };
+    let lo = 0.05;
+    let hi = maxS;
+    if (place(hi)) return;
+    for (let it = 0; it < 18; it++) {
+      const mid = (lo + hi) / 2;
+      if (place(mid)) lo = mid;
+      else hi = mid;
+    }
+    place(lo);
+  }
+
+  private frustum = new THREE.Frustum();
+  private frustumKey = [NaN, NaN, NaN, NaN];
+  private sphere = new THREE.Sphere();
+
+  /** is the sphere fully outside the (unshaken) camera view, with a margin? */
+  private menuOffscreen(x: number, y: number, z: number, r: number): boolean {
+    const k = this.frustumKey;
+    if (k[0] !== this.W || k[1] !== this.H || k[2] !== this.camDist || k[3] !== this.baseCamPos.z) {
+      k[0] = this.W;
+      k[1] = this.H;
+      k[2] = this.camDist;
+      k[3] = this.baseCamPos.z;
+      const cam = this.fitCam();
+      tmpM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+      this.frustum.setFromProjectionMatrix(tmpM);
+    }
+    this.sphere.center.set(x, y, z);
+    this.sphere.radius = r + 0.15;
+    return !this.frustum.intersectsSphere(this.sphere);
+  }
+
+  /** taps on the menu's empty table area (the menu screen itself, not its buttons, logo or links) */
+  private isMenuTap(e: PointerEvent): boolean {
+    if (!this.idleActive || this.paused) return false;
+    const tg = e.target as Element | null;
+    if (!tg) return false;
+    return tg === this.canvas || (tg instanceof HTMLElement && tg.hasAttribute('data-attract') && !tg.classList.contains('leaving'));
+  }
+
+  private onMenuDown = (e: PointerEvent): void => {
+    if (!e.isPrimary || !this.isMenuTap(e)) {
+      this.tapPtr.id = -1;
+      return;
+    }
+    this.tapPtr.id = e.pointerId;
+    this.tapPtr.x = e.clientX;
+    this.tapPtr.y = e.clientY;
+    this.tapPtr.t = performance.now();
+  };
+
+  private onMenuUp = (e: PointerEvent): void => {
+    const p = this.tapPtr;
+    if (p.id !== e.pointerId) return;
+    p.id = -1;
+    if (!this.isMenuTap(e) || performance.now() - p.t > 450 || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12) return;
+    if (!this.menuLive()) return;
+    const base = this.container.getBoundingClientRect();
+    const x = e.clientX - base.left;
+    const y = e.clientY - base.top;
+    if (!this.pxToTable(x, this.H - y, tmpV3)) return;
+    this.menuDir.tap(tmpV3.x, tmpV3.z);
+    this.kick();
+  };
+
+  private onMenuCancel = (): void => {
+    this.tapPtr.id = -1;
+  };
 
   /**
    * Compile every shader up front (including the normally hidden fx: dust, confetti, shockwave ring,
@@ -758,7 +995,6 @@ export class TableViewImpl implements TableView {
         dim: 0,
         token: 0,
       });
-      this.idleFrom.push({ pos: new THREE.Vector3(), quat: new THREE.Quaternion(), s: 1 });
     }
   }
 
@@ -1422,6 +1658,8 @@ export class TableViewImpl implements TableView {
       avoid.push({ x0: x0 - pad, x1: x1 + pad, z0: z0 - pad, z1: z1 + pad });
     };
     for (let s = 0; s < 4; s++) {
+      // (individual play: seats not in play have no plate and no bubble)
+      if (!this.active[s]) continue;
       this.seatRect(s, 0, r);
       addPx();
       this.seatRect(s, 1, r);
@@ -1435,11 +1673,16 @@ export class TableViewImpl implements TableView {
       r.y1 = handPx;
       addPx();
     }
-    // side stacks and the zone their tiles are revealed in at the end of a hand
+    // side stacks and the zone their tiles are revealed in at the end of a hand (only seats in play)
     const zHalf = 3.5 * TW * so * 1.12 * this.sidePitchK + 0.45;
     const xIn = this.sideX - SIDE_REVEAL_X - (TL * so) / 2 - 0.25;
-    avoid.push({ x0: xIn, x1: xIn + 20, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
-    avoid.push({ x0: -xIn - 20, x1: -xIn, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
+    if (this.active[1]) avoid.push({ x0: xIn, x1: xIn + 20, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
+    if (this.active[3]) avoid.push({ x0: -xIn - 20, x1: -xIn, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
+    // individual: the boneyard pile at the left side of the felt (2 players) keeps the chain off it
+    if (this.pileSide() === 'left') {
+      const pr = this.pileRect();
+      avoid.push({ x0: pr.x0 - 20, x1: pr.x1 + 0.35, z0: pr.z0 - 0.35, z1: pr.z1 + 0.35 });
+    }
     this.chainAvoid = avoid;
     this.chainVertical = this.portrait;
     this.chainFlip = land;
@@ -1554,15 +1797,18 @@ export class TableViewImpl implements TableView {
   /** world pose of a slot in a seat's hand; returns scale */
   private slotPose(seat: number, idx: number, n: number, out: V3, outQ: Q): number {
     if (seat === 0) {
-      const hs = this.handHs;
-      const pitch = 1.06 * TW * hs;
+      // more than 7 tiles (individual play, after drawing): the fan keeps its 7-tile width; tiles shrink a
+      // little and close up, later ones a hair nearer the camera so overlaps never flicker
+      const hk = this.humanHandK(n);
+      const hs = this.handHs * hk.s;
+      const pitch = 1.06 * TW * this.handHs * hk.p;
       const c = idx - (n - 1) / 2;
       let x = c * pitch;
-      let y = -this.handHalfH + (this.portrait ? 0.05 : 0.06) * this.handHalfH + (TL * hs) / 2 - c * c * 0.012 * hs;
+      let y = -this.handHalfH + (this.portrait ? 0.05 : 0.06) * this.handHalfH + (TL * hs) / 2 - c * c * 0.012 * hs * hk.p * hk.p;
       const r = this.req;
       const id = this.hands[0][idx];
       let lift = 0;
-      let z = -this.handDh;
+      let z = -this.handDh + (n > 7 ? idx * 0.004 * this.handHs : 0);
       if (r && !r.passOnly && id !== undefined) {
         if (r.sides.has(id)) lift = 0.3 * hs;
         if (r.selected === id) {
@@ -1573,12 +1819,13 @@ export class TableViewImpl implements TableView {
       y += lift;
       out.set(x, y, z).applyQuaternion(this.baseCamQuat).add(this.baseCamPos);
       tmpQ2.setFromAxisAngle(bx.set(1, 0, 0), -0.22);
-      outQ.setFromAxisAngle(bz.set(0, 0, 1), -c * 0.03).multiply(tmpQ2).multiply(this.qBasisHand);
+      outQ.setFromAxisAngle(bz.set(0, 0, 1), -c * 0.03 * hk.p).multiply(tmpQ2).multiply(this.qBasisHand);
       outQ.premultiply(this.baseCamQuat);
       return hs;
     }
-    const so = OPP_SCALE;
-    const pitch = TW * so * 1.12 * (seat === 2 ? 1 : this.sidePitchK);
+    // more than 7 tiles (individual play): smaller tiles, closer together, never overlapping
+    const so = OPP_SCALE * (n > 7 ? Math.max(0.5, 7 / n) : 1);
+    const pitch = Math.max(TW * so * 1.04, TW * OPP_SCALE * 1.12 * (seat === 2 ? 1 : this.sidePitchK) * Math.min(1, 7 / Math.max(1, n)));
     const lean = 0.32;
     let ox = 0;
     let oz = 0;
@@ -1626,8 +1873,83 @@ export class TableViewImpl implements TableView {
     return out;
   }
 
+  /** the human fan with n tiles: tile scale and pitch factors (1 up to 7 tiles; the fan never gets wider) */
+  private humanHandK(n: number): { s: number; p: number } {
+    if (n <= 7) return { s: 1, p: 1 };
+    return { s: Math.max(0.62, 7 / n), p: 7 / n };
+  }
+
+  // ───────── individual play: the boneyard pile ─────────
+
+  /** where the boneyard lies: the free top (3 players), the free left side (2 players), else none */
+  private pileSide(): 'top' | 'left' | null {
+    if (this.active[0] && this.active[1] && this.active[2] && this.active[3]) return null;
+    if (!this.active[2]) return 'top';
+    if (!this.active[1] && !this.active[3]) return 'left';
+    return null;
+  }
+
+  /** pile geometry: per-layer column count, pitch and centre (table units) */
+  private pileGeo(): { side: 'top' | 'left'; perLayer: number; pitch: number; s: number; cx: number; cz: number } | null {
+    const side = this.pileSide();
+    if (!side) return null;
+    const total = Math.max(this.pileOrder.length, side === 'left' ? 14 : 7);
+    const perLayer = Math.ceil(total / (total > 7 ? 2 : 1));
+    const s = OPP_SCALE;
+    const pitch = TW * s * 1.08;
+    if (side === 'top') return { side, perLayer, pitch, s, cx: 0, cz: this.topZ + 0.2 };
+    // left: inside the felt, clear of the frame, at the side seats' height
+    return { side, perLayer, pitch, s, cx: -(this.box.x - (TL * s) / 2 - 0.45), cz: this.sideZ };
+  }
+
+  /** the pile's footprint on the table (for the chain's keep-out) */
+  private pileRect(): { x0: number; x1: number; z0: number; z1: number } {
+    const g = this.pileGeo();
+    if (!g) return { x0: 0, x1: 0, z0: 0, z1: 0 };
+    const len = g.perLayer * g.pitch;
+    const deep = TL * g.s;
+    return g.side === 'top'
+      ? { x0: g.cx - len / 2, x1: g.cx + len / 2, z0: g.cz - deep / 2, z1: g.cz + deep / 2 }
+      : { x0: g.cx - deep / 2, x1: g.cx + deep / 2, z0: g.cz - len / 2, z1: g.cz + len / 2 };
+  }
+
+  /** a pile tile's slot (fixed by its place at the deal: bottom layer first, the top layer is drawn first) */
+  private pilePose(id: number, out: V3, outQ: Q): number {
+    const g = this.pileGeo();
+    const p = Math.max(0, this.pileOrder.indexOf(id));
+    if (!g) {
+      out.set(0, -5, 0);
+      outQ.identity();
+      return OPP_SCALE;
+    }
+    const layer = p < g.perLayer ? 0 : 1;
+    const inLayer = layer === 0 ? Math.min(g.perLayer, this.pileOrder.length) : this.pileOrder.length - g.perLayer;
+    const col = layer === 0 ? p : p - g.perLayer;
+    const c = (col - (inLayer - 1) / 2) * g.pitch;
+    const y = TH * g.s * (0.5 + layer);
+    if (g.side === 'top') {
+      out.set(g.cx + c, y, g.cz);
+      // long axis along z, face down
+      outQ.setFromAxisAngle(UP, Math.PI / 2).multiply(Q_FLIP);
+    } else {
+      out.set(g.cx, y, g.cz + c);
+      outQ.copy(Q_FLIP);
+    }
+    return g.s;
+  }
+
+  /** switch the seats in play (re-lays out the plates and the chain area when it changes) */
+  private setActiveSeats(seats: readonly number[] | undefined): void {
+    const next = [0, 1, 2, 3].map((s) => !seats || seats.includes(s));
+    if (next.every((v, i) => v === this.active[i])) return;
+    this.active = next;
+    this.computeLayout();
+    this.plateCenterSig = -1;
+  }
+
   private revealPose(seat: number, idx: number, n: number, out: V3, outQ: Q): number {
-    const so = OPP_SCALE;
+    // many tiles left (individual play): the revealed row closes up so it stays on the felt
+    const so = OPP_SCALE * (n > 9 ? 9 / n : 1);
     const pitch = TW * so * 1.1;
     const c = (idx - (n - 1) / 2) * pitch;
     const y = (TH * so) / 2;
@@ -1662,108 +1984,13 @@ export class TableViewImpl implements TableView {
     } else if (t.loc === 'reveal') {
       const idx = this.hands[t.seat].indexOf(t.id);
       if (idx >= 0) return this.revealPose(t.seat, idx, this.handCount(t.seat), out, outQ);
-    } else if (t.loc === 'idle') {
-      return this.idlePose(t.id, this.idleTime, out, outQ);
+    } else if (t.loc === 'pile') {
+      return this.pilePose(t.id, out, outQ);
     }
+    // idle tiles: wherever the menu scenes put them
     out.copy(t.pos);
     outQ.copy(t.quat);
     return t.s;
-  }
-
-  /**
-   * Attract-ring geometry: radius derived from the tile size so the 28 standing tiles never touch,
-   * then the whole ring (radius + tiles) is scaled uniformly until its screen projection fits the
-   * free band between the logo and the menu buttons. Cached per viewport/camera; no allocations.
-   */
-  private idleGeoFor(): RingGeo {
-    const g = this.idleGeo;
-    const k = this.idleGeoKey;
-    if (k[0] === this.W && k[1] === this.H && k[2] === this.camDist && k[3] === this.bounds.cz) return g;
-    k[0] = this.W;
-    k[1] = this.H;
-    k[2] = this.camDist;
-    k[3] = this.bounds.cz;
-    const cam = (this.idleCam ??= new THREE.PerspectiveCamera());
-    cam.position.copy(this.baseCamPos);
-    cam.quaternion.copy(this.baseCamQuat);
-    cam.updateMatrixWorld(true);
-    cam.projectionMatrix.copy(this.camera.projectionMatrix);
-    cam.projectionMatrixInverse.copy(this.camera.projectionMatrixInverse);
-    const p = this.idleScratch;
-    const hw1 = ringHalfWidth(IDLE_DIMS, IDLE_TILT);
-    // free band (NDC) between the logo and the menu buttons
-    const yTop = 0.44;
-    const yBot = -0.42;
-    const xMax = 0.86;
-    let minY = 0;
-    let maxY = 0;
-    let maxX = 0;
-    const span = (s: number, z: number): void => {
-      const ro = g.r + (IDLE_DIMS.t / 2 + hw1) * s;
-      const top = (TL + IDLE_LIFT + IDLE_BOB) * s;
-      minY = Infinity;
-      maxY = -Infinity;
-      maxX = 0;
-      for (let j = 0; j < 24; j++) {
-        const a = (j / 24) * Math.PI * 2;
-        for (let h = 0; h < 2; h++) {
-          p.set(Math.cos(a) * ro, h ? top : 0, z + Math.sin(a) * ro).project(cam);
-          minY = Math.min(minY, p.y);
-          maxY = Math.max(maxY, p.y);
-          maxX = Math.max(maxX, Math.abs(p.x));
-        }
-      }
-    };
-    // ring at tile scale s, centred vertically in the band: does it fit? (sets idleCz)
-    const fits = (s: number): boolean => {
-      fitRing(g, 28, IDLE_DIMS, IDLE_TILT, IDLE_GAP, s, Infinity);
-      let zlo = this.bounds.cz - 8;
-      let zhi = this.bounds.cz + 8;
-      for (let it = 0; it < 16; it++) {
-        const z = (zlo + zhi) / 2;
-        span(s, z);
-        // nearer the camera (+z) projects lower
-        if ((minY + maxY) / 2 > (yTop + yBot) / 2) zlo = z;
-        else zhi = z;
-      }
-      this.idleCz = (zlo + zhi) / 2;
-      span(s, this.idleCz);
-      return maxX <= xMax && maxY <= yTop && minY >= yBot;
-    };
-    let lo = 0.2;
-    let hi = IDLE_BASE_S;
-    if (fits(hi)) lo = hi;
-    else
-      for (let it = 0; it < 16; it++) {
-        const mid = (lo + hi) / 2;
-        if (fits(mid)) lo = mid;
-        else hi = mid;
-      }
-    fits(lo);
-    return g;
-  }
-
-  private idlePose(i: number, time: number, out: V3, outQ: Q): number {
-    const g = this.idleGeoFor();
-    const R = g.r;
-    const a = (i / 28) * Math.PI * 2 + time * 0.18;
-    const s = g.s;
-    const lite = this.q.lite;
-    const bob = (lite ? 0.5 : Math.sin(time * 1.6 + i * 0.7) * 0.5 + 0.5) * IDLE_BOB * s;
-    out.set(Math.cos(a) * R, (TL * s) / 2 + IDLE_LIFT * s + bob, this.idleCz + Math.sin(a) * R);
-    // stand upright, face pointing outward
-    const ox = Math.cos(a);
-    const oz = Math.sin(a);
-    const ax = bx.set(0, 1, 0);
-    const ay = by.set(ox, 0, oz);
-    const az = bz.crossVectors(ax, ay);
-    tmpM.makeBasis(ax, ay, az);
-    outQ.setFromRotationMatrix(tmpM);
-    if (!lite) {
-      tmpQ2.setFromAxisAngle(ay, Math.sin(time * 0.9 + i) * IDLE_TILT);
-      outQ.premultiply(tmpQ2);
-    }
-    return s;
   }
 
   // ───────────────────────── tile animation helpers ─────────────────────────
@@ -2035,6 +2262,8 @@ export class TableViewImpl implements TableView {
         return this.onPlay(ev);
       case 'pass':
         return this.onPass(ev.seat);
+      case 'draw':
+        return this.onDraw(ev);
       case 'handEnd':
         return this.onHandEnd(ev);
       case 'matchEnd':
@@ -2042,9 +2271,48 @@ export class TableViewImpl implements TableView {
     }
   }
 
+  /**
+   * Individual play: a tile slides from the top of the boneyard pile into the drawer's hand (face up for
+   * the human, face down for the others); the rest of that hand makes room.
+   */
+  private async onDraw(ev: Extract<GameEvent, { type: 'draw' }>): Promise<void> {
+    const g = this.gen;
+    this.idleActive = false;
+    const id = ev.tile.id;
+    const t = this.tiles[id];
+    const k = this.pile.indexOf(id);
+    if (k >= 0) this.pile.splice(k, 1);
+    if (t.loc !== 'pile') this.pilePose(id, t.pos, t.quat); // (a replay without the pile: start from it anyway)
+    for (let s = 0; s < 4; s++) {
+      const i = this.hands[s].indexOf(id);
+      if (i >= 0) this.hands[s].splice(i, 1);
+    }
+    this.hands[ev.seat].push(id);
+    if (ev.seat === 0) this.sortHuman();
+    t.loc = 'hand';
+    t.seat = ev.seat;
+    t.glow = 0;
+    t.dim = 0;
+    this.sfx('deal');
+    void this.relayoutSeat(ev.seat, 0.28);
+    this.redrawPlate(ev.seat);
+    // a little lift off the pile first, then the slide to the hand
+    tmpV.copy(t.pos);
+    tmpV.y += 0.9;
+    await this.fly(t, tmpV, t.quat, t.s, { dur: 0.12, posEase: ease.outCubic });
+    if (g !== this.gen) return;
+    await this.flyHome(t, { dur: 0.42, arc: ev.seat === 0 ? 0.8 : 1.2, rotEase: ease.outCubic });
+    if (g !== this.gen) return;
+    await this.anim.wait(0.06);
+  }
+
   private async onHandStart(ev: Extract<GameEvent, { type: 'handStart' }>): Promise<void> {
     const g = ++this.gen;
     this.idleActive = false;
+    // individual play: the seats in play and the boneyard (both default to the four-seat game)
+    this.setActiveSeats(ev.seats);
+    this.pileOrder = (ev.boneyard ?? []).map((t) => t.id);
+    this.pile = this.pileOrder.slice();
     this.chain = [];
     this.ends = null;
     this.layoutRes = this.fitChain([]);
@@ -2141,6 +2409,14 @@ export class TableViewImpl implements TableView {
         n++;
       }
     }
+    // individual (2–3 players): the undealt tiles gather face down into a neat pile at one side
+    this.pileOrder.forEach((id, i) => {
+      const t = this.tiles[id];
+      t.loc = 'pile';
+      t.seat = -1;
+      const sc = this.pilePose(id, tmpV, tmpQ);
+      ps.push(this.fly(t, tmpV, tmpQ, sc, { dur: 0.4, arc: 0.9, delay: n * 0.045 + 0.1 + i * 0.03, rotEase: ease.outCubic }));
+    });
     await Promise.all(ps);
     if (g !== this.gen) return;
     this.redrawPlates();
@@ -2427,7 +2703,8 @@ export class TableViewImpl implements TableView {
     this.sfxAt('deal', 0.15);
     for (let s = 0; s < 4; s++) {
       this.plateInfo[s].pips = ev.pipCounts[s] ?? 0;
-      this.plateInfo[s].winner = ev.winnerTeam !== null && s % 2 === ev.winnerTeam;
+      // individual (ev.seats): only the winning player; pairs: the winning team
+      this.plateInfo[s].winner = ev.seats ? s === ev.winnerSeat : ev.winnerTeam !== null && s % 2 === ev.winnerTeam;
     }
     this.redrawPlates();
     if (ev.reason === 'blocked') {
@@ -2449,9 +2726,10 @@ export class TableViewImpl implements TableView {
     if (ev.winnerTeam !== null) {
       const human = ev.winnerTeam === 0;
       this.sfx(human ? 'winHand' : 'loseHand');
-      this.confettiBurst(false, ev.winnerTeam);
+      // celebrate only the human's (or the human's team's) wins — never the opponents'
+      if (human) this.confettiBurst(false, ev.winnerTeam);
       for (let s = 0; s < 4; s++) {
-        if (s % 2 !== ev.winnerTeam) continue;
+        if (!this.plateInfo[s].winner) continue;
         void this.anim.tween(0.6, (k) => {
           this.plateScale[s] = 1 + 0.25 * Math.sin(Math.PI * k);
         });
@@ -2464,7 +2742,7 @@ export class TableViewImpl implements TableView {
     const g = this.gen;
     const human = ev.winner === 0;
     this.sfx(human ? 'winMatch' : 'loseMatch');
-    this.confettiBurst(true, ev.winner);
+    if (human) this.confettiBurst(true, ev.winner);
     this.addShake(0.1, 0.6);
     this.flashAmt = 0.14;
     (this.flash.material as THREE.SpriteMaterial).color.set(human ? 0xffd060 : 0xff6040);
@@ -2474,8 +2752,8 @@ export class TableViewImpl implements TableView {
       await this.anim.wait(0.5);
       this.confettiBurst(true, 0);
     }
-    // all chain tiles do a victory wave
-    this.chain.forEach((p, i) => void this.hop(this.tiles[p.tile.id], 0.4 * this.layoutRes.cell, 0.35, i * 0.03));
+    // all chain tiles do a victory wave (only when the human wins)
+    if (human) this.chain.forEach((p, i) => void this.hop(this.tiles[p.tile.id], 0.4 * this.layoutRes.cell, 0.35, i * 0.03));
     await this.anim.wait(1.4);
   }
 
@@ -2527,7 +2805,8 @@ export class TableViewImpl implements TableView {
    * plate's "Paso" speech bubble (UI) is the only pass indicator. The pass is taken after a short beat.
    */
   private autoPass(req: HumanReq): void {
-    void this.anim.wait(1.0).then(() => {
+    // individual play: drawing from the boneyard is forced too, and quicker (one tile after another)
+    void this.anim.wait(req.passMove?.kind === 'draw' ? 0.32 : 1.0).then(() => {
       if (this.req === req && !req.done && req.passMove) this.finishReq(req.passMove);
     });
   }
@@ -2585,6 +2864,8 @@ export class TableViewImpl implements TableView {
     this.chain = [];
     this.ends = null;
     this.hands = [[], [], [], []];
+    this.pile = [];
+    this.pileOrder = [];
     this.layoutRes = this.fitChain([]);
     this.dust.clear();
     this.confetti.clear();
@@ -2610,14 +2891,11 @@ export class TableViewImpl implements TableView {
       t.off.set(0, 0, 0);
       t.wx = 0;
       t.wz = 0;
-      const f = this.idleFrom[i];
-      f.pos.copy(t.pos);
-      f.quat.copy(t.quat);
-      f.s = t.s;
     }
     this.idleActive = true;
-    this.idleMix = 0;
-    void this.anim.tween(1.1, (k) => (this.idleMix = k), ease.inOutCubic);
+    // whatever is still on the table shrinks away in place, then the attract scenes start
+    this.menuDir.start(this.reduced);
+    this.lastT = 0;
     this.kick();
   }
 
@@ -2692,6 +2970,8 @@ export class TableViewImpl implements TableView {
 
   setReducedMotion(r: boolean): void {
     this.reduced = r;
+    if (this.idleActive) this.menuDir.setReduced(r);
+    this.kick();
     this.setSpeed(this.speedMul);
   }
 
@@ -2787,7 +3067,6 @@ export class TableViewImpl implements TableView {
     this.clearCharge();
     this.setDragging(false);
     this.idleActive = false;
-    this.idleMix = 1;
     this.dust.clear();
     this.confetti.clear();
     for (const p of this.popups) p.sprite.visible = false;
@@ -2798,6 +3077,10 @@ export class TableViewImpl implements TableView {
     this.shakeDecay = 9;
     this.needsSettle = false;
 
+    // individual play: seats in play and what is left of the boneyard (laid out as a fresh, compact pile)
+    this.setActiveSeats(state.seats);
+    this.pileOrder = (h.boneyard ?? []).map((t) => t.id);
+    this.pile = this.pileOrder.slice();
     this.chain = h.chain.slice();
     this.ends = h.ends ? { left: h.ends.left, right: h.ends.right } : null;
     this.layoutRes = this.fitChain(this.chain);
@@ -2830,6 +3113,11 @@ export class TableViewImpl implements TableView {
         t.loc = over && s > 0 ? 'reveal' : 'hand';
         t.seat = s;
       }
+    for (const id of this.pile) {
+      const t = this.tiles[id];
+      t.loc = 'pile';
+      t.seat = -1;
+    }
     this.snapAll();
 
     for (let s = 0; s < 4; s++) {
@@ -2877,6 +3165,11 @@ export class TableViewImpl implements TableView {
     this.raf = 0;
     this.resizeObs?.disconnect();
     window.removeEventListener('resize', this.onResize);
+    window.removeEventListener('pointerdown', this.onMenuDown);
+    window.removeEventListener('pointerup', this.onMenuUp);
+    window.removeEventListener('pointercancel', this.onMenuCancel);
+    if (this.menuPoll) clearInterval(this.menuPoll);
+    this.menuPoll = 0;
     this.detachInput();
     const seen = new Set<unknown>();
     const disposeMat = (m: THREE.Material) => {
@@ -2924,10 +3217,12 @@ export class TableViewImpl implements TableView {
   private tick = (now: number): void => {
     this.raf = 0;
     if (this.paused || this.disposed) return;
+    // attract scenes: full rate (low: its 30 fps cap) while the menu shows; the calm showcase is ambient
+    const menuOn = (this.menuOn = this.menuLive());
     const hard =
-      this.anim.active || this.dust.busy || this.confetti.busy || this.shake > 0.002 || this.punch > 0.002 || this.ptr.dragging || this.flashAmt > 0.002 || this.charge !== null || this.fadeAmt > 0;
+      (menuOn && this.menuDir.busy) || this.anim.active || this.dust.busy || this.confetti.busy || this.shake > 0.002 || this.punch > 0.002 || this.ptr.dragging || this.flashAmt > 0.002 || this.charge !== null || this.fadeAmt > 0;
     // the turn pulse is a 3D sprite only without HTML plates (the UI animates its own plates)
-    const ambient = this.idleActive || (this.turnSeat !== null && !this.htmlPlates) || (this.req !== null && !this.req.passOnly);
+    const ambient = menuOn || (this.turnSeat !== null && !this.htmlPlates) || (this.req !== null && !this.req.passOnly);
     const woke = this.lastT === 0;
     // frame cap: low skips rAF ticks (30 fps animating, 15 fps for gentle pulses); time stays real
     const minGap = hard ? this.q.frameMs : ambient ? this.q.ambientMs : 0;
@@ -2998,26 +3293,8 @@ export class TableViewImpl implements TableView {
     }
     const sdt = dt * this.anim.speed;
     this.uTime.value += dt;
-    // idle attract
-    if (this.idleActive) {
-      this.idleTime += dt;
-      const m = this.idleMix;
-      for (let i = 0; i < 28; i++) {
-        const t = this.tiles[i];
-        if (t.loc !== 'idle') continue;
-        const s = this.idlePose(i, this.idleTime, tmpV, tmpQ);
-        const f = this.idleFrom[i];
-        if (m >= 1) {
-          t.pos.copy(tmpV);
-          t.quat.copy(tmpQ);
-          t.s = s;
-        } else {
-          t.pos.lerpVectors(f.pos, tmpV, m);
-          t.quat.slerpQuaternions(f.quat, tmpQ, m);
-          t.s = lerp(f.s, s, m);
-        }
-      }
-    }
+    // main-menu attract scenes (parked while the menu is not on screen)
+    if (this.menuOn) this.menuDir.update(import.meta.env.DEV ? dt * this.menuDev.speed : dt);
     // drag follow
     if (this.ptr.dragging && this.ptr.tile >= 0) {
       const t = this.tiles[this.ptr.tile];
@@ -3192,7 +3469,7 @@ export class TableViewImpl implements TableView {
       const info = this.plateInfo[s];
       b.scale = this.plateScale[s];
       b.rot = -this.plateRot[s];
-      b.visible = !this.idleActive;
+      b.visible = !this.idleActive && this.active[s];
       b.active = info.active;
       b.winner = info.winner;
       b.count = info.count;
@@ -3289,9 +3566,11 @@ export class TableViewImpl implements TableView {
     const n = this.hands[0].length;
     if (!n) return -1;
     const pxPerWorld = this.H / (2 * this.handHalfH);
-    const tw = TW * this.handHs * pxPerWorld;
-    const th = TL * this.handHs * pxPerWorld;
-    const pitch = 1.06 * tw;
+    // (more than 7 tiles: the fan closes up, see slotPose)
+    const hk = this.humanHandK(n);
+    const tw = TW * this.handHs * hk.s * pxPerWorld;
+    const th = TL * this.handHs * hk.s * pxPerWorld;
+    const pitch = 1.06 * TW * this.handHs * hk.p * pxPerWorld;
     let best = -1;
     let bestD = 1e9;
     const scr = { x: 0, y: 0 };

@@ -1,4 +1,4 @@
-import type { RulePreset, RuleSettings, SettingDescriptor, SettingValue } from '../contracts';
+import type { GameMode, RulePreset, RuleSettings, SettingDescriptor, SettingValue } from '../contracts';
 
 const L = (es: string, en: string) => ({ es, en });
 const off = { value: 0, label: L('No', 'Off') };
@@ -6,14 +6,18 @@ const off = { value: 0, label: L('No', 'Off') };
 const TENS = { key: 'rounding', when: 'none', factor: 10 } as const;
 const pts = (v: number) => ({ value: v, label: L('{n} puntos', '{n} points'), short: L('{n}', '{n}') });
 
-/** Version of the rule schema. 3 = points on the tens scale with rounding + the winning pair chooses its opener. */
-export const RULES_VERSION = 3;
+/**
+ * Version of the rule schema. 3 = points on the tens scale with rounding + the winning pair chooses its
+ * opener. 4 = points held "abajo" + a tied cerrado goes to the opening team (new Cubano clásico defaults).
+ */
+export const RULES_VERSION = 4;
 
 /**
  * Data-driven rule variants for Cuban double-six partners ("dominó en parejas").
  * Defaults follow how the game is played at a Cuban table: the pips of a hand are rounded up to the
- * next ten and counted in tens (65 → 70 → 7 points), a match is played to 20, capicúa doubles the hand
- * and an opening pass gives 2 points (which can never win the match by itself).
+ * next ten and counted in tens (65 → 70 → 7 points), a match is played to 20, capicúa doubles the hand,
+ * an opening pass gives 2 points (which can never win the match by itself), small wins of a team still
+ * on 0 stay "abajo" (in a shared pot) and a tied cerrado goes to the team that opened the hand.
  */
 export const RULE_SETTINGS: SettingDescriptor[] = [
   // ── Salida ──
@@ -110,6 +114,18 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
       'Cuban style counts the tiles left in all four hands.',
     ),
   },
+  {
+    key: 'abajo',
+    group: 'puntuacion',
+    type: 'toggle',
+    default: true,
+    label: L('Puntos abajo', 'Points held “abajo”'),
+    short: L('puntos abajo', 'points abajo'),
+    help: L(
+      'Si una pareja que todavía tiene 0 puntos gana una mano de 2 puntos o menos (20 o menos en fichas, contando ya la capicúa), esos puntos no se le anotan: quedan abajo, en un fondo común que sigue creciendo. La próxima mano que se anote normalmente se lleva también todo lo de abajo. El pase de salida de una pareja con 0 también queda abajo. Lo que siga abajo al terminar la partida se pierde.',
+      'If a team still on 0 wins a hand worth 2 points or less (20 pips or less, capicúa included), those points are not scored: they stay “abajo”, in a shared pot that keeps growing. The next hand that scores normally also takes everything held abajo. The opening pass of a team on 0 also goes abajo. Whatever is still abajo when the match ends is lost.',
+    ),
+  },
   // ── Cerrado ──
   {
     key: 'tranqueWinner',
@@ -132,15 +148,18 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     key: 'tranqueTie',
     group: 'tranque',
     type: 'select',
-    default: 'void',
+    default: 'mano',
     options: [
+      { value: 'mano', label: L('Gana la pareja que salió (la mano)', 'Opening team wins (la mano)'), short: L('empate: gana la mano', 'tie: opener wins') },
       { value: 'void', label: L('Mano nula', 'Hand is void'), short: L('empate: mano nula', 'tie: void') },
       { value: 'blockerLoses', label: L('Pierde el que cerró', 'The blocker loses'), short: L('empate: pierde el que cerró', 'tie: blocker loses') },
-      { value: 'mano', label: L('Gana la pareja que salió', 'Opening team wins'), short: L('empate: gana la salida', 'tie: opener wins') },
     ],
     label: L('Empate en el juego cerrado', 'Tie in a blocked hand'),
     short: L('Empate', 'Tie'),
-    help: L('Qué pasa si las dos parejas empatan en el juego cerrado.', 'What happens when both teams tie in a blocked hand.'),
+    help: L(
+      'Qué pasa si las dos parejas empatan en el juego cerrado. Al estilo cubano gana la pareja que salió en esa mano (la mano) y se anota los puntos como en cualquier cerrado. También puede anularse la mano o perderla el que cerró.',
+      'What happens when both teams tie in a blocked hand. Cuban style, the team that opened that hand (la mano) wins and scores the points like any blocked hand. The hand can also be void, or lost by the blocker.',
+    ),
   },
   {
     key: 'tranqueScoring',
@@ -249,13 +268,106 @@ export const DEFAULT_RULES: RuleSettings = Object.freeze(
   Object.fromEntries(RULE_SETTINGS.map((d) => [d.key, d.default])),
 ) as RuleSettings;
 
-/** Named rule sets. The first one is the classic default. */
-export const RULE_PRESETS: RulePreset[] = [{ id: 'cubano', label: L('Cubano clásico', 'Classic Cuban'), rules: DEFAULT_RULES }];
+// ───────────────────────── individual mode ─────────────────────────
 
-/** Fill missing keys with defaults and replace invalid values with defaults. */
-export function normalizeRules(rules: RuleSettings | undefined): RuleSettings {
+const byKey = (k: string): SettingDescriptor => RULE_SETTINGS.find((d) => d.key === k)!;
+/** a pairs descriptor reused in individual mode, in that mode's group and wording */
+const shared = (k: string, group: string, help?: { es: string; en: string }): SettingDescriptor => ({ ...byKey(k), group, ...(help ? { help } : {}) });
+
+/**
+ * Rule variants of individual play (every player for themselves, 2–4 players). Rules that are the same
+ * game rule as in pairs reuse the pairs descriptors (with individual wording); the values are kept per
+ * mode, so each mode has its own "Cubano clásico". No abajo, no pase de los tres, no blanqueo here.
+ */
+export const RULE_SETTINGS_INDIVIDUAL: SettingDescriptor[] = [
+  // ── Reparto y pozo ──
+  {
+    key: 'boneyardDraw',
+    group: 'pozo',
+    type: 'toggle',
+    default: true,
+    label: L('Robar del pozo', 'Draw from the boneyard'),
+    short: L('se roba del pozo', 'draw from the boneyard'),
+    help: L(
+      'Con 2 o 3 jugadores sobran fichas: el pozo. Si no puedes jugar, robas del pozo una a una hasta que salga una que sirva, y la juegas; si el pozo se acaba, pasas. Desactivado: las fichas que sobran quedan apartadas y el que no puede jugar pasa. Con 4 jugadores no hay pozo.',
+      'With 2 or 3 players some tiles are left over: the boneyard. If you cannot play, you draw one at a time until one fits, and you play it; when the boneyard runs out, you pass. Off: the leftover tiles are set aside and whoever cannot play passes. With 4 players there is no boneyard.',
+    ),
+  },
+  shared('redealFiveDoubles', 'pozo'),
+  // ── Puntuación ──
+  shared(
+    'target',
+    'puntuacion',
+    L(
+      'El primer jugador en llegar a estos puntos gana la partida. Sin redondeo se cuentan los puntos exactos de las fichas, por eso la meta es diez veces mayor.',
+      'First player to reach this score wins the match. Without rounding the exact pips are counted, so the target is ten times larger.',
+    ),
+  ),
+  shared(
+    'rounding',
+    'puntuacion',
+    L(
+      'El ganador de la mano suma los puntos de las fichas que les quedan a todos los demás jugadores (las del pozo no cuentan), redondeados a la decena y divididos entre diez. Hacia arriba: 31 → 40 → 4 puntos. Al más cercano: el 5 sube (65 → 7, 64 → 6). Hacia abajo: 69 → 6. Sin redondeo: se suman los puntos exactos.',
+      'The hand winner scores the pips left in every other player’s hand (the boneyard does not count), rounded to a multiple of ten and divided by ten. Up: 31 → 40 → 4 points. Nearest: 5 rounds up (65 → 7, 64 → 6). Down: 69 → 6. No rounding: the exact pips are added.',
+    ),
+  ),
+  // ── Cerrado ──
+  {
+    key: 'soloTie',
+    group: 'tranque',
+    type: 'select',
+    default: 'mano',
+    options: [
+      { value: 'mano', label: L('Gana el más cercano a la salida', 'Closest to the opener wins'), short: L('empate: gana la mano', 'tie: opener wins') },
+      { value: 'void', label: L('Mano nula', 'Hand is void'), short: L('empate: mano nula', 'tie: void') },
+    ],
+    label: L('Empate en el juego cerrado', 'Tie in a blocked hand'),
+    short: L('Empate', 'Tie'),
+    help: L(
+      'En el cerrado gana el jugador con menos puntos y se anota los de todos los demás. Si empatan varios, gana el que salió en esa mano o, si no está entre ellos, el primero de los empatados que juega después de él. También puede anularse la mano.',
+      'In a blocked hand the player with the fewest pips wins and scores everyone else’s. If several tie, the player who opened that hand wins or, if they are not among them, the first of the tied players to play after the opener. The hand can also be void.',
+    ),
+  },
+  // ── Bonos ──
+  shared('capicua', 'bonos'),
+  shared(
+    'paseSalida',
+    'bonos',
+    L(
+      'Si el jugador que sigue al que salió no puede jugar sobre la primera ficha con las fichas que le repartieron (tiene que robar o pasar), el que salió suma estos puntos en ese momento.',
+      'If the player after the opener cannot play on the first tile with the tiles they were dealt (they have to draw or pass), the opener scores these points right away.',
+    ),
+  ),
+  shared(
+    'paseSalidaNoWin',
+    'bonos',
+    L(
+      'Si con el pase de salida el jugador llegaría a la meta (por ejemplo, tiene 18 o 19 de 20), no se suma nada. La partida solo se gana al terminar una mano.',
+      'If the opening pass would take the player to the target (say 18 or 19 of 20), nothing is added. The match is only won when a hand ends.',
+    ),
+  ),
+  shared('chuchazo', 'bonos'),
+];
+
+export const DEFAULT_RULES_INDIVIDUAL: RuleSettings = Object.freeze(
+  Object.fromEntries(RULE_SETTINGS_INDIVIDUAL.map((d) => [d.key, d.default])),
+) as RuleSettings;
+
+/** the descriptor list of a mode */
+export const descriptorsFor = (mode: GameMode = 'pairs'): SettingDescriptor[] => (mode === 'individual' ? RULE_SETTINGS_INDIVIDUAL : RULE_SETTINGS);
+/** the default rules of a mode */
+export const defaultRulesFor = (mode: GameMode = 'pairs'): RuleSettings => (mode === 'individual' ? DEFAULT_RULES_INDIVIDUAL : DEFAULT_RULES);
+
+/** Named rule sets. The first one is the classic default (pairs); then the individual classic. */
+export const RULE_PRESETS: RulePreset[] = [
+  { id: 'cubano', mode: 'pairs', label: L('Cubano clásico', 'Classic Cuban'), rules: DEFAULT_RULES },
+  { id: 'cubanoIndividual', mode: 'individual', label: L('Cubano clásico', 'Classic Cuban'), rules: DEFAULT_RULES_INDIVIDUAL },
+];
+
+/** Fill missing keys with defaults and replace invalid values with defaults (the mode's rule list). */
+export function normalizeRules(rules: RuleSettings | undefined, mode: GameMode = 'pairs'): RuleSettings {
   const out: RuleSettings = {};
-  for (const d of RULE_SETTINGS) {
+  for (const d of descriptorsFor(mode)) {
     const v: SettingValue | undefined = rules?.[d.key];
     let ok = false;
     if (v !== undefined) {
@@ -278,17 +390,25 @@ const OLD_DEFAULTS: RuleSettings = { firstStarter: 'double6', nextStarter: 'rota
  * Cuban defaults (the old numbers have no faithful tens-scale equivalent).
  */
 export function migrateRules(stored: RuleSettings | undefined, fromVersion: number | undefined): RuleSettings {
-  if ((fromVersion ?? 1) >= RULES_VERSION) return normalizeRules(stored);
+  const from = fromVersion ?? 1;
+  if (from >= RULES_VERSION) return normalizeRules(stored);
+  // schema 3 → 4: a player still on the old "Cubano clásico" (never changed anything) moves to the new
+  // one (abajo on, tied cerrado → la mano). A customised set ("Personalizado") keeps every stored choice,
+  // including the tie rule; the new abajo key takes its default.
+  if (from === 3) return sameRules(stored ?? {}, V3_DEFAULTS) ? { ...DEFAULT_RULES } : normalizeRules(stored);
   const base: RuleSettings = { ...DEFAULT_RULES };
   for (const k of PORTABLE_V1_KEYS) if (stored && stored[k] !== undefined && stored[k] !== OLD_DEFAULTS[k]) base[k] = stored[k];
   return normalizeRules(base);
 }
 
+/** "Cubano clásico" as it was in rule schema 3 (before abajo existed, with a void tied cerrado). */
+const V3_DEFAULTS: RuleSettings = { ...DEFAULT_RULES, tranqueTie: 'void' };
+
 /** True when two rule sets are the same (after normalizing). */
-export function sameRules(a: RuleSettings, b: RuleSettings): boolean {
-  const na = normalizeRules(a);
-  const nb = normalizeRules(b);
-  return RULE_SETTINGS.every((d) => na[d.key] === nb[d.key]);
+export function sameRules(a: RuleSettings, b: RuleSettings, mode: GameMode = 'pairs'): boolean {
+  const na = normalizeRules(a, mode);
+  const nb = normalizeRules(b, mode);
+  return descriptorsFor(mode).every((d) => na[d.key] === nb[d.key]);
 }
 
 export type Rounding = 'up' | 'nearest' | 'down' | 'none';
@@ -301,6 +421,8 @@ export interface Rules {
   nextStarter: 'rotate' | 'winner' | 'winnerTeam' | 'double6';
   redealFiveDoubles: boolean;
   scoring: 'all' | 'opponents';
+  /** small wins (≤ ABAJO_MAX points, see scoring.ts) of a team on 0 go to the shared abajo pot */
+  abajo: boolean;
   tranqueWinner: 'lowestPlayer' | 'lowestTeam' | 'blockerRisk';
   tranqueTie: 'void' | 'blockerLoses' | 'mano';
   tranqueScoring: 'same' | 'opponents';
@@ -310,10 +432,30 @@ export interface Rules {
   paseSalidaNoWin: boolean;
   paseCorrido: number;
   pollona: 'off' | 'double' | 'halfTarget';
+  /** individual: a player who cannot play draws from the boneyard (2–3 players) */
+  boneyardDraw: boolean;
+  /** individual: a tied cerrado goes to the tied player closest to the opener ('mano') or is void */
+  soloTie: 'mano' | 'void';
 }
 
-export function readRules(r: RuleSettings): Rules {
-  return normalizeRules(r) as unknown as Rules;
+/** the pairs-only rules as they apply in individual mode (off / neutral) */
+const INDIVIDUAL_FIXED: RuleSettings = {
+  firstStarter: 'double6',
+  nextStarter: 'winner',
+  scoring: 'all',
+  abajo: false,
+  tranqueWinner: 'lowestPlayer',
+  tranqueTie: 'mano',
+  tranqueScoring: 'same',
+  paseCorrido: 0,
+  pollona: 'off',
+};
+/** the individual-only rules as they apply in pairs */
+const PAIRS_FIXED: RuleSettings = { boneyardDraw: false, soloTie: 'mano' };
+
+export function readRules(r: RuleSettings, mode: GameMode = 'pairs'): Rules {
+  if (mode === 'individual') return { ...INDIVIDUAL_FIXED, ...normalizeRules(r, 'individual') } as unknown as Rules;
+  return { ...normalizeRules(r), ...PAIRS_FIXED } as unknown as Rules;
 }
 
 /** Points per tens-scale unit: 1 when rounding to tens, 10 when exact pips are counted. */
