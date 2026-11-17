@@ -143,6 +143,8 @@ const LABELS = {
 /** outline quad size relative to the tile footprint (texture padding for the soft glow) */
 /** css px kept free at the top for the HTML HUD (score card, hand pill, pause) */
 const HUD_PX = 72;
+/** landscape edge columns: css px kept free at the top corners (score card, pause button) */
+const HUD_SIDE_PX = 94;
 /** speech-bubble zone the UI attaches beside each HTML plate (css px) */
 const BUBBLE_W = 120;
 const BUBBLE_H = 44;
@@ -278,14 +280,17 @@ export class TableViewImpl implements TableView {
   private lookTarget = new THREE.Vector3();
   private bounds: ChainBounds = { cx: 0, cz: 0, w: 16, h: 9 };
   /**
-   * portrait + HTML plates: the side plates hug the screen edges and the chain gets the full felt
-   * width, keeping clear of plates / stacks / bubble zones through keep-out rects instead
+   * HTML plates: the side seats are edge columns (stack, plate right under it) hugging the screen edges
+   * and the chain gets the full felt width, keeping clear of plates / stacks / bubble zones through
+   * keep-out rects instead (portrait and landscape)
    */
   private edgeMode = false;
   private chainAvoid: AvoidRect[] = [];
   private chainMaxCell = MAX_CELL;
   private chainSoftMin = 0;
   private chainVertical: boolean | undefined = undefined;
+  /** landscape edge columns: mirrored folds (right arm toward the viewer), no axis change */
+  private chainFlip = false;
   /** safe-area insets (css px), left / right */
   private safeL = 0;
   private safeR = 0;
@@ -713,12 +718,42 @@ export class TableViewImpl implements TableView {
       }
       return true;
     };
-    let lo = 4;
-    let hi = 120;
-    for (let i = 0; i < 26; i++) {
-      const mid = (lo + hi) / 2;
-      if (fits(mid)) hi = mid;
-      else lo = mid;
+    const fitDist = (): number => {
+      let lo = 4;
+      let hi = 120;
+      for (let i = 0; i < 26; i++) {
+        const mid = (lo + hi) / 2;
+        if (fits(mid)) hi = mid;
+        else lo = mid;
+      }
+      return hi;
+    };
+    const setZ0 = (z0: number) => {
+      box.z0 = z0;
+      corners[0].z = corners[1].z = z0;
+    };
+    let hi = fitDist();
+    if (!this.portrait && this.htmlPlates) {
+      // landscape edge columns: the height-bound fit leaves broad wood margins left and right. Take a
+      // shallower box (the camera comes closer) until the width binds too: the felt then spans the screen
+      // between the side columns, and the far edge still meets the HUD band.
+      const xBound = (): boolean => {
+        place(hi, centerFor(hi));
+        for (const c of corners) if (Math.abs(tmpV.copy(c).project(cam).x) > 0.97 - 2e-3) return true;
+        return false;
+      };
+      if (!xBound()) {
+        let zlo = box.z0;
+        let zhi = box.z1 - 6;
+        for (let i = 0; i < 18; i++) {
+          setZ0((zlo + zhi) / 2);
+          hi = fitDist();
+          if (xBound()) zhi = box.z0;
+          else zlo = box.z0;
+        }
+        setZ0(zhi);
+        hi = fitDist();
+      }
     }
     this.camDist = hi;
     const tz = centerFor(hi);
@@ -752,13 +787,14 @@ export class TableViewImpl implements TableView {
 
     // seats
     this.topZ = box.z0 + 1.0;
-    this.edgeMode = this.portrait && this.htmlPlates;
-    // portrait (HTML plates): the side stacks stand tight against the frame, out of the felt's width
+    // HTML plates: the side seats are edge columns (stack, plate right under it) in both orientations
+    this.edgeMode = this.htmlPlates;
+    // edge columns: the side stacks stand tight against the frame, out of the felt's width
     this.sideX = this.edgeMode ? box.x + EDGE_STACK_OUT : box.x - 0.8;
     this.sideZ = (box.z0 + box.z1) / 2 - (this.portrait ? 1.2 : 0.5);
     // portrait: the partner's row is centred (its HTML plate sits under it); the 3D plate needs room beside it
     this.topOffX = this.portrait && !this.htmlPlates ? -1.2 : 0;
-    this.sideBeside = !this.portrait;
+    this.sideBeside = !this.portrait && !this.edgeMode;
     const handHalfLen = (7 * TW * OPP_SCALE * 1.12) / 2;
 
     // chain bounds: between the hands
@@ -770,6 +806,7 @@ export class TableViewImpl implements TableView {
     this.chainMaxCell = MAX_CELL;
     this.chainSoftMin = 0;
     this.chainVertical = undefined;
+    this.chainFlip = false;
     if (this.edgeMode) this.readSafeArea();
     else this.safeL = this.safeR = 0;
 
@@ -809,13 +846,14 @@ export class TableViewImpl implements TableView {
     const avoid = this.chainAvoid.length ? this.chainAvoid : undefined;
     if (preview) {
       const r = this.layoutRes;
-      return layoutChain(chain, this.bounds, { cell: r.cell, vertical: r.vertical, shift: r.shift, avoid });
+      return layoutChain(chain, this.bounds, { cell: r.cell, vertical: r.vertical, shift: r.shift, avoid, flip: this.chainFlip || undefined });
     }
     return layoutChain(chain, this.bounds, {
       maxCell: this.chainMaxCell,
       softMinCell: this.chainSoftMin || undefined,
       vertical: this.chainVertical,
       avoid,
+      ...(this.chainFlip ? { flip: true, allowTurnAxis: false, maxSlide: 6 } : {}),
     });
   }
 
@@ -897,6 +935,9 @@ export class TableViewImpl implements TableView {
     const edge = this.edgeMode;
     for (let s = 0; s < 4; s++) B[s].edge = undefined;
     const topFree = H - HUD_PX; // y-up: nothing of ours above this line
+    // landscape edge columns stand under the HUD's corners (score card / pause), clear of the partner's row
+    const landEdge = edge && !this.portrait;
+    const sideTop = landEdge ? H - HUD_SIDE_PX : topFree;
     for (let attempt = 0; ; attempt++) {
       rowW = Math.round(D * 3.1);
       rowH = D;
@@ -932,7 +973,10 @@ export class TableViewImpl implements TableView {
       // vertically on the side edge between the top row (keeping a gap of at least one tile length) and a
       // clearance band of 1.5 avatars above the human's plate and hand. When the band is too short the
       // side stacks tighten their spacing, then the avatars shrink a step; they never slide into a corner.
-      const minY = Math.max(this.plateY[0] + rowH / 2, this.handTopPx) + 0.9 * D; // y-up: plates stay above
+      // y-up: plates stay above (landscape edge columns are beside the hand, not over it: a smaller gap)
+      const minY = landEdge
+        ? this.plateY[0] + rowH / 2 + 0.3 * D
+        : Math.max(this.plateY[0] + rowH / 2, this.handTopPx) + 0.9 * D;
       this.toScreen(tmpV2.set(0, 0, this.topZ + 0.2), scr);
       const rowFoot = scr.y;
       // landscape: the plate sits inboard beside the stack, centred on it (the stack itself is centred on
@@ -960,9 +1004,10 @@ export class TableViewImpl implements TableView {
       // the stack itself is centred in the band; the plate (below it in portrait) only nudges it up when
       // it would reach the human's clearance band
       let sz = solve(stackMid, (topFree + minY) / 2);
-      let bandTop = Math.min(topFree, rowFoot - tileLenPx(sz));
-      sz = solve(stackMid, (bandTop + minY) / 2);
-      bandTop = Math.min(topFree, rowFoot - tileLenPx(sz));
+      let bandTop = landEdge ? sideTop : Math.min(topFree, rowFoot - tileLenPx(sz));
+      // (landscape edge columns: the whole stack + plate unit is centred)
+      sz = landEdge ? centreFor((bandTop + minY) / 2) : solve(stackMid, (bandTop + minY) / 2);
+      if (!landEdge) bandTop = Math.min(topFree, rowFoot - tileLenPx(sz));
       if (unitBottom(sz) < minY) sz = solve(unitBottom, minY);
       if (unitTop(sz) > bandTop) sz = solve(unitTop, bandTop);
       const fits = unitTop(sz) <= bandTop + 0.5 && unitBottom(sz) >= minY - 0.5;
@@ -1014,8 +1059,14 @@ export class TableViewImpl implements TableView {
         // portrait: the plate hugs the screen edge (over the frame), right under the stack's near end
         const inset = Math.max(this.safeL, this.safeR) + 4;
         const py = m.ny + PLATE_RISE * stackH - stackH / 2;
-        setBox(1, 'stack', W - inset - stackW / 2, py);
-        setBox(3, 'stack', inset + stackW / 2, py);
+        let x3 = inset + stackW / 2;
+        if (!this.portrait) {
+          // landscape: centred under the stack's near tile (the stack hugs the edge), never past the edge
+          this.toScreen(tmpV2.set(this.sideX + 0.5 * Math.sin(lean) * TL * so, 0.5 * Math.cos(lean) * TL * so, sz + 3.5 * pitch), scr);
+          x3 = Math.max(x3, W - scr.x);
+        }
+        setBox(1, 'stack', W - x3, py);
+        setBox(3, 'stack', x3, py);
         B[1].edge = 'right';
         B[3].edge = 'left';
       } else {
@@ -1028,7 +1079,15 @@ export class TableViewImpl implements TableView {
       const bx0 = THREE.MathUtils.clamp(B[0].x, BUBBLE_W / 2 + 4, W - BUBBLE_W / 2 - 4);
       // edge mode: beside the human's plate (one compact keep-out band above the hand instead of a
       // bubble zone poking up into the chain area)
-      if (edge && B[0].x + B[0].w / 2 + 6 + BUBBLE_W <= W - 6) this.setBubble(0, B[0].x + B[0].w / 2 + 6, B[0].y, 'right');
+      // landscape edge columns: left of the human's plate (out of the chain area) when the corner has room
+      if (edge && !besideHand && B[0].x + B[0].w / 2 + 6 + BUBBLE_W <= W - 6) this.setBubble(0, B[0].x + B[0].w / 2 + 6, B[0].y, 'right');
+      else if (
+        edge &&
+        besideHand &&
+        B[0].x - B[0].w / 2 - 6 - BUBBLE_W >= 6 &&
+        B[0].y + BUBBLE_H / 2 + 4 <= B[3].y - B[3].h / 2
+      )
+        this.setBubble(0, B[0].x - B[0].w / 2 - 6, B[0].y, 'left');
       else this.setBubble(0, bx0, B[0].y + B[0].h / 2 + 6, 'up');
       // landscape: the side plates sit mid-height, so their bubbles go above them (a bubble beside the plate
       // would cut the chain area in two); portrait: beside the plate, toward the table centre
@@ -1036,7 +1095,10 @@ export class TableViewImpl implements TableView {
       // grows inward without cutting the felt in two
       if (beside || edge) this.setBubble(1, B[1].x, B[1].y + B[1].h / 2 + 6, 'up');
       else this.setBubble(1, B[1].x - B[1].w / 2 - 6, B[1].y, 'left');
-      this.setBubble(2, B[2].x, B[2].y - B[2].h / 2 - 6, 'down');
+      // landscape edge columns: beside the partner's plate, in the top band (not down into the chain area)
+      if (edge && !this.portrait && this.topAnchor === 'right' && B[2].x + B[2].w / 2 + 6 + BUBBLE_W <= W - 6)
+        this.setBubble(2, B[2].x + B[2].w / 2 + 6, B[2].y, 'right');
+      else this.setBubble(2, B[2].x, B[2].y - B[2].h / 2 - 6, 'down');
       if (beside || edge) this.setBubble(3, B[3].x, B[3].y + B[3].h / 2 + 6, 'up');
       else this.setBubble(3, B[3].x + B[3].w / 2 + 6, B[3].y, 'right');
       this.bounds = { ...base };
@@ -1151,7 +1213,8 @@ export class TableViewImpl implements TableView {
   }
 
   /**
-   * Portrait edge mode: the chain gets the whole felt between the partner's row and the human's hand,
+   * Edge mode: the chain gets the whole felt between the partner's row and the human's hand (landscape:
+   * also beside the fan, down to the bottom of the screen, horizontal with mirrored folds),
    * as wide as the felt (and the screen) allows; plates, bubble zones and the side stacks become keep-out
    * rects the snake must dodge, so they only cost room where they actually are. Also sets the chain's
    * size limits from on-screen px: at most ~0.8 of a hand tile, and a readability floor.
@@ -1164,16 +1227,39 @@ export class TableViewImpl implements TableView {
     const so = OPP_SCALE;
     const cz0 = base.cz - base.h / 2;
     let cz1 = base.cz + base.h / 2;
-    // y-up px: a few px above the top of the human's fan
-    const nearPx = this.handTopPx + 8;
+    const land = !this.portrait;
+    // y-up px: a few px above the top of the human's fan (landscape: the felt beside the hand down to the
+    // bottom of the screen too; the hand itself becomes a keep-out rect)
+    const handPx = this.handTopPx + 8;
+    const nearPx = land ? 10 : handPx;
     if (this.pxToTable(W / 2, nearPx, tmpV3)) cz1 = Math.max(cz0 + 3, tmpV3.z);
     let half = this.box.x + 0.9 - 0.35;
-    // a rectangle: the screen edge is narrowest (in table units) at its near row
+    // a rectangle: the screen edge is narrowest (in table units) at its near row (landscape: at the hand's
+    // top row; the band beside the hand keeps clear of the screen edge through keep-out rects)
     const inset = Math.max(this.safeL, this.safeR) + 6;
-    if (this.pxToTable(W - inset, nearPx, tmpV3)) half = Math.min(half, Math.abs(tmpV3.x));
+    if (this.pxToTable(W - inset, handPx, tmpV3)) half = Math.min(half, Math.abs(tmpV3.x));
     this.bounds = { cx: 0, cz: (cz0 + cz1) / 2, w: half * 2, h: cz1 - cz0 };
     const r = { x0: 0, x1: 0, y0: 0, y1: 0 };
     const avoid: AvoidRect[] = [];
+    // landscape: where the chain starts (and where its size is measured): mid-way between the partner's row
+    // and the human's fan. The bounds stay centred on it, reaching past the band's top edge, which a
+    // keep-out rect closes again.
+    let zMid = this.bounds.cz;
+    if (land && this.pxToTable(W / 2, handPx, tmpV3)) {
+      const zh = tmpV3.z;
+      zMid = (cz0 + Math.min(zh, cz1)) / 2;
+      const top = Math.min(cz0, 2 * zMid - cz1);
+      this.bounds = { cx: 0, cz: (top + cz1) / 2, w: half * 2, h: cz1 - top };
+      if (top < cz0) avoid.push({ x0: -half - 1, x1: half + 1, z0: top - 1, z1: cz0 });
+      // the band beside the fan: clear of the screen edge (narrower in table units toward the viewer)
+      if (this.pxToTable(W - inset, nearPx, tmpV3)) {
+        const xb = Math.abs(tmpV3.x);
+        if (xb < half) {
+          avoid.push({ x0: xb, x1: half + 1, z0: zh, z1: cz1 + 1 });
+          avoid.push({ x0: -half - 1, x1: -xb, z0: zh, z1: cz1 + 1 });
+        }
+      }
+    }
     const pad = 0.2;
     const addPx = () => {
       let x0 = Infinity;
@@ -1202,22 +1288,34 @@ export class TableViewImpl implements TableView {
       this.seatRect(s, 1, r);
       addPx();
     }
+    if (land) {
+      // the human's fan (7 tiles wide, raised tiles included)
+      r.x0 = this.handLeftPx - 6;
+      r.x1 = W - this.handLeftPx + 6;
+      r.y0 = -20;
+      r.y1 = handPx;
+      addPx();
+    }
     // side stacks and the zone their tiles are revealed in at the end of a hand
     const zHalf = 3.5 * TW * so * 1.12 * this.sidePitchK + 0.45;
     const xIn = this.sideX - SIDE_REVEAL_X - (TL * so) / 2 - 0.25;
     avoid.push({ x0: xIn, x1: xIn + 20, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
     avoid.push({ x0: -xIn - 20, x1: -xIn, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
     this.chainAvoid = avoid;
-    this.chainVertical = true;
-    // size limits in on-screen px, measured at the middle of the chain area
+    this.chainVertical = this.portrait;
+    this.chainFlip = land;
+    // size limits in on-screen px, measured at the middle of the chain area (landscape: its main row)
     const scr = { x: 0, y: 0 };
-    this.toScreen(tmpV2.set(-0.5, 0, this.bounds.cz), scr);
+    const zm = land ? zMid : this.bounds.cz;
+    this.toScreen(tmpV2.set(-0.5, 0, zm), scr);
     const xa = scr.x;
-    this.toScreen(tmpV2.set(0.5, 0, this.bounds.cz), scr);
+    this.toScreen(tmpV2.set(0.5, 0, zm), scr);
     const ppw = Math.max(1e-3, scr.x - xa);
     const handLen = (TL * this.handHs * H) / (2 * this.handHalfH);
     this.chainMaxCell = (CHAIN_MAX_OF_HAND * handLen) / (TL * ppw);
-    this.chainSoftMin = Math.min(this.chainMaxCell, Math.max(CHAIN_MIN_PX, CHAIN_MIN_OF_HAND * handLen) / (TL * ppw));
+    // (landscape hand tiles are small: the floor is the share of a hand tile alone)
+    const floorPx = land ? CHAIN_MIN_OF_HAND * handLen : Math.max(CHAIN_MIN_PX, CHAIN_MIN_OF_HAND * handLen);
+    this.chainSoftMin = Math.min(this.chainMaxCell, floorPx / (TL * ppw));
   }
 
   private layoutSpritePlates(plateBesideHand: boolean, bottomN: number, hsN: number, handHalfLen: number): void {

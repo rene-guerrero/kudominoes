@@ -257,4 +257,79 @@ describe('layoutChain', () => {
       expect(prev.poses).toEqual(live.poses);
     }
   });
+  /** the real landscape composition at 740x360 (edge columns): the felt between the side columns, down
+   * beside the human's fan to the screen bottom; keep-outs for the band above the partner's row, the
+   * screen edge beside the fan, plates, bubble zones, the fan itself and the side stacks + reveal zones */
+  const LANDSCAPE: ChainBounds = { cx: 0, cz: 2.3, w: 25.59, h: 11.85 };
+  const L_AVOID: AvoidRect[] = [
+    { x0: -13.79, x1: 13.79, z0: -4.62, z1: -0.83 }, // above the partner's row (bounds centred on the band)
+    { x0: 11.77, x1: 13.79, z0: 5.43, z1: 9.23 }, // screen edge beside the fan
+    { x0: -13.79, x1: -11.77, z0: 5.43, z1: 9.23 },
+    { x0: -9.44, x1: -3.95, z0: 6.17, z1: 8.15 }, // human plate
+    { x0: -9.55, x1: -4.57, z0: 4.26, z1: 6.35 }, // its bubble (above it: no room on its left)
+    { x0: 10.43, x1: 14.04, z0: 2.59, z1: 6.04 }, // right edge plate
+    { x0: 10.61, x1: 14.43, z0: 1.31, z1: 3.25 }, // its compact bubble
+    { x0: -14.04, x1: -10.43, z0: 2.59, z1: 6.04 },
+    { x0: -14.43, x1: -10.61, z0: 1.31, z1: 3.25 },
+    { x0: -4.32, x1: 4.32, z0: 5.23, z1: 9.37 }, // the human's fan
+    { x0: 11.01, x1: 31.01, z0: -2.12, z1: 3.82 }, // side stacks + reveal zones
+    { x0: -31.01, x1: -11.01, z0: -2.12, z1: 3.82 },
+  ];
+  const L_OPTS: ChainLayoutOptions = { maxCell: 0.98, softMinCell: 0.68, vertical: false, avoid: L_AVOID, flip: true, allowTurnAxis: false, maxSlide: 6 };
+
+  it('landscape: chains use the full felt width, dodge keep-outs, stay horizontal and full size early', () => {
+    const r = rng(31337);
+    for (let n = 0; n < 160; n++) {
+      const c = randomChain(r, 4 + (n % 17)); // 4..20 tiles
+      const res = check(c, LANDSCAPE, L_OPTS);
+      expect(res.vertical).toBe(false);
+      if (c.length <= 4) expect(res.cell).toBeCloseTo(0.98, 6);
+      if (c.length <= 12) expect(res.cell).toBeGreaterThanOrEqual(0.68 - 1e-9);
+    }
+  });
+
+  it('landscape: folds are mirrored (right arm toward the viewer, left arm away)', () => {
+    const r = rng(5);
+    let seen = 0;
+    for (let n = 0; n < 60; n++) {
+      const c = chainFromLine(eulerLine(r), 14, r);
+      const res = check(c, LANDSCAPE, L_OPTS);
+      const z0 = res.poses[0].z;
+      c.forEach((p, i) => {
+        if (i === 0) return;
+        const dz = res.poses[i].z - z0;
+        if (Math.abs(dz) > res.cell * 1.6 && Math.abs(res.shift.y) < 1e-9) {
+          seen++;
+          expect(Math.sign(dz)).toBe(p.side === 'right' ? 1 : -1);
+        }
+      });
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+
+  it('landscape worst case: full 28-tile chains fit, shrinking in fine steps only as needed', () => {
+    const r = rng(2828);
+    for (let n = 0; n < 40; n++) {
+      const k = n % 4 === 0 ? 0 : n % 4 === 1 ? 27 : Math.floor(r() * 28);
+      const c = chainFromLine(eulerLine(r), k, r);
+      expect(c.length).toBe(28);
+      const res = check(c, LANDSCAPE, L_OPTS);
+      expect(res.vertical).toBe(false);
+      expect(res.cell).toBeGreaterThan(0.45);
+      if (res.cell < 0.98 * 0.97) {
+        const bigger = layoutChain(c, LANDSCAPE, { ...L_OPTS, cell: res.cell / 0.97 });
+        expect(bigger.fits).toBe(false);
+      }
+    }
+  });
+
+  it('landscape preview (forced cell + slide, mirrored folds) reproduces the live poses', () => {
+    const r = rng(78);
+    for (let n = 0; n < 30; n++) {
+      const c = randomChain(r, 6 + (n % 20));
+      const live = layoutChain(c, LANDSCAPE, L_OPTS);
+      const prev = layoutChain(c, LANDSCAPE, { cell: live.cell, vertical: live.vertical, shift: live.shift, avoid: L_AVOID, flip: true });
+      expect(prev.poses).toEqual(live.poses);
+    }
+  });
 });

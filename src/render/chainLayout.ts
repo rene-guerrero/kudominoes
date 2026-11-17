@@ -69,6 +69,15 @@ export interface ChainLayoutOptions {
   vertical?: boolean;
   /** with `cell`: reuse this slide (cell units, primary frame) so previews match the live layout */
   shift?: { x: number; y: number };
+  /**
+   * mirror the fold sides: the right/east arm folds toward -lateral (south / west) and the left arm
+   * toward +lateral (default: right arm north, left arm south)
+   */
+  flip?: boolean;
+  /** with `softMinCell`: may the other orientation be tried before crossing the floor (default true) */
+  allowTurnAxis?: boolean;
+  /** with keep-out rects: also try longer lateral slides (up to this many cells) before shrinking */
+  maxSlide?: number;
 }
 
 const DX = [1, 0, -1, 0];
@@ -170,14 +179,14 @@ function turn(arm: Arm, nd: number, b: number, outer: number): P2 {
   return mk(cx, cy, orientAlong(nd, b, outer), false, DX[nd] !== 0);
 }
 
-function rawLayout(chain: PlacedTile[], HW: number, HH: number, obs?: readonly Obs[]): P2[] {
+function rawLayout(chain: PlacedTile[], HW: number, HH: number, obs?: readonly Obs[], flip = false): P2[] {
   const out: P2[] = [];
   if (chain.length === 0) return out;
   const first = chain[0];
   const fa = first.tile.a;
   const fb = first.tile.b;
-  const right: Arm = { px: 1, py: 0, dir: 0, lat: 1, turned: false, nextDir: 0 };
-  const left: Arm = { px: -1, py: 0, dir: 2, lat: 3, turned: false, nextDir: 0 };
+  const right: Arm = { px: 1, py: 0, dir: 0, lat: flip ? 3 : 1, turned: false, nextDir: 0 };
+  const left: Arm = { px: -1, py: 0, dir: 2, lat: flip ? 1 : 3, turned: false, nextDir: 0 };
   if (fa === fb) {
     out.push(mk(0, 0, Math.PI / 2, true, false));
     right.px = 0.5;
@@ -275,6 +284,14 @@ const SHIFTS: [number, number][] = [
   [-2, 0],
 ];
 
+/** the slides for a given lateral reach: the standard ones, then longer lateral slides */
+function slidesFor(maxSlide: number): [number, number][] {
+  if (maxSlide <= 2) return SHIFTS;
+  const out = SHIFTS.slice();
+  for (let k = 3; k <= maxSlide; k++) out.push([0, k], [0, -k], [1, k], [1, -k], [-1, k], [-1, -k]);
+  return out;
+}
+
 interface Trial {
   ps: P2[];
   shift: { x: number; y: number };
@@ -290,6 +307,8 @@ function tryCell(
   bounds: ChainBounds,
   avoid: readonly AvoidRect[] | undefined,
   fixedShift?: { x: number; y: number },
+  flip = false,
+  maxSlide = 2,
 ): { trial: Trial; fits: boolean } {
   const HW = PW / cell;
   const HH = PH / cell;
@@ -304,9 +323,9 @@ function tryCell(
       y1: vertical ? (bounds.cx - r.x0) / cell : (bounds.cz - r.z0) / cell,
     }));
   }
-  const base = rawLayout(chain, HW, HH, obs);
+  const base = rawLayout(chain, HW, HH, obs, flip);
   shiftToFit(base, HW, HH);
-  const shifts: [number, number][] = fixedShift ? [[fixedShift.x, fixedShift.y]] : avoid && avoid.length ? SHIFTS : [[0, 0]];
+  const shifts: [number, number][] = fixedShift ? [[fixedShift.x, fixedShift.y]] : avoid && avoid.length ? slidesFor(maxSlide) : [[0, 0]];
   let first: Trial | null = null;
   for (const [sx, sy] of shifts) {
     const ps = sx === 0 && sy === 0 ? base : base.map((p) => ({ ...p, x: p.x + sx, y: p.y + sy }));
@@ -327,6 +346,8 @@ export function layoutChain(
   const minCell = Math.min(maxCell, opts.minCell ?? 0.2);
   const softMin = Math.min(maxCell, Math.max(minCell, opts.softMinCell ?? minCell));
   const avoid = opts.avoid;
+  const flip = !!opts.flip;
+  const maxSlide = opts.maxSlide ?? 2;
   const half = (v: boolean) => ({ PW: (v ? bounds.h : bounds.w) / 2, PH: (v ? bounds.w : bounds.h) / 2 });
 
   /** the largest cell in [lo, hi] (scanning down in fine steps) that fits; null when none does */
@@ -334,7 +355,7 @@ export function layoutChain(
     const { PW, PH } = half(v);
     let cell = hi;
     for (;;) {
-      const r = tryCell(chain, PW, PH, cell, v, bounds, avoid);
+      const r = tryCell(chain, PW, PH, cell, v, bounds, avoid, undefined, flip, maxSlide);
       if (r.fits) return { trial: r.trial, cell };
       if (cell <= lo + 1e-9) return null;
       cell = Math.max(lo, cell * 0.97);
@@ -348,19 +369,19 @@ export function layoutChain(
   if (opts.cell !== undefined) {
     cell = opts.cell;
     const { PW, PH } = half(vertical);
-    const r = tryCell(chain, PW, PH, cell, vertical, bounds, avoid, opts.shift);
+    const r = tryCell(chain, PW, PH, cell, vertical, bounds, avoid, opts.shift, flip);
     trial = r.trial;
     fits = r.fits;
   } else {
     let best = scan(prefVertical, maxCell, softMin);
-    if (!best && softMin > minCell) {
+    if (!best && softMin > minCell && opts.allowTurnAxis !== false) {
       // readability first: the other orientation, still at or above the soft floor
       const alt = scan(!prefVertical, maxCell, softMin);
       if (alt) {
         best = alt;
         vertical = !prefVertical;
       } else best = scan(prefVertical, softMin, minCell);
-    }
+    } else if (!best && softMin > minCell) best = scan(prefVertical, softMin, minCell);
     if (best) {
       cell = best.cell;
       trial = best.trial;
@@ -368,7 +389,7 @@ export function layoutChain(
     } else {
       cell = minCell;
       const { PW, PH } = half(vertical);
-      trial = tryCell(chain, PW, PH, cell, vertical, bounds, avoid).trial;
+      trial = tryCell(chain, PW, PH, cell, vertical, bounds, avoid, undefined, flip, maxSlide).trial;
       fits = false;
     }
   }
