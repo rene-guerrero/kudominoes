@@ -1,5 +1,5 @@
 import type { GameMode, Lineup, TableStyle } from '../contracts';
-import { character, LEVEL_STARS, ROSTER, type Character } from '../roster';
+import { character, LEVEL_STARS, ROSTER, type Character, type FaceSpec } from '../roster';
 import { tableThumb } from '../render';
 import { h, prefersReducedMotion } from './dom';
 import { loc, t, type Key } from './i18n';
@@ -52,7 +52,7 @@ export interface NewGameOpts {
   soloLineup: string[];
   avatars: boolean;
   /** the human's face index and name for the bottom seat */
-  humanFace: number;
+  humanFace: number | FaceSpec;
   humanName: string;
   tableStyle: TableStyle;
   /** the rules preset name of a mode ("Cubano clásico" / "Personalizado") */

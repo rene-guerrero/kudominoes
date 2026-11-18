@@ -574,6 +574,119 @@ body[data-mock] .menu,
   align-items: stretch;
   gap: 10px;
 }
+/* the KuAvatars face editor in Ajustes, in the game's colours */
+.face-editor {
+  --kua-panel: rgba(0, 0, 0, 0.16);
+  --kua-panel-2: rgba(255, 246, 230, 0.08);
+  --kua-line: rgba(255, 246, 230, 0.14);
+  --kua-ink: var(--text);
+  --kua-muted: var(--muted);
+  --kua-accent: var(--mango);
+  --kua-accent-ink: var(--ink);
+  --kua-stage: radial-gradient(circle at 50% 38%, rgba(255, 246, 230, 0.12) 0%, rgba(0, 0, 0, 0.18) 75%);
+}
+.face-editor .kua-editor,
+.face-editor .kua-editor button {
+  font-family: var(--font);
+}
+/* buttons in the game's style (cream, chunky edge; "Aleatorio" in mango) */
+.face-editor .kua-btn {
+  min-height: 42px;
+  padding: 8px 16px 10px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--cream);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 900;
+  box-shadow:
+    0 4px 0 #c9ae86,
+    inset 0 2px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+.face-editor .kua-btn-accent {
+  background: var(--mango);
+  box-shadow:
+    0 4px 0 var(--mango-d),
+    inset 0 2px 0 rgba(255, 255, 255, 0.45);
+}
+.face-editor .kua-btn:active {
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 #c9ae86,
+    inset 0 2px 0 rgba(255, 255, 255, 0.45);
+}
+.face-editor .kua-btn-accent:active {
+  box-shadow:
+    0 1px 0 var(--mango-d),
+    inset 0 2px 0 rgba(255, 255, 255, 0.45);
+}
+.face-editor .kua-btn-small {
+  min-height: 34px;
+  padding: 5px 12px 7px;
+  font-size: 13px;
+  border-radius: 12px;
+}
+/* chips and tabs like the game's segmented controls */
+.face-editor .kua-chip {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 246, 230, 0.08);
+  color: var(--muted);
+  font-weight: 800;
+}
+.face-editor .kua-chip[aria-pressed='true'] {
+  background: var(--cream);
+  color: var(--ink);
+}
+.face-editor .kua-tab {
+  font-weight: 900;
+  font-size: 14px;
+}
+.face-editor .kua-field-title {
+  font-weight: 900;
+}
+.face-editor .kua-tile {
+  border-radius: 14px;
+}
+/* phones: a smaller preview beside the buttons, compact tiles */
+@media (max-width: 640px) {
+  .face-editor .kua-preview {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+  }
+  .face-editor .kua-stage {
+    height: 112px;
+  }
+  .face-editor .kua-stage-face {
+    width: 92px;
+    height: 92px;
+  }
+  .face-editor .kua-actions {
+    flex-direction: column;
+  }
+  .face-editor .kua-panel {
+    padding: 12px 10px;
+    gap: 14px;
+  }
+  .face-editor .kua-tiles {
+    grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+    gap: 6px;
+  }
+  .face-editor .kua-thumb {
+    width: 46px;
+    height: 46px;
+  }
+  .face-editor .kua-swatch,
+  .face-editor .kua-swatch-pick {
+    width: 32px;
+    height: 32px;
+  }
+}
 .set-text {
   min-width: 0;
 }

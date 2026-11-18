@@ -1,4 +1,5 @@
 import 'kuavatars/avatars.css';
+import 'kuavatars/editor.css';
 import './ui/styles.css';
 import type { App } from './app/app';
 import { initAudio } from './audio/sfx';

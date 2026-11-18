@@ -1,3 +1,4 @@
+import { sanitizeFace, type FaceSpec } from 'kuavatars/faces';
 /**
  * DEV ONLY — an in-browser room that implements src/net/protocol.ts with the real engine, so the online
  * UI can be built and clicked through without the Cloudflare server. Behaviour follows the agreed
@@ -37,7 +38,7 @@ export interface MockSocket {
 interface Member {
   pid: string;
   name: string;
-  face: number;
+  face: number | FaceSpec;
   seat: Seat | null;
   socks: Set<MockSocket>;
   covering: boolean;
@@ -171,7 +172,7 @@ export class MockRoom {
       if (empty !== undefined) this.seatMember(m, empty);
     }
     m.name = String(msg.name || '').slice(0, MAX_NAME_LENGTH) || 'Jugador';
-    m.face = Math.max(0, Math.min(8, msg.face | 0));
+    m.face = sanitizeFace(msg.face);
     if (m.graceTimer) clearTimeout(m.graceTimer);
     m.graceTimer = null;
     m.covering = false;

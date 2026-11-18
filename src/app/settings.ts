@@ -2,7 +2,7 @@ import type { AppSettings, EngineApi, GameMode, Lineup, RuleSettings, SettingDes
 import { TABLE_STYLES, TILE_BACKS } from '../contracts';
 import { migrateRules, RULES_VERSION } from '../engine/rules';
 import { DEFAULT_LINEUP, isCharacter } from '../roster';
-import { FACE_COUNT } from 'kuavatars/faces';
+import { sanitizeFace } from 'kuavatars/faces';
 import { resolveQuality } from './perf';
 
 const KEY = 'kudominoes.settings.v1';
@@ -121,7 +121,7 @@ export function loadSettings(engine: EngineApi): AppSettings {
       tileTheme: s.tileTheme === 'classic' || s.tileTheme === 'dark' ? s.tileTheme : def.tileTheme,
       reducedMotion: typeof s.reducedMotion === 'boolean' ? s.reducedMotion : false,
       avatars: typeof s.avatars === 'boolean' ? s.avatars : true,
-      avatarFace: Number.isInteger(s.avatarFace) && (s.avatarFace as number) >= 0 && (s.avatarFace as number) < FACE_COUNT ? s.avatarFace : 0,
+      avatarFace: sanitizeFace(s.avatarFace ?? 0),
       lineup: sanitizeLineupSetting(s.lineup),
       rulesVersion: RULES_VERSION,
       settingsTab: s.settingsTab === 'game' || s.settingsTab === 'rules' || s.settingsTab === 'av' ? s.settingsTab : 'game',

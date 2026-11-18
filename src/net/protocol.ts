@@ -1,3 +1,4 @@
+import type { FaceSpec } from 'kuavatars/faces';
 /**
  * ONLINE MULTIPLAYER PROTOCOL — the single contract between the room server (server/, Cloudflare
  * Worker + one Durable Object per room) and the game client (src/net/**, online UI in src/ui/**).
@@ -47,7 +48,7 @@ export type RoomPhase = 'lobby' | 'playing' | 'finished';
 export type SeatOccupant =
   | { kind: 'empty' }
   /** a human player; `connected` false = dropped (a CPU plays for them after the grace period) */
-  | { kind: 'human'; playerId: string; name: string; face: number; connected: boolean; cpuCovering: boolean }
+  | { kind: 'human'; playerId: string; name: string; face: number | FaceSpec; connected: boolean; cpuCovering: boolean }
   /** a roster character filling the seat (src/roster.ts id, e.g. 'elena', 'papi-zorg') */
   | { kind: 'cpu'; characterId: string };
 
@@ -87,7 +88,7 @@ export interface SeatView {
 
 export type ClientMsg =
   /** first message after the socket opens (also on every reconnect) */
-  | { t: 'hello'; v: number; playerId: string; name: string; face: number }
+  | { t: 'hello'; v: number; playerId: string; name: string; face: number | FaceSpec }
   /** lobby: take / move to a seat (null = leave seat, stay in room) */
   | { t: 'sit'; seat: Seat | null }
   /** lobby, host only: put a roster CPU in a seat (null = empty it) */

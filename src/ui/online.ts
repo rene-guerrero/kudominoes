@@ -1,3 +1,4 @@
+import type { FaceSpec } from 'kuavatars/faces';
 /**
  * Online play screens and cards: the "Jugar en línea" screen (create / join), the room lobby (the same
  * table-with-seats look as the new-game screen), the seat sheet (sit here or pick a CPU character),
@@ -36,7 +37,7 @@ const icon = (svg: string) => h('span.btn-icon', { html: svg });
 
 export interface OnlineHomeOpts {
   name: string;
-  face: number;
+  face: number | FaceSpec;
   avatars: boolean;
   /** prefilled code (from a link that failed, or the last one typed) */
   code?: string;

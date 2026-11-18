@@ -15,7 +15,7 @@ import type { AvatarController, AvatarExpr } from '../ui/avatars';
 import type { FaceSpec } from '../roster';
 import type { SessionHooks } from './controller';
 import { character, ROSTER } from '../roster';
-import { HUMAN_FACES } from 'kuavatars/faces';
+import { HUMAN_FACES, sanitizeFace } from 'kuavatars/faces';
 import { RoomClient, httpBackend, NetError, type Backend, type ConnState } from '../net/client';
 import { useMockServer, shareLink } from '../net/config';
 import { displayCode, normalizeCode, playerId, rememberRoom, cleanName } from '../net/identity';
@@ -545,7 +545,7 @@ export class OnlineController {
         continue;
       }
       names[l] = o.kind === 'empty' ? '' : occupantName(o);
-      if (o.kind === 'human') faces[l] = HUMAN_FACES[Math.max(0, Math.min(HUMAN_FACES.length - 1, o.face | 0))];
+      if (o.kind === 'human') faces[l] = sanitizeFace(o.face);
       else if (o.kind === 'cpu') faces[l] = character(o.characterId).face;
       else faces[l] = ROSTER[3].face;
     }

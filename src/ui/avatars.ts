@@ -3,7 +3,7 @@
  * shared KuAvatars library (also used by KuCards); this file only maps Kudominoes onto it: which face
  * each seat wears, where the name plates put the faces, and which game events trigger which reactions.
  */
-import { AvatarController as AvatarTable, HUMAN_FACES, humanFace, type AvatarExpr, type FaceSpec } from 'kuavatars';
+import { AvatarController as AvatarTable, HUMAN_FACES, sanitizeFace, type AvatarExpr, type FaceSpec } from 'kuavatars';
 import type { GameEvent, SeatPlate } from '../contracts';
 import { character, DEFAULT_LINEUP } from '../roster';
 
@@ -11,8 +11,8 @@ export { FACE_COUNT, HUMAN_FACES, liveFace, staticFace, type AvatarExpr } from '
 
 /** the face each seat wears (seat 0 = the human's pick; 1..3 = the seated characters) */
 const seatFaces: FaceSpec[] = [HUMAN_FACES[0], character(DEFAULT_LINEUP[1]).face, character(DEFAULT_LINEUP[2]).face, character(DEFAULT_LINEUP[3]).face];
-export function setHumanFace(i: number): void {
-  seatFaces[0] = humanFace(i);
+export function setHumanFace(face: number | FaceSpec): void {
+  seatFaces[0] = sanitizeFace(face);
 }
 export const faceOfSeat = (seat: number): FaceSpec => seatFaces[seat] ?? HUMAN_FACES[0];
 
@@ -27,8 +27,8 @@ export class AvatarController extends AvatarTable {
   }
 
   /** the human's chosen face (Ajustes → Avatares) */
-  setHumanFace(i: number): void {
-    setHumanFace(i);
+  setHumanFace(face: number | FaceSpec): void {
+    setHumanFace(face);
     this.setFace(0, faceOfSeat(0));
   }
 

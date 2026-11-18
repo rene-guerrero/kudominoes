@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Only keep the shared KuAvatars library up to date: each new kuavatars tag opens a pull request here; CI runs the tests on it, and merging it deploys.",
+  "extends": [],
+  "enabledManagers": ["npm"],
+  "dependencyDashboard": false,
+  "packageRules": [
+    { "matchPackageNames": ["*"], "enabled": false },
+    {
+      "matchPackageNames": ["kuavatars"],
+      "enabled": true,
+      "groupName": "KuAvatars",
+      "commitMessageTopic": "KuAvatars",
+      "automerge": false
+    }
+  ]
+}

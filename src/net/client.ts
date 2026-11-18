@@ -1,3 +1,4 @@
+import type { FaceSpec } from 'kuavatars/faces';
 /**
  * Connection manager for one online room: HTTP (create / check a room), one WebSocket, `hello` on every
  * (re)connect, automatic reconnection with backoff, ping/pong for the server clock offset (turn
@@ -92,7 +93,7 @@ export type ConnState = 'connecting' | 'open' | 'reconnecting' | 'closed';
 export interface Identity {
   playerId: string;
   name: string;
-  face: number;
+  face: number | FaceSpec;
 }
 
 export interface ClientOpts {

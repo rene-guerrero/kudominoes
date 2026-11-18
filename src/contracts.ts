@@ -1,3 +1,4 @@
+import type { FaceSpec } from 'kuavatars/faces';
 /**
  * SHARED CONTRACTS — the single source of truth between the three modules:
  *   src/engine  (pure rules + CPU, no DOM, no three.js)
@@ -527,7 +528,8 @@ export interface AppSettings {
   /** animated faces on the name plates; missing = on */
   avatars?: boolean;
   /** the human's face, 0..6 (0 = plain); missing = 0 */
-  avatarFace?: number;
+  /** the player's own face (a FaceSpec from the avatar editor; older saves stored a stock-face index) */
+  avatarFace?: number | FaceSpec;
   /** the characters chosen for new matches (roster ids); missing = default lineup */
   lineup?: Lineup;
   /** version of the stored rule schema (2 = tens-scale Cuban scoring) */

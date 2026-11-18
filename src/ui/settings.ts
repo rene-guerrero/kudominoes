@@ -5,8 +5,7 @@ import { h } from './dom';
 import { loc, t, tMaybe, type Key } from './i18n';
 import { ICONS, segmented, toggle } from './overlay';
 import { screenHeader } from './howto';
-import { staticFace } from './avatars';
-import { FACE_COUNT } from 'kuavatars/faces';
+import { createAvatarEditor, type FaceSpec } from 'kuavatars';
 import { tileSvg } from './tiles';
 import { enhanceHScroll } from './hscroll';
 
@@ -102,11 +101,11 @@ function radioItems<T>(values: T[], value: T, make: (v: T, on: boolean) => Node[
   return items;
 }
 
-/** the human's face: the seven faces at full size in a scrollable row; a tap picks and the face smiles */
-function facePicker(value: number, onChange: (v: number) => void): HTMLElement {
-  const faces = Array.from({ length: FACE_COUNT }, (_, i) => i);
-  const items = radioItems(faces, value, (i, on) => [h('span.face-static', staticFace(i, on ? 'happy' : 'idle'))], (i) => t(`settings.face.${i}` as Key), onChange, 'face-opt');
-  return hscroll(items, value, t('settings.avatarFace'));
+/** the human's face: the shared KuAvatars editor (every option is a thumbnail of the player's own face) */
+function faceEditor(value: number | FaceSpec, onChange: (v: FaceSpec) => void): HTMLElement {
+  const box = h('div.face-editor');
+  createAvatarEditor(box, { value, onChange, moods: false, gestures: false });
+  return box;
 }
 
 const dpr = () => Math.min(2, window.devicePixelRatio || 1);
@@ -242,7 +241,7 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
       h(
         'section.card.set-card',
         row(t('settings.name'), name),
-        row(t('settings.avatarFace'), facePicker(s.avatarFace ?? 0, (v) => set('avatarFace', v)), undefined, true),
+        row(t('settings.avatarFace'), faceEditor(s.avatarFace ?? 0, (v) => set('avatarFace', v)), undefined, true),
         row(t('settings.tileTheme'), tileThemePicker(s.tileTheme ?? 'dark', (v) => set('tileTheme', v)), undefined, true),
         row(
           t('settings.tileBack'),

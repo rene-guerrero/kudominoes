@@ -1,3 +1,4 @@
+import { sanitizeFace as cleanFace, type FaceSpec } from 'kuavatars/faces';
 /**
  * Room model and the pure lobby rules: seats, host, mode/rules, CPU fill, room codes, names.
  * The Durable Object (room.ts) persists a RoomData and calls these; nothing here touches I/O.
@@ -21,7 +22,7 @@ export type SeatSlot = { kind: 'empty' } | { kind: 'human'; playerId: string } |
 export interface Member {
   playerId: string;
   name: string;
-  face: number;
+  face: number | FaceSpec;
   connected: boolean;
   /** a CPU plays this player's seat (disconnected past the grace period) */
   cpuCovering: boolean;
@@ -108,7 +109,8 @@ export function sanitizeName(v: unknown): string {
   return chars || 'Jugador';
 }
 
-export const sanitizeFace = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(6, Math.floor(v))) : 0);
+/** a player's face: a FaceSpec cleaned by KuAvatars (older clients send a stock-face index) */
+export const sanitizeFace = (v: unknown): FaceSpec => cleanFace(v);
 
 // ───────────────────────── seats ─────────────────────────
 
