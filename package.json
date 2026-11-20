@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "lan": "node scripts/lan.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "android:sync": "npm run build && npx cap sync android",
@@ -19,6 +20,7 @@
     "@capacitor/android": "^8.6.2",
     "@capacitor/core": "^8.6.2",
     "kuavatars": "github:rene-guerrero/kuavatars#v0.3.0",
+    "kunet": "file:../../../../kunet",
     "three": "^0.170.0"
   },
   "devDependencies": {

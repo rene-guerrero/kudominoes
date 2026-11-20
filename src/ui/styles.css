@@ -4308,6 +4308,103 @@ button.ng-seat:hover {
   width: 100%;
   height: 100%;
 }
+/* [Jugar en línea] [Jugar con amigos] on one row; they stack only when both labels cannot fit */
+.menu-actions .row.menu-net {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.menu-actions .row.menu-net > .btn {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+/* lobby, Jugar con amigos: the QR and address other devices open */
+.lobby-join {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.26);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 246, 230, 0.08);
+}
+.lobby-join-qr {
+  flex: 0 0 auto;
+  width: clamp(96px, 22vmin, 136px);
+  aspect-ratio: 1;
+  padding: 6px;
+  border-radius: 12px;
+  background: #fff;
+  color: #111;
+}
+.lobby-join-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.lobby-join-qr {
+  border: 0;
+  cursor: zoom-in;
+}
+.lobby-join-qr.is-big {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  margin: auto;
+  width: min(82vmin, 440px);
+  height: min(82vmin, 440px);
+  padding: 14px;
+  border-radius: 20px;
+  cursor: zoom-out;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.72);
+}
+@media (orientation: portrait) and (max-width: 760px) {
+  .lobby .lobby-join {
+    order: 0;
+    padding: 8px 12px;
+    gap: 12px;
+  }
+  .lobby .lobby-join-qr:not(.is-big) {
+    width: 66px;
+    padding: 4px;
+    border-radius: 8px;
+  }
+  .lobby .lobby-join-hint:not(.lobby-join-keep) {
+    display: none;
+  }
+  .lobby .lobby-join-url {
+    font-size: 17px;
+  }
+}
+.lobby-join-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.lobby-join-url {
+  font-size: clamp(17px, 4.4vmin, 22px);
+  font-weight: 900;
+  line-height: 1.2;
+  color: var(--cream);
+  user-select: text;
+}
+.lobby-join-url .nowrap {
+  display: inline-block;
+  white-space: nowrap;
+}
+.lobby-join-hint {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.lobby-join-keep {
+  color: var(--mango);
+}
+.oh-note {
+  font-weight: 800;
+}
 
 /* "Jugar en línea" screen */
 .oh-scroll {

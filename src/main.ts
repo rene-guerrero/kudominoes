@@ -116,7 +116,7 @@ async function boot() {
     const s = loadSave();
     const save = s ? saveSummary(s) : null;
     const noop = () => {};
-    const early = buildMenu({ save, onPlay: noop, onContinue: noop, onSettings: noop, onHowto: noop, onAbout: noop, onOnline: noop });
+    const early = buildMenu({ save, onPlay: noop, onContinue: noop, onSettings: noop, onHowto: noop, onAbout: noop, onOnline: noop, onFriends: noop });
     overlay.showScreen(early);
     hideBootSplash();
     mark('menu');
@@ -189,6 +189,8 @@ async function boot() {
 /** Offline/installable web build: register the service worker in production web only (not in Capacitor). */
 function registerServiceWorker() {
   const native = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
+  // a page a local host served (Jugar con amigos) never installs the web build's offline cache
+  if ((window as unknown as { __KUNET_LOCAL__?: unknown }).__KUNET_LOCAL__) return;
   if (!import.meta.env.PROD || native || !('serviceWorker' in navigator) || (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1')) return;
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('[kudominoes] service worker not registered', e));

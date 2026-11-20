@@ -41,6 +41,8 @@ export interface OnlineHomeOpts {
   avatars: boolean;
   /** prefilled code (from a link that failed, or the last one typed) */
   code?: string;
+  /** Jugar con amigos (a host on the same network) instead of online */
+  local?: boolean;
   onName(name: string): void;
   onCreate(): void;
   onJoin(code: string): void;
@@ -151,12 +153,13 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
 
   const el = h(
     'section.screen.panel-screen.online-home',
-    screenHeader(t('online.title'), o.onBack),
+    screenHeader(t(o.local ? 'friends.title' : 'online.title'), o.onBack),
     h(
       'div.scroll.oh-scroll',
       h(
         'div.oh-body',
-        h('p.oh-intro', t('online.intro')),
+        h('p.oh-intro', t(o.local ? 'local.intro' : 'online.intro')),
+        o.local ? h('p.oh-intro.oh-note', t('local.sameWifi')) : null,
         who,
         create,
         h('div.oh-or', h('span', t('online.or'))),
@@ -177,6 +180,8 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
 
 export interface LobbyOpts {
   code: string;
+  /** local play: the address other devices open, and its QR (an SVG string) */
+  join?: { url: string; qr: string } | null;
   avatars: boolean;
   tableStyle: TableStyle;
   myId: string;
@@ -207,6 +212,15 @@ export function occupantName(o: SeatOccupant): string {
   if (o.kind === 'human') return o.name || t('seat.player');
   if (o.kind === 'cpu') return character(o.characterId).name;
   return t('lobby.free');
+}
+
+/** "192.168.1.37:8787" + "/?sala=7KQM": the line may only break between the two parts */
+function joinUrl(url: string): HTMLElement {
+  const bare = url.replace(/^https?:\/\//, '');
+  const cut = bare.indexOf('/');
+  const host = cut < 0 ? bare : bare.slice(0, cut);
+  const path = cut < 0 ? '' : bare.slice(cut);
+  return h('span.lobby-join-url', h('span.nowrap', host), path && path !== '/' ? h('span.nowrap', path) : null);
 }
 
 export function buildLobby(o: LobbyOpts): Lobby {
@@ -265,6 +279,24 @@ export function buildLobby(o: LobbyOpts): Lobby {
     share,
   );
 
+  // ── local play: scan or type the address ──
+  // the QR can be tapped to show it big (in portrait it is a small thumbnail)
+  const qr = o.join ? (h('button.lobby-join-qr', { type: 'button', 'aria-label': t('local.scan'), html: o.join.qr }) as HTMLButtonElement) : null;
+  qr?.addEventListener('click', () => qr.classList.toggle('is-big'));
+  const joinCard = o.join
+    ? h(
+        'div.lobby-join',
+        qr,
+        h(
+          'div.lobby-join-text',
+          h('span.lobby-code-k', t('local.join')),
+          joinUrl(o.join.url),
+          h('span.lobby-join-hint', t('local.scan')),
+          h('span.lobby-join-hint.lobby-join-keep', t('local.keepOpen')),
+        ),
+      )
+    : null;
+
   // ── mode, rules, start ──
   const modeRow = h('div.ng-mode.lobby-mode');
   const status = h('p.lobby-status');
@@ -281,7 +313,7 @@ export function buildLobby(o: LobbyOpts): Lobby {
   const el = h(
     'section.screen.panel-screen.newgame.ng2.lobby',
     screenHeader(t('lobby.title'), o.onLeave),
-    h('div.ng-body', h('div.ng-left', modeRow, feltBox), h('div.ng-right', codeCard, foot)),
+    h('div.ng-body', h('div.ng-left', modeRow, feltBox), h('div.ng-right', codeCard, joinCard, foot)),
   );
 
   const update = (room: PublicRoom, me: { seat: Seat | null; isHost: boolean }) => {

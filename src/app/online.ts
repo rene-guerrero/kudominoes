@@ -17,7 +17,8 @@ import type { SessionHooks } from './controller';
 import { character, ROSTER } from '../roster';
 import { HUMAN_FACES, sanitizeFace } from 'kuavatars/faces';
 import { RoomClient, httpBackend, NetError, type Backend, type ConnState } from '../net/client';
-import { useMockServer, shareLink } from '../net/config';
+import { useMockServer, shareLink, served, type NetMode } from '../net/config';
+import { qrSvg } from 'kunet';
 import { displayCode, normalizeCode, playerId, rememberRoom, cleanName } from '../net/identity';
 import { Perspective } from '../net/perspective';
 import { applyEvent, emptyMatch } from '../net/mirror';
@@ -125,11 +126,17 @@ export class OnlineController {
     if (import.meta.env.DEV) (window as unknown as { __kudoNet: unknown }).__kudoNet = { ctl: this, drop: () => this.client?.resync() };
   }
 
-  /** the mock backend is loaded lazily (dev only) */
+  /** online or local play (Jugar con amigos): picks the backend and the screens' wording */
+  private net: NetMode = 'online';
+  private httpBe: Backend | null = null;
+  private mockBe: Backend | null = null;
+
+  /** the mock backend is loaded lazily (dev only); a locally served page talks to its own origin */
   private async ensureBackend(): Promise<Backend> {
     // (dev only: the branch is dead code in production builds, so the mock never ships)
-    if (import.meta.env.DEV && !this.backend) this.backend = (await import('../net/mock/backend')).mockBackend();
-    this.backend ??= httpBackend();
+    if (import.meta.env.DEV && (useMockServer() || (this.net === 'local' && !served()))) {
+      this.backend = this.mockBe ??= (await import('../net/mock/backend')).mockBackend();
+    } else this.backend = this.httpBe ??= httpBackend();
     return this.backend;
   }
 
@@ -140,10 +147,12 @@ export class OnlineController {
   // ───────────────────────── screens ─────────────────────────
 
   /** open the "Jugar en línea" screen; with a code (share link / reload) join it right away */
-  open(code?: string, quiet = false): void {
+  open(code?: string, quiet = false, net: NetMode = 'online'): void {
     this.mode = 'home';
+    this.net = net;
     const s = this.host.settings();
     const home = buildOnlineHome({
+      local: net === 'local',
       name: s.playerName,
       face: s.avatarFace ?? 0,
       avatars: s.avatars !== false,
@@ -268,6 +277,7 @@ export class OnlineController {
       const s = this.host.settings();
       this.lobby = buildLobby({
         code: this.room.code,
+        join: this.net === 'local' ? this.joinCard(this.room.code) : null,
         avatars: s.avatars !== false,
         tableStyle: s.tableStyle ?? 'green',
         myId: this.pid,
@@ -349,6 +359,12 @@ export class OnlineController {
     });
     this.closeSheet?.();
     this.closeSheet = this.host.overlay.openModal(card);
+  }
+
+  /** local play: the address other devices open (and its QR), shown big in the lobby */
+  private joinCard(code: string): { url: string; qr: string } {
+    const url = shareLink(code);
+    return { url, qr: qrSvg(url, { label: t('local.scan') }) };
   }
 
   private async share(): Promise<void> {
