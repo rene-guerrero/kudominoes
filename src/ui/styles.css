@@ -3490,6 +3490,11 @@ button.ng-seat:hover {
 .audio-tg:active {
   transform: translateY(3px);
 }
+/* online menu: no Cómo jugar, so the toggles share the whole row */
+.online-pause .pause-row .audio-tg {
+  flex: 1 1 0;
+  width: auto;
+}
 /* Cómo jugar takes the rest of the row; if its label cannot fit beside the toggles it gets its own line */
 .pause-row .pause-howto {
   flex: 1 1 0;
