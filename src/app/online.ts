@@ -19,7 +19,7 @@ import { HUMAN_FACES, sanitizeFace } from 'kuavatars/faces';
 import { RoomClient, httpBackend, NetError, type Backend, type ConnState } from '../net/client';
 import { useMockServer, shareLink, served, type NetMode } from '../net/config';
 import { qrSvg } from 'kunet';
-import { LocalPlay, nativeLocalAvailable, nearbyPermission, savedRoom } from './localPlay';
+import { LocalPlay, nativeLocalAvailable, nearbyPermission, onNearbyError, savedRoom } from './localPlay';
 import { displayCode, normalizeCode, playerId, rememberRoom, cleanName } from '../net/identity';
 import { Perspective } from '../net/perspective';
 import { applyEvent, emptyMatch } from '../net/mirror';
@@ -159,6 +159,14 @@ export class OnlineController {
   private joinTarget: NearbyGame | null = null;
   /** the Bluetooth explanation was shown this session (asked once; Android remembers the answer) */
   private btAsked = false;
+  private offBtErrors: (() => void) | null = null;
+
+  /** a Bluetooth (Nearby) failure: on the home screen as its error line, in the lobby under the code */
+  private showBtError = (where: string, message: string): void => {
+    const text = t('local.err.bluetooth', { msg: message || where });
+    if (this.home) this.home.setError(text);
+    else this.lobby?.setConn(text);
+  };
   private hostBe: Backend | null = null;
   private stopDiscover: (() => void) | null = null;
 
@@ -247,6 +255,8 @@ export class OnlineController {
     this.stopDiscover?.();
     this.stopDiscover = this.local.discover(bt, (games) => this.home === home && home.setNearby(games));
     home.offerBluetooth(!bt);
+    home.setSearchingBluetooth(bt);
+    this.offBtErrors ??= onNearbyError(this.showBtError);
   }
 
   /** the explanation, then Android's prompt (once per session unless asked for); true = allowed */
@@ -286,6 +296,7 @@ export class OnlineController {
       this.joinAt = null;
       this.joinTarget = null;
       const bt = await this.askBluetooth(false);
+      if (bt) this.offBtErrors ??= onNearbyError(this.showBtError);
       try {
         this.hostBe = await this.local.startHosting(this.host.settings().playerName || t('seat.player'), bt);
       } catch {

@@ -16,6 +16,7 @@ import {
   nearbyBackend,
   nearbyDisconnectAll,
   nearbyPermission,
+  onNearbyError,
   startNearbyHost,
   startWifiHost,
   type NearbyHostHandle,
@@ -34,7 +35,7 @@ interface Saved {
   data: unknown;
 }
 
-export { nativeLocalAvailable, nearbyPermission };
+export { nativeLocalAvailable, nearbyPermission, onNearbyError };
 
 export class LocalPlay {
   private host: LocalHost | null = null;

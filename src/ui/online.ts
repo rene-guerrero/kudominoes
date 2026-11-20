@@ -97,6 +97,8 @@ export interface OnlineHome {
   setNearby(games: NearbyGame[] | null): void;
   /** native: show / hide "Buscar también por Bluetooth" */
   offerBluetooth(show: boolean): void;
+  /** native: the search also runs over Bluetooth (the empty list says so) */
+  setSearchingBluetooth(on: boolean): void;
 }
 
 export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
@@ -227,9 +229,12 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
 
   // ── native: games on this network ──
   const nearbyList = h('div.oh-nearby-list', { role: 'list' });
+  let searchingBt = false;
+  let lastGames: NearbyGame[] | null = null;
   const setNearby = (games: NearbyGame[] | null) => {
-    if (!games) return nearbyList.replaceChildren(h('p.oh-nearby-empty', t('local.searching')));
-    if (!games.length) return nearbyList.replaceChildren(h('p.oh-nearby-empty', t('local.noneNearby')));
+    lastGames = games;
+    if (!games) return nearbyList.replaceChildren(h('p.oh-nearby-empty', t(searchingBt ? 'local.searchingBt' : 'local.searching')));
+    if (!games.length) return nearbyList.replaceChildren(h('p.oh-nearby-empty', t(searchingBt ? 'local.noneNearbyBt' : 'local.noneNearby')));
     nearbyList.replaceChildren(
       ...games.map((g) => {
         const b = btn(
@@ -280,6 +285,10 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
     setNearby,
     offerBluetooth: (show) => {
       if (btOffer) btOffer.hidden = !show;
+    },
+    setSearchingBluetooth: (on) => {
+      searchingBt = on;
+      if (!lastGames?.length) setNearby(lastGames);
     },
   };
 }
