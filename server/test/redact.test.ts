@@ -4,7 +4,7 @@ import { applyMove, createMatch, legalMoves, startHand } from '../../src/engine/
 import { chooseMove } from '../../src/engine/ai';
 import { DEFAULT_RULES, DEFAULT_RULES_INDIVIDUAL } from '../../src/engine/rules';
 import { HIDDEN_TILE } from '../../src/net/protocol';
-import { redactEvents, seatView } from '../src/redact';
+import { redactEvents, seatView } from '../../src/net/room/redact';
 
 /** play a whole match quickly, collecting every event and the states along the way */
 function playMatch(mode: 'pairs' | 'individual', players: 2 | 3 | 4, seed: number, maxHands = 3) {

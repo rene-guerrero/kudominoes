@@ -279,8 +279,8 @@ describe('mock room (dev server stand-in)', () => {
     const b = sock();
     room.attach(a);
     room.attach(b);
-    room.receive(a, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, playerId: 'A', name: 'Ana', face: 1 }));
-    room.receive(b, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, playerId: 'B', name: 'Beto', face: 2 }));
+    room.receive(a, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, playerId: 'pid-A', name: 'Ana', face: 1 }));
+    room.receive(b, JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, playerId: 'pid-B', name: 'Beto', face: 2 }));
     const wa = a.inbox.find((m) => m.t === 'welcome') as Extract<ServerMsg, { t: 'welcome' }>;
     expect(wa.you.isHost).toBe(true);
     room.receive(a, JSON.stringify({ t: 'start' }));

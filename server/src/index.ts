@@ -6,7 +6,7 @@
  */
 import type { CreateRoomResponse, RoomInfoResponse } from '../../src/net/protocol';
 import type { Env } from './config';
-import { generateCode, isValidPlayerId, normalizeCode } from './lobby';
+import { generateCode, isValidPlayerId, normalizeCode } from '../../src/net/room/lobby';
 
 export { Room } from './room';
 

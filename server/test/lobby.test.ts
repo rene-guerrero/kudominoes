@@ -18,7 +18,7 @@ import {
   setRules,
   sit,
   type RoomData,
-} from '../src/lobby';
+} from '../../src/net/room/lobby';
 
 function join(r: RoomData, pid: string, now = 0): void {
   r.members[pid] = { playerId: pid, name: pid, face: 0, connected: true, cpuCovering: false, joinedAt: now };

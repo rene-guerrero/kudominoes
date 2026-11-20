@@ -170,3 +170,9 @@ export const COVER_LEVEL: Difficulty = 'normal';
 /** quick phrases (ids are stable; text lives in the client i18n) — neutral Spanish, no slang */
 export const QUICK_PHRASES = ['hello', 'nice', 'oops', 'thinking', 'hurry', 'gg', 'thanks', 'wow'] as const;
 export type QuickPhraseId = (typeof QUICK_PHRASES)[number];
+/** avatar hand gestures sent through the same 'phrase' message as `g:<gesture>` (names as in KuAvatars) */
+export const CHAT_GESTURES = ['thumbsUp', 'thumbsDown', 'rub', 'clap', 'wave', 'shrug', 'facepalm', 'chin', 'mewing'] as const;
+export type ChatGesture = (typeof CHAT_GESTURES)[number];
+/** a quick phrase id or a gesture id ('g:wave') */
+export const isChatId = (id: string): boolean =>
+  (QUICK_PHRASES as readonly string[]).includes(id) || (id.startsWith('g:') && (CHAT_GESTURES as readonly string[]).includes(id.slice(2)));

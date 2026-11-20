@@ -2,9 +2,9 @@
  * Pure game-driving helpers for the room: CPU pacing and decisions, slams, move matching. Mirrors the
  * local game loop (src/app/controller.ts) so online CPUs feel the same.
  */
-import type { Difficulty, GameEvent, MatchState, Move, PlayStyle, Seat } from '../../src/contracts';
-import { chooseMove } from '../../src/engine/ai';
-import { legalMoves } from '../../src/engine/game';
+import type { Difficulty, GameEvent, MatchState, Move, PlayStyle, Seat } from '../../contracts';
+import { chooseMove } from '../../engine/ai';
+import { legalMoves } from '../../engine/game';
 
 /** CPU think delay in ms (same pacing as GameSession.thinkDelay): ~0.4 s forced, ~0.8–1.8 s choices */
 export function thinkDelay(m: MatchState, legalCount: number, speed = 1, rnd: () => number = Math.random): number {

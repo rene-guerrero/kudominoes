@@ -3,8 +3,8 @@ import type { GameEvent, MatchState } from '../../src/contracts';
 import { applyMove, createMatch, legalMoves, startHand } from '../../src/engine/game';
 import { DEFAULT_RULES } from '../../src/engine/rules';
 import { tunables } from '../src/config';
-import { cpuMove, drawDelay, markFinishing, matchLegal, thinkDelay } from '../src/game';
-import { clearGameTimer, emptySchedule, nextAlarm, setGameTimer, takeDue } from '../src/schedule';
+import { cpuMove, drawDelay, markFinishing, matchLegal, thinkDelay } from '../../src/net/room/game';
+import { clearGameTimer, emptySchedule, nextAlarm, setGameTimer, takeDue } from '../../src/net/room/schedule';
 
 describe('schedule', () => {
   it('alarm = earliest of game, grace and idle', () => {

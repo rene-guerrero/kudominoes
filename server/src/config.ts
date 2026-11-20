@@ -2,7 +2,9 @@
  * Server tunables. The protocol constants are the defaults; tests (and only tests) shorten them via
  * Worker vars, e.g. `wrangler dev --var KUDO_TURN_TIMEOUT_MS:1500`.
  */
-import { DISCONNECT_GRACE_MS, ROOM_IDLE_TTL_MS, TURN_TIMEOUT_MS } from '../../src/net/protocol';
+import { DEFAULT_TUNABLES, type Tunables } from '../../src/net/room/core';
+
+export type { Tunables };
 
 export interface Env {
   ROOMS: DurableObjectNamespace;
@@ -17,27 +19,18 @@ export interface Env {
   KUDO_EXTRA_ORIGINS?: string;
 }
 
-export interface Tunables {
-  turnTimeoutMs: number;
-  graceMs: number;
-  idleTtlMs: number;
-  nextHandMs: number;
-  cpuSpeed: number;
-}
-
-export const NEXT_HAND_MS = 7_000;
-
 const num = (v: string | undefined, d: number, min = 0): number => {
   const n = v === undefined || v === '' ? NaN : Number(v);
   return Number.isFinite(n) && n >= min ? n : d;
 };
 
 export function tunables(env: Partial<Env>): Tunables {
+  const d = DEFAULT_TUNABLES;
   return {
-    turnTimeoutMs: num(env.KUDO_TURN_TIMEOUT_MS, TURN_TIMEOUT_MS, 200),
-    graceMs: num(env.KUDO_GRACE_MS, DISCONNECT_GRACE_MS, 0),
-    idleTtlMs: num(env.KUDO_IDLE_TTL_MS, ROOM_IDLE_TTL_MS, 1000),
-    nextHandMs: num(env.KUDO_NEXT_HAND_MS, NEXT_HAND_MS, 0),
-    cpuSpeed: num(env.KUDO_CPU_SPEED, 1, 0),
+    turnTimeoutMs: num(env.KUDO_TURN_TIMEOUT_MS, d.turnTimeoutMs, 200),
+    graceMs: num(env.KUDO_GRACE_MS, d.graceMs, 0),
+    idleTtlMs: num(env.KUDO_IDLE_TTL_MS, d.idleTtlMs, 1000),
+    nextHandMs: num(env.KUDO_NEXT_HAND_MS, d.nextHandMs, 0),
+    cpuSpeed: num(env.KUDO_CPU_SPEED, d.cpuSpeed, 0),
   };
 }
