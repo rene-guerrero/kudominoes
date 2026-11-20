@@ -17,6 +17,9 @@ import {
   nearbyDisconnectAll,
   nearbyPermission,
   onNearbyError,
+  locationEnabled,
+  openLocationSettings,
+  isLocationError,
   startNearbyHost,
   startWifiHost,
   type NearbyHostHandle,
@@ -35,7 +38,7 @@ interface Saved {
   data: unknown;
 }
 
-export { nativeLocalAvailable, nearbyPermission, onNearbyError };
+export { nativeLocalAvailable, nearbyPermission, onNearbyError, locationEnabled, openLocationSettings, isLocationError };
 
 export class LocalPlay {
   private host: LocalHost | null = null;

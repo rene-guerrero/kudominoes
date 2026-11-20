@@ -19,7 +19,7 @@ import { HUMAN_FACES, sanitizeFace } from 'kuavatars/faces';
 import { RoomClient, httpBackend, NetError, type Backend, type ConnState } from '../net/client';
 import { useMockServer, shareLink, served, type NetMode } from '../net/config';
 import { qrSvg } from 'kunet';
-import { LocalPlay, nativeLocalAvailable, nearbyPermission, onNearbyError, savedRoom } from './localPlay';
+import { isLocationError, locationEnabled, LocalPlay, nativeLocalAvailable, nearbyPermission, onNearbyError, openLocationSettings, savedRoom } from './localPlay';
 import { displayCode, normalizeCode, playerId, rememberRoom, cleanName } from '../net/identity';
 import { Perspective } from '../net/perspective';
 import { applyEvent, emptyMatch } from '../net/mirror';
@@ -163,6 +163,11 @@ export class OnlineController {
 
   /** a Bluetooth (Nearby) failure: on the home screen as its error line, in the lobby under the code */
   private showBtError = (where: string, message: string): void => {
+    if (isLocationError(message)) {
+      this.home?.needLocation(true);
+      if (!this.home) this.lobby?.setConn(t('local.locationNeeded'));
+      return;
+    }
     const text = t('local.err.bluetooth', { msg: message || where });
     if (this.home) this.home.setError(text);
     else this.lobby?.setConn(text);
@@ -211,6 +216,7 @@ export class OnlineController {
             onResume: savedRoom() ? () => void this.createHosted(true) : null,
             onJoinHost: (g) => void this.joinNearby(g),
             onBluetooth: () => void this.enableBluetooth(),
+            onLocation: () => void openLocationSettings(),
           }
         : undefined,
       name: s.playerName,
@@ -256,6 +262,7 @@ export class OnlineController {
     this.stopDiscover = this.local.discover(bt, (games) => this.home === home && home.setNearby(games));
     home.offerBluetooth(!bt);
     home.setSearchingBluetooth(bt);
+    home.needLocation(bt && !(await locationEnabled()));
     this.offBtErrors ??= onNearbyError(this.showBtError);
   }
 
@@ -297,6 +304,10 @@ export class OnlineController {
       this.joinTarget = null;
       const bt = await this.askBluetooth(false);
       if (bt) this.offBtErrors ??= onNearbyError(this.showBtError);
+      if (bt && !(await locationEnabled())) {
+        const open = await confirmDialog(this.host.overlay, { title: t('local.locationTitle'), body: t('local.locationBody'), ok: t('local.locationOpen'), cancel: t('local.btNo') });
+        if (open) void openLocationSettings();
+      }
       try {
         this.hostBe = await this.local.startHosting(this.host.settings().playerName || t('seat.player'), bt);
       } catch {
@@ -1324,7 +1335,12 @@ export class OnlineController {
   // ───────────────────────── app lifecycle ─────────────────────────
 
   private onVisibility = (): void => {
-    if (!document.hidden) this.local.wake();
+    if (!document.hidden) {
+      this.local.wake();
+      // back from Android's settings (Location / Bluetooth): look again, announce again
+      if (this.nativeLocal && this.mode === 'home') void this.startDiscovery();
+      if (this.role === 'host' && this.room?.code) this.local.announce(this.room.code);
+    }
     if (!this.client) return;
     if (document.hidden) {
       this.hiddenAt = Date.now();

@@ -51,6 +51,8 @@ export interface OnlineHomeOpts {
     onJoinHost(host: NearbyGame): void;
     /** "Buscar también por Bluetooth" (shown until the permission is granted) */
     onBluetooth(): void;
+    /** "Activar ubicación" (Bluetooth search needs Location on) */
+    onLocation(): void;
   };
   onName(name: string): void;
   onCreate(): void;
@@ -99,6 +101,8 @@ export interface OnlineHome {
   offerBluetooth(show: boolean): void;
   /** native: the search also runs over Bluetooth (the empty list says so) */
   setSearchingBluetooth(on: boolean): void;
+  /** native: Location is off, Bluetooth cannot find phones (show the note and its button) */
+  needLocation(show: boolean): void;
 }
 
 export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
@@ -251,6 +255,10 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
   };
   setNearby(null);
   syncJoin();
+  // Location off: Bluetooth search cannot find phones; a short note and a button to the settings
+  const locBtn = o.native ? btn(t('local.locationOn'), () => o.native!.onLocation(), 'secondary oh-loc-btn') : null;
+  const locNote = o.native ? h('div.oh-loc', h('p.oh-loc-text', t('local.locationNeeded')), locBtn) : null;
+  if (locNote) locNote.hidden = true;
   const btOffer = o.native ? h('button.link-btn.oh-bt-offer', { type: 'button' }, t('local.searchBluetooth')) : null;
   btOffer?.addEventListener('click', () => o.native!.onBluetooth());
   if (btOffer) btOffer.hidden = true;
@@ -269,6 +277,7 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
         resume,
         o.native ? h('div.oh-or', h('span', t('local.nearby'))) : null,
         o.native ? nearbyList : null,
+        locNote,
         btOffer,
         h('div.oh-or', h('span', t(o.native ? 'local.joinAddress' : 'online.or'))),
         addrInput ? h('label.oh-code.oh-addr', addrInput) : null,
@@ -285,6 +294,9 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
     setNearby,
     offerBluetooth: (show) => {
       if (btOffer) btOffer.hidden = !show;
+    },
+    needLocation: (show) => {
+      if (locNote) locNote.hidden = !show;
     },
     setSearchingBluetooth: (on) => {
       searchingBt = on;
