@@ -4369,11 +4369,8 @@ button.ng-seat:hover {
     padding: 4px;
     border-radius: 8px;
   }
-  .lobby .lobby-join-hint:not(.lobby-join-keep) {
-    display: none;
-  }
-  .lobby .lobby-join-url {
-    font-size: 17px;
+  .lobby .lobby-join-main {
+    font-size: 14px;
   }
 }
 .lobby-join-text {
@@ -4383,16 +4380,16 @@ button.ng-seat:hover {
   flex-direction: column;
   gap: 3px;
 }
-.lobby-join-url {
-  font-size: clamp(17px, 4.4vmin, 22px);
+.lobby-join-main {
+  font-size: 15px;
   font-weight: 900;
-  line-height: 1.2;
+  line-height: 1.25;
+  color: var(--cream);
+}
+.lobby-join-addr {
+  white-space: nowrap;
   color: var(--cream);
   user-select: text;
-}
-.lobby-join-url .nowrap {
-  display: inline-block;
-  white-space: nowrap;
 }
 .lobby-join-hint {
   font-size: 12.5px;

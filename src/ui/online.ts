@@ -180,7 +180,7 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
 
 export interface LobbyOpts {
   code: string;
-  /** local play: the address other devices open, and its QR (an SVG string) */
+  /** local play: the link other devices open (as a QR, an SVG string) */
   join?: { url: string; qr: string } | null;
   avatars: boolean;
   tableStyle: TableStyle;
@@ -214,13 +214,19 @@ export function occupantName(o: SeatOccupant): string {
   return t('lobby.free');
 }
 
-/** "192.168.1.37:8787" + "/?sala=7KQM": the line may only break between the two parts */
-function joinUrl(url: string): HTMLElement {
-  const bare = url.replace(/^https?:\/\//, '');
-  const cut = bare.indexOf('/');
-  const host = cut < 0 ? bare : bare.slice(0, cut);
-  const path = cut < 0 ? '' : bare.slice(cut);
-  return h('span.lobby-join-url', h('span.nowrap', host), path && path !== '/' ? h('span.nowrap', path) : null);
+/**
+ * The address to type when a device cannot scan ("192.168.1.37:8787"): host and port only, the room code
+ * is on the card above. null when it would only work on this machine (localhost) — then it is not shown.
+ */
+export function typedAddress(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  if (/^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/.test(u.hostname)) return null;
+  return u.host;
 }
 
 export function buildLobby(o: LobbyOpts): Lobby {
@@ -281,7 +287,7 @@ export function buildLobby(o: LobbyOpts): Lobby {
 
   // ── local play: scan or type the address ──
   // the QR can be tapped to show it big (in portrait it is a small thumbnail)
-  const qr = o.join ? (h('button.lobby-join-qr', { type: 'button', 'aria-label': t('local.scan'), html: o.join.qr }) as HTMLButtonElement) : null;
+  const qr = o.join ? (h('button.lobby-join-qr', { type: 'button', 'aria-label': t('local.scanQr'), html: o.join.qr }) as HTMLButtonElement) : null;
   qr?.addEventListener('click', () => qr.classList.toggle('is-big'));
   const joinCard = o.join
     ? h(
@@ -290,8 +296,8 @@ export function buildLobby(o: LobbyOpts): Lobby {
         h(
           'div.lobby-join-text',
           h('span.lobby-code-k', t('local.join')),
-          joinUrl(o.join.url),
-          h('span.lobby-join-hint', t('local.scan')),
+          h('span.lobby-join-main', t('local.scanQr')),
+          typedAddress(o.join.url) ? h('span.lobby-join-hint', t('local.orType'), ' ', h('b.lobby-join-addr', typedAddress(o.join.url)!)) : null,
           h('span.lobby-join-hint.lobby-join-keep', t('local.keepOpen')),
         ),
       )

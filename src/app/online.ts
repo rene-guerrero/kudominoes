@@ -364,7 +364,7 @@ export class OnlineController {
   /** local play: the address other devices open (and its QR), shown big in the lobby */
   private joinCard(code: string): { url: string; qr: string } {
     const url = shareLink(code);
-    return { url, qr: qrSvg(url, { label: t('local.scan') }) };
+    return { url, qr: qrSvg(url, { label: t('local.scanQr') }) };
   }
 
   private async share(): Promise<void> {
