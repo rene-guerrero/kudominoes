@@ -6,6 +6,7 @@
  * production: MP_SERVER_URL below.
  */
 import { joinOrigin, localServed, type LocalServed } from 'kunet';
+import { nativeLocalAvailable } from 'kunet/native';
 
 // deployed room server (server/, `npx wrangler deploy`)
 export const MP_SERVER_URL = 'https://kudominoes-rooms.renegue1256.workers.dev';
@@ -57,9 +58,9 @@ export function onlineAvailable(): boolean {
 }
 
 /**
- * "Jugar con amigos" (same Wi-Fi, no internet) is offered on a page a local host served. Dev: always (it
- * plays over the in-browser mock). The Android app hosts in phase 2.
+ * "Jugar con amigos" (same Wi-Fi, no internet): in the Android app (it hosts or joins through the KuLocal
+ * plugin) and on a page a local host served. Dev: always (it plays over the in-browser mock).
  */
 export function localPlayAvailable(): boolean {
-  return !!served() || import.meta.env.DEV;
+  return !!served() || nativeLocalAvailable() || import.meta.env.DEV;
 }

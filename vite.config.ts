@@ -9,6 +9,8 @@ export default defineConfig({
   // the app version shown in Acerca de (src/ui/about.ts)
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   server: { port: 5173, host: true },
+  // kunet may be linked from a sibling folder (with its own dev copy of @capacitor/core): use the game's
+  resolve: { dedupe: ['@capacitor/core'] },
   build: {
     // es2020 keeps ?. / ?? native (Chrome 80+) and lowers class fields / ??= / ||= for older WebViews;
     // the code already needs Chrome 98+ at runtime anyway (structuredClone), so nothing is polyfilled.

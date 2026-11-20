@@ -19,6 +19,7 @@ import { HUMAN_FACES, sanitizeFace } from 'kuavatars/faces';
 import { RoomClient, httpBackend, NetError, type Backend, type ConnState } from '../net/client';
 import { useMockServer, shareLink, served, type NetMode } from '../net/config';
 import { qrSvg } from 'kunet';
+import { LocalPlay, nativeLocalAvailable, savedRoom } from './localPlay';
 import { displayCode, normalizeCode, playerId, rememberRoom, cleanName } from '../net/identity';
 import { Perspective } from '../net/perspective';
 import { applyEvent, emptyMatch } from '../net/mirror';
@@ -68,6 +69,25 @@ export interface OnlineHost {
 }
 
 class Stale extends Error {}
+
+/** what can go wrong in Jugar con amigos, beyond the online errors */
+type LocalErr = 'noWifi' | 'start';
+
+/** errors in local play: the same codes, worded for devices on one network */
+const localErrorText = (code: string): string | null =>
+  code === 'offline'
+    ? t('local.err.unreachable')
+    : code === 'version_mismatch'
+      ? t('local.err.version')
+      : code === 'noWifi'
+        ? t('local.err.noWifi')
+        : code === 'start' || code === 'start_failed'
+          ? t('local.err.start')
+          : null;
+
+/** the error code of whatever a create / join threw (NetError, kunet's LocalNetError, a plugin error, a code) */
+const codeOf = (e: unknown): string =>
+  typeof e === 'string' ? e : e && typeof e === 'object' && typeof (e as { code?: unknown }).code === 'string' ? (e as { code: string }).code : 'server';
 
 const errorText = (code: ErrorCode | NetError['code'] | 'lost'): string =>
   code === 'room_not_found'
@@ -130,9 +150,26 @@ export class OnlineController {
   private net: NetMode = 'online';
   private httpBe: Backend | null = null;
   private mockBe: Backend | null = null;
+  /** app only: this phone hosts the room ('host') or joins another phone ('join', at joinAt) */
+  private local = new LocalPlay();
+  private role: 'host' | 'join' | null = null;
+  private joinAt: string | null = null;
+  private hostBe: Backend | null = null;
+  private stopDiscover: (() => void) | null = null;
+
+  /** Jugar con amigos inside the Android app (host on this phone / join another phone) */
+  private get nativeLocal(): boolean {
+    return this.net === 'local' && nativeLocalAvailable();
+  }
+
+  private errText(e: unknown): string {
+    const code = codeOf(e);
+    return (this.net === 'local' && localErrorText(code)) || errorText(code as ErrorCode);
+  }
 
   /** the mock backend is loaded lazily (dev only); a locally served page talks to its own origin */
   private async ensureBackend(): Promise<Backend> {
+    if (this.nativeLocal && this.role === 'join' && this.joinAt) return (this.backend = this.local.joinBackend(this.joinAt));
     // (dev only: the branch is dead code in production builds, so the mock never ships)
     if (import.meta.env.DEV && (useMockServer() || (this.net === 'local' && !served()))) {
       this.backend = this.mockBe ??= (await import('../net/mock/backend')).mockBackend();
@@ -153,16 +190,21 @@ export class OnlineController {
     const s = this.host.settings();
     const home = buildOnlineHome({
       local: net === 'local',
+      native: net === 'local' && nativeLocalAvailable()
+        ? { onResume: savedRoom() ? () => void this.createHosted(true) : null, onJoinHost: (g) => void this.joinOther(g.origin, g.code) }
+        : undefined,
       name: s.playerName,
       face: s.avatarFace ?? 0,
       avatars: s.avatars !== false,
       code,
       onName: (n) => this.host.setSetting('playerName', cleanName(n)),
       onCreate: () => void this.create(),
-      onJoin: (c) => void this.join(c),
+      onJoin: (c, origin) => void (origin ? this.joinOther(origin, c) : this.join(c)),
       onBack: () => this.exit(),
     });
     this.home = home;
+    this.stopDiscover?.();
+    this.stopDiscover = this.nativeLocal ? this.local.discover((games) => this.home === home && home.setNearby(games)) : null;
     this.host.overlay.showScreen(home.el);
     if (!s.playerName) home.askName();
     if (code && s.playerName) void this.join(code, quiet);
@@ -170,6 +212,7 @@ export class OnlineController {
   }
 
   private async create(): Promise<void> {
+    if (this.nativeLocal) return this.createHosted(false);
     const home = this.home;
     home?.setBusy('create');
     home?.setError(null);
@@ -180,7 +223,47 @@ export class OnlineController {
     } catch (e) {
       if (this.home !== home) return;
       home?.setBusy(null);
-      home?.setError(errorText(e instanceof NetError ? e.code : typeof e === 'string' ? (e as ErrorCode) : 'server'));
+      home?.setError(this.errText(e));
+    }
+  }
+
+  /** app: host the room on this phone (resume = bring back the saved one) */
+  private async createHosted(resume: boolean): Promise<void> {
+    const home = this.home;
+    home?.setBusy('create');
+    home?.setError(null);
+    try {
+      this.role = 'host';
+      this.joinAt = null;
+      try {
+        this.hostBe = await this.local.startHosting(this.host.settings().playerName || t('seat.player'));
+      } catch {
+        throw 'start' satisfies LocalErr;
+      }
+      if (!this.local.origins.length) throw 'noWifi' satisfies LocalErr;
+      this.backend = this.hostBe;
+      const code = resume ? this.local.resumeSaved() : await this.hostBe.createRoom(this.pid);
+      if (!code) throw 'room_not_found';
+      await this.connect(code);
+      this.local.announce(code);
+    } catch (e) {
+      this.role = null;
+      this.hostBe = null;
+      await this.local.stopHosting();
+      if (this.home !== home) return;
+      home?.setBusy(null);
+      home?.setError(this.errText(e));
+    }
+  }
+
+  /** app: join a game another phone hosts at `origin` */
+  private async joinOther(origin: string, code: string): Promise<void> {
+    this.role = 'join';
+    this.joinAt = origin;
+    await this.join(code);
+    if (!this.client) {
+      this.role = null;
+      this.joinAt = null;
     }
   }
 
@@ -201,7 +284,7 @@ export class OnlineController {
       rememberRoom(null);
       if (quiet) return this.exit();
       home?.setBusy(null);
-      home?.setError(errorText(e instanceof NetError ? e.code : typeof e === 'string' ? (e as ErrorCode) : 'server'));
+      home?.setError(this.errText(e));
     }
   }
 
@@ -254,7 +337,7 @@ export class OnlineController {
     rememberRoom(null);
     this.host.exit();
     this.open();
-    this.home?.setError(errorText(code));
+    this.home?.setError(this.errText(code));
     void c;
   }
 
@@ -275,6 +358,8 @@ export class OnlineController {
     this.home = null;
     if (!this.lobby || !this.lobby.el.isConnected) {
       const s = this.host.settings();
+      this.stopDiscover?.();
+      this.stopDiscover = null;
       this.lobby = buildLobby({
         code: this.room.code,
         join: this.net === 'local' ? this.joinCard(this.room.code) : null,
@@ -362,9 +447,9 @@ export class OnlineController {
   }
 
   /** local play: the address other devices open (and its QR), shown big in the lobby */
-  private joinCard(code: string): { url: string; qr: string } {
-    const url = shareLink(code);
-    return { url, qr: qrSvg(url, { label: t('local.scanQr') }) };
+  private joinCard(code: string): { url: string; qr: string } | null {
+    const url = this.role === 'host' ? this.local.joinUrl(code) : this.role === 'join' && this.joinAt ? `${this.joinAt}/?sala=${code}` : shareLink(code);
+    return url ? { url, qr: qrSvg(url, { label: t('local.scanQr') }) } : null;
   }
 
   private async share(): Promise<void> {
@@ -423,6 +508,12 @@ export class OnlineController {
   private teardownRoom(): void {
     this.client?.stop();
     this.client = null;
+    this.stopDiscover?.();
+    this.stopDiscover = null;
+    if (this.role === 'host') void this.local.stopHosting();
+    this.role = null;
+    this.joinAt = null;
+    this.hostBe = null;
     if (this.mode === 'game') this.leaveGameUi();
     this.closeSheet?.();
     this.closeSheet = null;
@@ -1140,6 +1231,7 @@ export class OnlineController {
   // ───────────────────────── app lifecycle ─────────────────────────
 
   private onVisibility = (): void => {
+    if (!document.hidden) this.local.wake();
     if (!this.client) return;
     if (document.hidden) {
       this.hiddenAt = Date.now();

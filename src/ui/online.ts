@@ -43,10 +43,42 @@ export interface OnlineHomeOpts {
   code?: string;
   /** Jugar con amigos (a host on the same network) instead of online */
   local?: boolean;
+  /** the app can host on this phone and find games nearby (Android): the screen shows those options */
+  native?: {
+    /** a saved room of this phone can be resumed */
+    onResume: (() => void) | null;
+    onJoinHost(host: NearbyGame): void;
+  };
   onName(name: string): void;
   onCreate(): void;
-  onJoin(code: string): void;
+  /** `origin` (http://192.168.1.37:8787) when joining another phone by its address */
+  onJoin(code: string, origin?: string): void;
   onBack(): void;
+}
+
+/** a game another phone hosts on this network */
+export interface NearbyGame {
+  key: string;
+  name: string;
+  code: string;
+  origin: string;
+}
+
+/** "192.168.1.37:8787", "http://192.168.1.37:8787/?sala=7KQM" → origin (+ code when the link has one) */
+export function parseAddress(raw: string): { origin: string; code: string } | null {
+  let s = raw.trim();
+  if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
+  let u: URL;
+  try {
+    u = new URL(s);
+  } catch {
+    return null;
+  }
+  if (!u.hostname || !/^[\w.-]+$|^\[[0-9a-f:]+\]$/i.test(u.hostname)) return null;
+  const port = u.port || '8787';
+  const code = filterCodeChars(u.searchParams.get('sala') ?? '');
+  return { origin: `http://${u.hostname}:${port}`, code: code.length === ROOM_CODE_LENGTH ? code : '' };
 }
 
 export interface OnlineHome {
@@ -55,6 +87,8 @@ export interface OnlineHome {
   setBusy(which: 'create' | 'join' | null): void;
   /** focus the name field (the first time, when there is no name yet) */
   askName(): void;
+  /** native: the games found nearby (null = still looking) */
+  setNearby(games: NearbyGame[] | null): void;
 }
 
 export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
@@ -90,7 +124,8 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
   who.classList.toggle('need', !name);
 
   // ── create ──
-  const create = btn(t('online.create'), () => guard(() => o.onCreate()), 'primary lg oh-create', icon(ONLINE_ICONS.plus));
+  const create = btn(t(o.native ? 'local.host' : 'online.create'), () => guard(() => o.onCreate()), 'primary lg oh-create', icon(ONLINE_ICONS.plus));
+  const resume = o.native?.onResume ? btn(t('local.resume'), () => guard(() => o.native!.onResume!()), 'secondary oh-resume') : null;
   create.dataset.autofocus = '';
 
   // ── join ──
@@ -107,8 +142,38 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
     'aria-label': t('online.codeLabel'),
   }) as HTMLInputElement;
   codeInput.value = filterCodeChars(o.code ?? '');
-  const join = btn(t('online.join'), () => guard(() => o.onJoin(codeInput.value)), 'secondary oh-join');
-  const syncJoin = () => (join.disabled = codeInput.value.length !== ROOM_CODE_LENGTH || busy !== null);
+  // native: the other phone's address ("192.168.1.37:8787", or its whole link)
+  const addrInput = o.native
+    ? (h('input.oh-addr-input', {
+        type: 'text',
+        inputmode: 'url',
+        autocapitalize: 'off',
+        autocomplete: 'off',
+        autocorrect: 'off',
+        spellcheck: 'false',
+        enterkeyhint: 'next',
+        placeholder: '192.168.1.37:8787',
+        'aria-label': t('local.addressLabel'),
+      }) as HTMLInputElement)
+    : null;
+  const join = btn(
+    t('online.join'),
+    () =>
+      guard(() => {
+        const a = addrInput ? parseAddress(addrInput.value) : null;
+        if (addrInput && !a) return setError(t('local.err.address'));
+        o.onJoin(codeInput.value, a?.origin);
+      }),
+    'secondary oh-join',
+  );
+  const syncJoin = () => (join.disabled = codeInput.value.length !== ROOM_CODE_LENGTH || busy !== null || (!!addrInput && !addrInput.value.trim()));
+  addrInput?.addEventListener('input', () => {
+    // a pasted link carries the code too
+    const a = parseAddress(addrInput.value);
+    if (a?.code) codeInput.value = a.code;
+    setError(null);
+    syncJoin();
+  });
   codeInput.addEventListener('input', () => {
     // auto upper-case, alphabet only; a pasted "KUDO-7KQM" or link keeps just the code
     let v = codeInput.value.toUpperCase();
@@ -147,8 +212,26 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
     create.classList.toggle('is-loading', which === 'create');
     join.classList.toggle('is-loading', which === 'join');
     create.disabled = which !== null;
+    if (resume) resume.disabled = which !== null;
+    nearbyList.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = which !== null));
     syncJoin();
   };
+
+  // ── native: games on this network ──
+  const nearbyList = h('div.oh-nearby-list', { role: 'list' });
+  const setNearby = (games: NearbyGame[] | null) => {
+    if (!games) return nearbyList.replaceChildren(h('p.oh-nearby-empty', t('local.searching')));
+    if (!games.length) return nearbyList.replaceChildren(h('p.oh-nearby-empty', t('local.noneNearby')));
+    nearbyList.replaceChildren(
+      ...games.map((g) => {
+        const b = btn(g.name || displayCode(g.code), () => guard(() => o.native!.onJoinHost(g)), 'secondary oh-nearby-game', h('span.oh-nearby-code', displayCode(g.code)));
+        b.setAttribute('role', 'listitem');
+        b.disabled = busy !== null;
+        return b;
+      }),
+    );
+  };
+  setNearby(null);
   syncJoin();
 
   const el = h(
@@ -162,7 +245,11 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
         o.local ? h('p.oh-intro.oh-note', t('local.sameWifi')) : null,
         who,
         create,
-        h('div.oh-or', h('span', t('online.or'))),
+        resume,
+        o.native ? h('div.oh-or', h('span', t('local.nearby'))) : null,
+        o.native ? nearbyList : null,
+        h('div.oh-or', h('span', t(o.native ? 'local.joinAddress' : 'online.or'))),
+        addrInput ? h('label.oh-code.oh-addr', addrInput) : null,
         h('div.oh-join-row', codeBox, join),
         err,
       ),
@@ -173,6 +260,7 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
     setError,
     setBusy,
     askName: () => requestAnimationFrame(() => nameInput.focus({ preventScroll: true })),
+    setNearby,
   };
 }
 
