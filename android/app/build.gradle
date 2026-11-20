@@ -30,12 +30,18 @@ android {
         }
     }
     buildTypes {
+        // R8 drops the unused parts of the libraries (Google's Nearby for Bluetooth is large); the
+        // published APK is the debug build, so it shrinks too. Keep rules: Capacitor's and kunet's own.
         debug {
             if (kudoKeystore) signingConfig signingConfigs.kudo
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }
