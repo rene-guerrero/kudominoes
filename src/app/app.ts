@@ -877,6 +877,7 @@ export class App {
         this.overlay.closeAllModals();
         return true;
       }
+      if (this.screen === 'online' && this.online?.closeTopSheet()) return true;
       if (this.overlay.modalOpen && this.screen !== 'game') {
         this.overlay.closeAllModals();
         return true;

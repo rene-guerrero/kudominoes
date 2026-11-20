@@ -4362,17 +4362,55 @@ button.ng-seat:hover {
   border: 0;
   cursor: zoom-in;
 }
-.lobby-join-qr.is-big {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  margin: auto;
-  width: min(82vmin, 440px);
-  height: min(82vmin, 440px);
-  padding: 14px;
-  border-radius: 20px;
+/* the QR icon beside Compartir: phones only (wider screens show the join card) */
+.lobby-qr-btn {
+  display: none;
+}
+.lobby-qr-btn .btn-icon,
+.lobby-qr-btn .btn-icon svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+/* the big join QR (a sheet over the lobby) */
+.qr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(86vw, 420px);
+  padding: 18px 18px 20px;
+  border: 0;
+  border-radius: 24px;
+  background: #fff;
+  color: #1d120b;
+  font: inherit;
   cursor: zoom-out;
-  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.72);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.qr-card-code {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+}
+.qr-card-code svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.qr-card-title {
+  font-size: 18px;
+  font-weight: 900;
+}
+.qr-card-addr {
+  font-size: 16px;
+  font-weight: 700;
+  color: #5b4a3e;
+}
+.qr-card-addr b {
+  color: #1d120b;
+  white-space: nowrap;
+  user-select: text;
 }
 @media (orientation: portrait) and (max-width: 760px) {
   .lobby .lobby-join {
@@ -4380,7 +4418,7 @@ button.ng-seat:hover {
     padding: 8px 12px;
     gap: 12px;
   }
-  .lobby .lobby-join-qr:not(.is-big) {
+  .lobby .lobby-join-qr {
     width: 66px;
     padding: 4px;
     border-radius: 8px;
@@ -5228,18 +5266,24 @@ button.ng-seat:hover {
   .lobby .lobby-sub {
     min-height: 0;
   }
-  .lobby .lobby-code .lobby-share {
+  .lobby .lobby-code .lobby-share,
+  .lobby .lobby-code .lobby-qr-btn {
     flex: 0 0 auto;
     margin-left: 0;
-    min-height: 44px;
-    padding-left: 14px;
-    padding-right: 14px;
+    width: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    padding: 0;
+    justify-content: center;
+  }
+  .lobby .lobby-code .lobby-share .btn-label,
+  .lobby .lobby-code .lobby-qr-btn .btn-label {
+    display: none;
+  }
+  .lobby .lobby-code .lobby-qr-btn {
+    display: inline-flex;
   }
   .lobby .lobby-join {
-    padding: 8px 12px;
-    gap: 12px;
-  }
-  .lobby .lobby-join-text .lobby-code-k {
     display: none;
   }
   .lobby .ng-felt-box {

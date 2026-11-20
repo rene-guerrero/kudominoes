@@ -25,7 +25,7 @@ import { Perspective } from '../net/perspective';
 import { applyEvent, emptyMatch } from '../net/mirror';
 import { withPlaceholders } from '../net/redact';
 import { TURN_TIMEOUT_MS, type ErrorCode, type PublicRoom, type QuickPhraseId, type SeatView, type ServerMsg } from '../net/protocol';
-import { activeSeatsOf, buildLobby, buildOnlineHome, buildOnlinePause, buildPhraseGrid, buildRulesSheet, buildSeatSheet, occupantName, ONLINE_ICONS, phraseText, type Lobby, type OnlineHome } from '../ui/online';
+import { activeSeatsOf, buildLobby, buildQrCard, buildOnlineHome, buildOnlinePause, buildPhraseGrid, buildRulesSheet, buildSeatSheet, occupantName, ONLINE_ICONS, phraseText, type Lobby, type OnlineHome } from '../ui/online';
 import { buildHandSummary, buildMatchEnd, buildStarterChooser } from '../ui/summary';
 import { confirmDialog } from '../ui/overlay';
 import { h } from '../ui/dom';
@@ -363,6 +363,7 @@ export class OnlineController {
       this.lobby = buildLobby({
         code: this.room.code,
         join: this.net === 'local' ? this.joinCard(this.room.code) : null,
+        onQr: () => this.showQr(),
         avatars: s.avatars !== false,
         tableStyle: s.tableStyle ?? 'green',
         myId: this.pid,
@@ -444,6 +445,23 @@ export class OnlineController {
     });
     this.closeSheet?.();
     this.closeSheet = this.host.overlay.openModal(card);
+  }
+
+  /** the join QR, big (a sheet: a tap, Esc or Android back closes it) */
+  private showQr(): void {
+    const code = this.room?.code;
+    const join = code ? this.joinCard(code) : null;
+    if (!join) return;
+    this.closeSheet?.();
+    const done = () => {
+      close();
+      if (this.closeSheet === done) this.closeSheet = null;
+    };
+    const card = buildQrCard({ ...join, onClose: done });
+    const close = this.host.overlay.openModal(card);
+    // a tap on the dimmed backdrop closes it too
+    card.parentElement?.addEventListener('click', (e) => e.target === card.parentElement && done());
+    this.closeSheet = done;
   }
 
   /** local play: the address other devices open (and its QR), shown big in the lobby */
@@ -531,6 +549,14 @@ export class OnlineController {
   }
 
   /** Escape / Android back */
+  /** Android back: close the open sheet (QR, seat, rules) the proper way; false = none open */
+  closeTopSheet(): boolean {
+    if (!this.closeSheet) return false;
+    this.closeSheet();
+    this.closeSheet = null;
+    return true;
+  }
+
   back(): void {
     if (this.closeSheet) {
       this.closeSheet();

@@ -28,6 +28,7 @@ export const ONLINE_ICONS = {
   share:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5.5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="18.5" r="2.6"/><path d="M8.3 10.8l7.4-4M8.3 13.2l7.4 4" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
   chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14a2 2 0 0 1 2 2v7.2a2 2 0 0 1-2 2h-7.4L7 20v-3.3H5a2 2 0 0 1-2-2V7.5a2 2 0 0 1 2-2z"/><circle cx="8.4" cy="11.1" r="1.25" fill="#2a160d"/><circle cx="12" cy="11.1" r="1.25" fill="#2a160d"/><circle cx="15.6" cy="11.1" r="1.25" fill="#2a160d"/></svg>',
+  qr: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6.5 6.5h1v1h-1zM16.5 6.5h1v1h-1zM6.5 16.5h1v1h-1z" fill="currentColor" stroke="currentColor" stroke-width="1"/><path d="M14 14h2.5v2.5H14zM17.5 17.5H20V20h-2.5zM14 19h2M19 14v2" fill="currentColor" stroke="currentColor" stroke-width="1.2"/></svg>',
   exit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4.5H6.5A1.5 1.5 0 0 0 5 6v12a1.5 1.5 0 0 0 1.5 1.5H14" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/><path d="M11 12h9M16.5 8l3.8 4-3.8 4" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
@@ -270,6 +271,8 @@ export interface LobbyOpts {
   code: string;
   /** local play: the link other devices open (as a QR, an SVG string) */
   join?: { url: string; qr: string } | null;
+  /** show the QR big (a sheet: a tap, Esc or Android back closes it) */
+  onQr?(): void;
   avatars: boolean;
   tableStyle: TableStyle;
   myId: string;
@@ -365,18 +368,23 @@ export function buildLobby(o: LobbyOpts): Lobby {
 
   // ── code card ──
   const share = btn(t('lobby.share'), o.onShare, 'secondary lobby-share', icon(ONLINE_ICONS.share));
+  share.setAttribute('aria-label', t('lobby.share'));
+  // phones: the join card folds into this icon (the big QR has the address under it)
+  const qrBtn = o.join ? btn(t('local.showQr'), () => o.onQr?.(), 'secondary lobby-qr-btn', icon(ONLINE_ICONS.qr)) : null;
+  qrBtn?.setAttribute('aria-label', t('local.showQr'));
   const copied = h('span.lobby-copied', { role: 'status', 'aria-live': 'polite' });
   const conn = h('span.lobby-conn', { role: 'status', 'aria-live': 'polite' });
   const codeCard = h(
     'div.lobby-code',
     h('div.lobby-code-text', h('span.lobby-code-k', t('lobby.code')), h('span.lobby-code-v', displayCode(o.code)), h('span.lobby-sub', copied, conn)),
+    qrBtn,
     share,
   );
 
   // ── local play: scan or type the address ──
-  // the QR can be tapped to show it big (in portrait it is a small thumbnail)
-  const qr = o.join ? (h('button.lobby-join-qr', { type: 'button', 'aria-label': t('local.scanQr'), html: o.join.qr }) as HTMLButtonElement) : null;
-  qr?.addEventListener('click', () => qr.classList.toggle('is-big'));
+  // the QR opens big when tapped
+  const qr = o.join ? (h('button.lobby-join-qr', { type: 'button', 'aria-label': t('local.showQr'), html: o.join.qr }) as HTMLButtonElement) : null;
+  qr?.addEventListener('click', () => o.onQr?.());
   const joinCard = o.join
     ? h(
         'div.lobby-join',
@@ -600,4 +608,18 @@ export function buildPhraseGrid(onPick: (id: QuickPhraseId) => void): HTMLElemen
       return b;
     }),
   );
+}
+
+/** the join QR, big: scan it, or type the address under it; a tap anywhere closes it */
+export function buildQrCard(o: { qr: string; url: string; onClose(): void }): HTMLElement {
+  const addr = typedAddress(o.url);
+  const card = h(
+    'button.qr-card',
+    { type: 'button', 'aria-label': t('common.close') },
+    h('span.qr-card-code', { html: o.qr }),
+    h('span.qr-card-title', t('local.scanQr')),
+    addr ? h('span.qr-card-addr', t('local.orType'), ' ', h('b', addr)) : null,
+  );
+  card.addEventListener('click', o.onClose);
+  return card;
 }
