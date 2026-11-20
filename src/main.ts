@@ -13,6 +13,7 @@ import { buildMenu } from './ui/menu';
 import { Overlay } from './ui/overlay';
 import { setTileTheme } from './ui/tiles';
 import { rememberedRoom } from './net/identity';
+import { served } from './net/config';
 
 /*
  * Start-up order (cheap Android WebViews are slow to parse three.js):
@@ -134,6 +135,8 @@ async function boot() {
         const link = new URLSearchParams(location.search).get('sala');
         const sala = link ?? rememberedRoom();
         if (sala && !waiting) void app.openOnline(sala, !link).catch((e) => console.error('[online] join failed', e));
+        // Jugar con amigos: the host's address typed without the room (no ?sala=) → its open room
+        else if (!waiting && served()) void openHostedRoom(app);
         // let the canvas paint its first frame, then fade the table (idle ring) in
         requestAnimationFrame(() => requestAnimationFrame(() => tableEl.classList.add('kd-ready')));
         return app;
@@ -183,6 +186,19 @@ async function boot() {
   } catch (err) {
     fail(err);
     hideBootSplash();
+  }
+}
+
+/** a page a local host served, opened at its bare address: one open room → join it, several → choose */
+async function openHostedRoom(app: App): Promise<void> {
+  try {
+    const r = await fetch('./api/rooms', { cache: 'no-store' });
+    const rooms = ((await r.json()) as { rooms?: { code: string; phase?: string }[] }).rooms ?? [];
+    const open = rooms.filter((x) => x.phase !== 'finished');
+    if (open.length === 1) await app.openOnline(open[0].code, false, 'local');
+    else if (open.length > 1) await app.openOnline(undefined, false, 'local');
+  } catch (e) {
+    console.warn('[local] could not list the host\'s rooms', e);
   }
 }
 

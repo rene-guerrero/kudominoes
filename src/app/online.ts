@@ -483,7 +483,7 @@ export class OnlineController {
   private async confirmLeave(): Promise<void> {
     const ok = await confirmDialog(this.host.overlay, {
       title: t('lobby.leaveTitle'),
-      body: this.mode === 'game' && !this.mirror?.over ? t('lobby.leaveBodyGame') : t('lobby.leaveBody'),
+      body: this.role === 'host' ? t('local.leaveHost') : this.mode === 'game' && !this.mirror?.over ? t('lobby.leaveBodyGame') : t('lobby.leaveBody'),
       ok: t('lobby.leaveOk'),
       cancel: t('common.cancel'),
       danger: true,

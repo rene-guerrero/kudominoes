@@ -386,7 +386,6 @@ export function buildLobby(o: LobbyOpts): Lobby {
           h('span.lobby-code-k', t('local.join')),
           h('span.lobby-join-main', t('local.scanQr')),
           typedAddress(o.join.url) ? h('span.lobby-join-hint', t('local.orType'), ' ', h('b.lobby-join-addr', typedAddress(o.join.url)!)) : null,
-          h('span.lobby-join-hint.lobby-join-keep', t('local.keepOpen')),
         ),
       )
     : null;

@@ -4316,6 +4316,22 @@ button.ng-seat:hover {
 .menu-actions .row.menu-net > .btn {
   flex: 1 1 150px;
   min-width: 0;
+  /* phones (and a bigger system font): smaller text, and an ellipsis rather than a second line */
+  font-size: clamp(12.5px, 3.45vw, 16px);
+  padding-left: 10px;
+  padding-right: 10px;
+  gap: 6px;
+}
+.menu-actions .row.menu-net > .btn .btn-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.menu-actions .row.menu-net > .btn .btn-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 /* lobby, Jugar con amigos: the QR and address other devices open */
@@ -4392,12 +4408,9 @@ button.ng-seat:hover {
   user-select: text;
 }
 .lobby-join-hint {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--muted);
-}
-.lobby-join-keep {
-  color: var(--mango);
 }
 .oh-note {
   font-weight: 800;
@@ -5194,6 +5207,55 @@ button.ng-seat:hover {
     min-height: 42px;
     padding-left: 12px;
     padding-right: 12px;
+  }
+}
+
+/* phones in portrait: [code | Compartir] on one row and a two-line join card, so the table keeps its room */
+@media (orientation: portrait) and (max-width: 760px) {
+  .lobby .lobby-code {
+    flex-wrap: nowrap;
+    gap: 10px;
+    padding: 8px 12px;
+  }
+  .lobby .lobby-code .lobby-code-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .lobby .lobby-code-v {
+    font-size: clamp(20px, 6.2vw, 28px);
+    letter-spacing: 0.02em;
+  }
+  .lobby .lobby-sub {
+    min-height: 0;
+  }
+  .lobby .lobby-code .lobby-share {
+    flex: 0 0 auto;
+    margin-left: 0;
+    min-height: 44px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .lobby .lobby-join {
+    padding: 8px 12px;
+    gap: 12px;
+  }
+  .lobby .lobby-join-text .lobby-code-k {
+    display: none;
+  }
+  .lobby .ng-felt-box {
+    min-height: 230px;
+  }
+  /* four seat cards that never overlap on a narrow table */
+  .lobby .ng-table {
+    --sf: clamp(34px, 10.5vw, 52px);
+  }
+  .lobby .ng-seat,
+  .lobby .ng-seat.pos-bottom {
+    width: clamp(72px, 25%, 112px);
+  }
+  .lobby .ng-seat.pos-left,
+  .lobby .ng-seat.pos-right {
+    top: 46%;
   }
 }
 
