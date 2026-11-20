@@ -19,12 +19,13 @@ import { HUMAN_FACES, sanitizeFace } from 'kuavatars/faces';
 import { RoomClient, httpBackend, NetError, type Backend, type ConnState } from '../net/client';
 import { useMockServer, shareLink, served, type NetMode } from '../net/config';
 import { qrSvg } from 'kunet';
-import { LocalPlay, nativeLocalAvailable, savedRoom } from './localPlay';
+import { LocalPlay, nativeLocalAvailable, nearbyPermission, savedRoom } from './localPlay';
 import { displayCode, normalizeCode, playerId, rememberRoom, cleanName } from '../net/identity';
 import { Perspective } from '../net/perspective';
 import { applyEvent, emptyMatch } from '../net/mirror';
 import { withPlaceholders } from '../net/redact';
 import { TURN_TIMEOUT_MS, type ErrorCode, type PublicRoom, type QuickPhraseId, type SeatView, type ServerMsg } from '../net/protocol';
+import type { NearbyGame } from '../ui/online';
 import { activeSeatsOf, buildLobby, buildQrCard, buildOnlineHome, buildOnlinePause, buildPhraseGrid, buildRulesSheet, buildSeatSheet, occupantName, ONLINE_ICONS, phraseText, type Lobby, type OnlineHome } from '../ui/online';
 import { buildHandSummary, buildMatchEnd, buildStarterChooser } from '../ui/summary';
 import { confirmDialog } from '../ui/overlay';
@@ -154,6 +155,10 @@ export class OnlineController {
   private local = new LocalPlay();
   private role: 'host' | 'join' | null = null;
   private joinAt: string | null = null;
+  /** the game this phone joined from "Partidas cercanas" (Wi-Fi or Bluetooth) */
+  private joinTarget: NearbyGame | null = null;
+  /** the Bluetooth explanation was shown this session (asked once; Android remembers the answer) */
+  private btAsked = false;
   private hostBe: Backend | null = null;
   private stopDiscover: (() => void) | null = null;
 
@@ -169,7 +174,10 @@ export class OnlineController {
 
   /** the mock backend is loaded lazily (dev only); a locally served page talks to its own origin */
   private async ensureBackend(): Promise<Backend> {
-    if (this.nativeLocal && this.role === 'join' && this.joinAt) return (this.backend = this.local.joinBackend(this.joinAt));
+    if (this.nativeLocal && this.role === 'join' && (this.joinTarget || this.joinAt)) {
+      const name = this.host.settings().playerName || t('seat.player');
+      return (this.backend = this.local.joinBackend(this.joinTarget ?? { origin: this.joinAt! }, name));
+    }
     // (dev only: the branch is dead code in production builds, so the mock never ships)
     if (import.meta.env.DEV && (useMockServer() || (this.net === 'local' && !served()))) {
       this.backend = this.mockBe ??= (await import('../net/mock/backend')).mockBackend();
@@ -191,7 +199,11 @@ export class OnlineController {
     const home = buildOnlineHome({
       local: net === 'local',
       native: net === 'local' && nativeLocalAvailable()
-        ? { onResume: savedRoom() ? () => void this.createHosted(true) : null, onJoinHost: (g) => void this.joinOther(g.origin, g.code) }
+        ? {
+            onResume: savedRoom() ? () => void this.createHosted(true) : null,
+            onJoinHost: (g) => void this.joinNearby(g),
+            onBluetooth: () => void this.enableBluetooth(),
+          }
         : undefined,
       name: s.playerName,
       face: s.avatarFace ?? 0,
@@ -204,7 +216,7 @@ export class OnlineController {
     });
     this.home = home;
     this.stopDiscover?.();
-    this.stopDiscover = this.nativeLocal ? this.local.discover((games) => this.home === home && home.setNearby(games)) : null;
+    if (this.nativeLocal) void this.startDiscovery();
     this.host.overlay.showScreen(home.el);
     if (!s.playerName) home.askName();
     if (code && s.playerName) void this.join(code, quiet);
@@ -227,6 +239,43 @@ export class OnlineController {
     }
   }
 
+  /** app: look for games nearby (Bluetooth too when allowed; otherwise offer it) */
+  private async startDiscovery(): Promise<void> {
+    const home = this.home;
+    const bt = await nearbyPermission(false);
+    if (this.home !== home || !home) return;
+    this.stopDiscover?.();
+    this.stopDiscover = this.local.discover(bt, (games) => this.home === home && home.setNearby(games));
+    home.offerBluetooth(!bt);
+  }
+
+  /** the explanation, then Android's prompt (once per session unless asked for); true = allowed */
+  private async askBluetooth(force: boolean): Promise<boolean> {
+    if (await nearbyPermission(false)) return true;
+    if (this.btAsked && !force) return false;
+    this.btAsked = true;
+    const ok = await confirmDialog(this.host.overlay, { title: t('local.btTitle'), body: t('local.btBody'), ok: t('local.btOk'), cancel: t('local.btNo') });
+    return ok ? nearbyPermission(true) : false;
+  }
+
+  private async enableBluetooth(): Promise<void> {
+    if (await this.askBluetooth(true)) void this.startDiscovery();
+  }
+
+  /** app: join a game from "Partidas cercanas" (Wi-Fi or Bluetooth) */
+  private async joinNearby(g: NearbyGame): Promise<void> {
+    if (g.via !== 'bluetooth') return this.joinOther(g.origin, g.code);
+    this.role = 'join';
+    this.joinAt = null;
+    this.joinTarget = g;
+    await this.join(g.code);
+    if (!this.client) {
+      this.role = null;
+      this.joinTarget = null;
+      this.local.leaveJoined();
+    }
+  }
+
   /** app: host the room on this phone (resume = bring back the saved one) */
   private async createHosted(resume: boolean): Promise<void> {
     const home = this.home;
@@ -235,12 +284,15 @@ export class OnlineController {
     try {
       this.role = 'host';
       this.joinAt = null;
+      this.joinTarget = null;
+      const bt = await this.askBluetooth(false);
       try {
-        this.hostBe = await this.local.startHosting(this.host.settings().playerName || t('seat.player'));
+        this.hostBe = await this.local.startHosting(this.host.settings().playerName || t('seat.player'), bt);
       } catch {
         throw 'start' satisfies LocalErr;
       }
-      if (!this.local.origins.length) throw 'noWifi' satisfies LocalErr;
+      // nobody could reach this phone: no Wi-Fi / hotspot address and no Bluetooth
+      if (!this.local.origins.length && !this.local.bluetooth) throw 'noWifi' satisfies LocalErr;
       this.backend = this.hostBe;
       const code = resume ? this.local.resumeSaved() : await this.hostBe.createRoom(this.pid);
       if (!code) throw 'room_not_found';
@@ -260,6 +312,7 @@ export class OnlineController {
   private async joinOther(origin: string, code: string): Promise<void> {
     this.role = 'join';
     this.joinAt = origin;
+    this.joinTarget = null;
     await this.join(code);
     if (!this.client) {
       this.role = null;
@@ -466,7 +519,8 @@ export class OnlineController {
 
   /** local play: the address other devices open (and its QR), shown big in the lobby */
   private joinCard(code: string): { url: string; qr: string } | null {
-    const url = this.role === 'host' ? this.local.joinUrl(code) : this.role === 'join' && this.joinAt ? `${this.joinAt}/?sala=${code}` : shareLink(code);
+    // host: its own address; Wi-Fi joiner: the host's; Bluetooth joiner: none (no address to share)
+    const url = this.role === 'host' ? this.local.joinUrl(code) : this.role === 'join' ? (this.joinAt ? `${this.joinAt}/?sala=${code}` : null) : shareLink(code);
     return url ? { url, qr: qrSvg(url, { label: t('local.scanQr') }) } : null;
   }
 
@@ -529,6 +583,8 @@ export class OnlineController {
     this.stopDiscover?.();
     this.stopDiscover = null;
     if (this.role === 'host') void this.local.stopHosting();
+    if (this.role === 'join') this.local.leaveJoined();
+    this.joinTarget = null;
     this.role = null;
     this.joinAt = null;
     this.hostBe = null;

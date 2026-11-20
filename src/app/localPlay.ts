@@ -1,13 +1,28 @@
 /**
  * Jugar con amigos in the Android app: this phone hosts the room (the same RoomCore the Worker runs)
- * and serves the game on its Wi-Fi / hotspot address through the KuLocal plugin, or it joins a game
- * another phone hosts. The room is saved after every change, so "Reanudar la partida anterior" can bring
- * it back after the app was closed.
+ * and other phones join it over Wi-Fi (the KuLocal plugin serves the game on the phone's Wi-Fi / hotspot
+ * address) and over Bluetooth (Nearby Connections), both at once; or this phone joins a game another
+ * phone hosts. The room is saved after every change, so "Reanudar la partida anterior" can bring it back
+ * after the app was closed.
  */
 import { LocalHost, loopbackBackend } from 'kunet';
 import type { Backend } from '../net/client';
-import { discoverHosts, keepAwake, nativeBackend, nativeLocalAvailable, startWifiHost, type NearbyHost, type WifiHost } from 'kunet/native';
+import {
+  discoverHosts,
+  discoverNearby,
+  keepAwake,
+  nativeBackend,
+  nativeLocalAvailable,
+  nearbyBackend,
+  nearbyDisconnectAll,
+  nearbyPermission,
+  startNearbyHost,
+  startWifiHost,
+  type NearbyHostHandle,
+  type WifiHost,
+} from 'kunet/native';
 import { CODE_RULES, GAME_ID, makeCore, normalizeCode } from '../net/room/local';
+import type { NearbyGame } from '../ui/online';
 
 const SAVE_KEY = 'kudominoes.localRoom.v1';
 /** a saved room older than this is not offered any more */
@@ -19,20 +34,26 @@ interface Saved {
   data: unknown;
 }
 
-export { nativeLocalAvailable, type NearbyHost };
+export { nativeLocalAvailable, nearbyPermission };
 
 export class LocalPlay {
   private host: LocalHost | null = null;
   private wifi: WifiHost | null = null;
-  private starting: Promise<WifiHost> | null = null;
+  private bt: NearbyHostHandle | null = null;
+  private joinedBt = false;
 
   get hosting(): boolean {
-    return !!this.wifi;
+    return !!this.wifi || !!this.bt;
   }
 
-  /** origins other devices open (best first) */
+  /** origins other devices open (best first); empty = no Wi-Fi / hotspot address */
   get origins(): string[] {
     return this.wifi?.origins ?? [];
+  }
+
+  /** other phones can find this room over Bluetooth */
+  get bluetooth(): boolean {
+    return !!this.bt;
   }
 
   private ensureHost(): LocalHost {
@@ -44,18 +65,30 @@ export class LocalPlay {
     return this.host;
   }
 
-  /** start serving on the network; the backend is this phone's own player (in-memory loopback) */
-  async startHosting(name: string): Promise<Backend> {
+  /**
+   * Start hosting: the Wi-Fi server always, Bluetooth too when `bluetooth` (permission already granted).
+   * The backend is this phone's own player (in-memory loopback).
+   */
+  async startHosting(name: string, bluetooth: boolean): Promise<Backend> {
     const host = this.ensureHost();
+    const norm = (s: string) => normalizeCode(s) ?? '';
     if (!this.wifi) {
-      this.starting ??= startWifiHost(host, { game: GAME_ID, name, normalizeCode: (s) => normalizeCode(s) ?? '' });
       try {
-        this.wifi = await this.starting;
-      } finally {
-        this.starting = null;
+        this.wifi = await startWifiHost(host, { game: GAME_ID, name, normalizeCode: norm });
+      } catch (e) {
+        if (!bluetooth) throw e;
+        console.warn('[local] no Wi-Fi server, Bluetooth only', e);
       }
-      void keepAwake(true);
     }
+    if (bluetooth && !this.bt) {
+      try {
+        this.bt = await startNearbyHost(host, { game: GAME_ID, name, normalizeCode: norm });
+      } catch (e) {
+        console.warn('[local] Bluetooth hosting unavailable', e);
+      }
+    }
+    if (!this.wifi && !this.bt) throw new Error('start');
+    void keepAwake(true);
     // (kunet carries this game's own frames: its rooms answer this game's RoomInfoResponse)
     return loopbackBackend(host) as unknown as Backend;
   }
@@ -68,9 +101,10 @@ export class LocalPlay {
     return s.code;
   }
 
-  /** shown in "Partidas cercanas" on other phones */
+  /** shown in "Partidas cercanas" on other phones (Wi-Fi and Bluetooth) */
   announce(code: string): void {
     void this.wifi?.advertise(code);
+    void this.bt?.advertise(code);
   }
 
   /** the link a joiner opens (null = this phone has no Wi-Fi / hotspot address) */
@@ -82,11 +116,14 @@ export class LocalPlay {
   /** the host leaves: the room ends for everyone */
   async stopHosting(): Promise<void> {
     const wifi = this.wifi;
+    const bt = this.bt;
     this.wifi = null;
+    this.bt = null;
     this.host?.stop();
     this.host = null;
     void keepAwake(false);
     await wifi?.stop();
+    await bt?.stop();
   }
 
   /** back from the background: run the timers that came due meanwhile */
@@ -94,12 +131,47 @@ export class LocalPlay {
     this.host?.wake();
   }
 
-  joinBackend(origin: string): Backend {
-    return nativeBackend(origin) as unknown as Backend;
+  /** join a game another phone hosts: over Wi-Fi (its address) or Bluetooth */
+  joinBackend(game: NearbyGame | { origin: string }, myName: string): Backend {
+    if ('via' in game && game.via === 'bluetooth' && game.endpoint) {
+      this.joinedBt = true;
+      return nearbyBackend(GAME_ID, { id: game.endpoint, code: game.code, name: game.name }, myName) as unknown as Backend;
+    }
+    return nativeBackend(game.origin) as unknown as Backend;
   }
 
-  discover(onChange: (games: NearbyHost[]) => void): () => void {
-    return discoverHosts(GAME_ID, onChange);
+  /** a joiner left the room: drop the Bluetooth link */
+  leaveJoined(): void {
+    if (!this.joinedBt) return;
+    this.joinedBt = false;
+    void nearbyDisconnectAll();
+  }
+
+  /**
+   * Games nearby: Wi-Fi (NSD) always, Bluetooth when allowed. A room found both ways is listed once,
+   * over Wi-Fi (faster). Returns a stop function.
+   */
+  discover(bluetooth: boolean, onChange: (games: NearbyGame[]) => void): () => void {
+    let wifi: NearbyGame[] = [];
+    let bt: NearbyGame[] = [];
+    const emit = () => {
+      const codes = new Set(wifi.map((g) => g.code));
+      onChange([...wifi, ...bt.filter((g) => !codes.has(g.code))]);
+    };
+    const stopWifi = discoverHosts(GAME_ID, (hosts) => {
+      wifi = hosts.map((h) => ({ key: `w:${h.key}`, name: h.name, code: h.code, origin: h.origin, via: 'wifi' as const }));
+      emit();
+    });
+    const stopBt = bluetooth
+      ? discoverNearby(GAME_ID, (games) => {
+          bt = games.map((g) => ({ key: `b:${g.id}`, name: g.name, code: g.code, origin: '', via: 'bluetooth' as const, endpoint: g.id }));
+          emit();
+        })
+      : () => {};
+    return () => {
+      stopWifi();
+      stopBt();
+    };
   }
 }
 

@@ -49,6 +49,8 @@ export interface OnlineHomeOpts {
     /** a saved room of this phone can be resumed */
     onResume: (() => void) | null;
     onJoinHost(host: NearbyGame): void;
+    /** "Buscar también por Bluetooth" (shown until the permission is granted) */
+    onBluetooth(): void;
   };
   onName(name: string): void;
   onCreate(): void;
@@ -57,12 +59,15 @@ export interface OnlineHomeOpts {
   onBack(): void;
 }
 
-/** a game another phone hosts on this network */
+/** a game another phone hosts nearby: on this Wi-Fi (origin) or over Bluetooth (endpoint) */
 export interface NearbyGame {
   key: string;
   name: string;
   code: string;
   origin: string;
+  via?: 'wifi' | 'bluetooth';
+  /** Bluetooth: the host's Nearby endpoint */
+  endpoint?: string;
 }
 
 /** "192.168.1.37:8787", "http://192.168.1.37:8787/?sala=7KQM" → origin (+ code when the link has one) */
@@ -90,6 +95,8 @@ export interface OnlineHome {
   askName(): void;
   /** native: the games found nearby (null = still looking) */
   setNearby(games: NearbyGame[] | null): void;
+  /** native: show / hide "Buscar también por Bluetooth" */
+  offerBluetooth(show: boolean): void;
 }
 
 export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
@@ -225,7 +232,12 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
     if (!games.length) return nearbyList.replaceChildren(h('p.oh-nearby-empty', t('local.noneNearby')));
     nearbyList.replaceChildren(
       ...games.map((g) => {
-        const b = btn(g.name || displayCode(g.code), () => guard(() => o.native!.onJoinHost(g)), 'secondary oh-nearby-game', h('span.oh-nearby-code', displayCode(g.code)));
+        const b = btn(
+          g.name || displayCode(g.code),
+          () => guard(() => o.native!.onJoinHost(g)),
+          'secondary oh-nearby-game',
+          h('span.oh-nearby-code', g.via === 'bluetooth' ? h('span.oh-nearby-via', t('local.viaBluetooth')) : null, displayCode(g.code)),
+        );
         b.setAttribute('role', 'listitem');
         b.disabled = busy !== null;
         return b;
@@ -234,6 +246,9 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
   };
   setNearby(null);
   syncJoin();
+  const btOffer = o.native ? h('button.link-btn.oh-bt-offer', { type: 'button' }, t('local.searchBluetooth')) : null;
+  btOffer?.addEventListener('click', () => o.native!.onBluetooth());
+  if (btOffer) btOffer.hidden = true;
 
   const el = h(
     'section.screen.panel-screen.online-home',
@@ -249,6 +264,7 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
         resume,
         o.native ? h('div.oh-or', h('span', t('local.nearby'))) : null,
         o.native ? nearbyList : null,
+        btOffer,
         h('div.oh-or', h('span', t(o.native ? 'local.joinAddress' : 'online.or'))),
         addrInput ? h('label.oh-code.oh-addr', addrInput) : null,
         h('div.oh-join-row', codeBox, join),
@@ -262,6 +278,9 @@ export function buildOnlineHome(o: OnlineHomeOpts): OnlineHome {
     setBusy,
     askName: () => requestAnimationFrame(() => nameInput.focus({ preventScroll: true })),
     setNearby,
+    offerBluetooth: (show) => {
+      if (btOffer) btOffer.hidden = !show;
+    },
   };
 }
 

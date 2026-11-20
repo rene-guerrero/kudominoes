@@ -4707,9 +4707,25 @@ button.ng-seat:hover {
   justify-content: space-between;
 }
 .oh-nearby-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 900;
   letter-spacing: 0.05em;
   opacity: 0.8;
+}
+.oh-nearby-via {
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.22);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+.oh-bt-offer {
+  align-self: center;
+}
+.oh-bt-offer[hidden] {
+  display: none;
 }
 .oh-addr {
   flex: none;
