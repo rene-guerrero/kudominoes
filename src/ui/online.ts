@@ -400,7 +400,6 @@ export function buildLobby(o: LobbyOpts): Lobby {
 
   // ── mode, rules, start ──
   const modeRow = h('div.ng-mode.lobby-mode');
-  const status = h('p.lobby-status');
   const rulesValue = h('span.preset-v');
   const rulesLink = h('button.link-btn', { type: 'button' }, t('newgame.change'));
   rulesLink.addEventListener('click', o.onRules);
@@ -408,7 +407,7 @@ export function buildLobby(o: LobbyOpts): Lobby {
   const rulesLine = h('div.ng-rules', h('span.preset-k', `${t('newgame.rules')}:`), rulesValue, rulesDot, rulesLink);
   const start = btn(t('lobby.start'), o.onStart, 'primary lobby-start', icon(ICONS.play));
   const wait = h('p.lobby-wait', h('span.lobby-wait-dot'), t('lobby.waitHost'));
-  const foot = h('div.ng-foot.lobby-foot', rulesLine, status, start, wait);
+  const foot = h('div.ng-foot.lobby-foot', rulesLine, start, wait);
 
   let lastModeKey = '';
   const el = h(
@@ -494,7 +493,6 @@ export function buildLobby(o: LobbyOpts): Lobby {
     rulesLink.hidden = !me.isHost;
     rulesDot.hidden = !me.isHost;
     const humans = act.filter((s) => room.seats[s]?.kind === 'human').length;
-    status.textContent = `${humans === 1 ? t('lobby.players1') : t('lobby.players', { n: humans, total: act.length })} · ${t('lobby.cpuNote')}`;
     start.hidden = !me.isHost;
     start.disabled = humans === 0;
     wait.hidden = me.isHost;

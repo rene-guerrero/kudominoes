@@ -1372,10 +1372,12 @@ body[data-mock] .menu,
 .score-card {
   justify-self: start;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  /* Nosotros 5 · Ellos 0 on one line, a thin bar under each */
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
   width: auto;
-  min-width: 148px;
+  min-width: 0;
   max-width: 100%;
   padding: 8px 10px;
   border-radius: 16px;
@@ -1477,6 +1479,41 @@ body[data-mock] .menu,
 .pause-btn {
   justify-self: end;
 }
+/* phones: score | hand + ends | pause fit one row above the top player */
+@media (max-width: 519px) {
+  .hud-top {
+    gap: 6px;
+  }
+  .score-card {
+    gap: 10px;
+    padding: 6px 9px;
+  }
+  .team-row {
+    gap: 6px;
+  }
+  .team-name {
+    font-size: 11px;
+  }
+  .team-pts {
+    font-size: 17px;
+    min-width: 1.4ch;
+  }
+  .hand-line {
+    padding: 5px 10px;
+  }
+  .ends {
+    padding: 4px 6px;
+    gap: 4px;
+  }
+  .end,
+  .end svg {
+    width: 20px;
+    height: 20px;
+  }
+  .ends-dot {
+    width: 10px;
+  }
+}
 /* rare-event notice: under the open ends (narrow) or beside them (wide); fades in and out */
 .notice {
   max-width: 100%;
@@ -1506,7 +1543,8 @@ body[data-mock] .menu,
 /* hand counter + open ends: one centred row when there is room, stacked (wrapped) on narrow screens */
 .hud-info {
   display: flex;
-  flex-wrap: wrap;
+  /* the hand pill and the open ends always share one row */
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 6px 8px;
@@ -1861,7 +1899,6 @@ body[data-mock] .menu,
 @media (max-width: 380px) {
   .score-card {
     width: auto;
-    min-width: 124px;
     padding: 7px 8px;
   }
   .team-pts {
@@ -1948,7 +1985,7 @@ body[data-mock] .menu,
 }
 @media (min-width: 900px) {
   .score-card {
-    width: 180px;
+    width: auto;
   }
   .team-pts {
     font-size: 24px;
@@ -3699,7 +3736,7 @@ button.ng-seat:hover {
 /* ───────────────────────── puntos abajo: HUD chip beside the hand pill ───────────────────────── */
 .hand-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 6px;

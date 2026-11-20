@@ -65,7 +65,7 @@ export class Hud {
         this.card,
         h(
           'div.hud-center',
-          h('div.hud-info', h('div.hand-row', h('div.hand-line', this.handNo, h('span.sep', '·'), this.target), this.abajoChip, this.pileChip), this.endsBox),
+          h('div.hud-info', h('div.hand-row', h('div.hand-line', this.handNo), this.abajoChip, this.pileChip), this.endsBox),
           this.noticeEl,
         ),
         this.pauseBtn,
