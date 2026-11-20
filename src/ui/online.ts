@@ -460,31 +460,35 @@ export function buildLobby(o: LobbyOpts): Lobby {
         el.b.disabled = false;
       }
     }
-    // mode row: host = controls; others = a label
+    // mode row: always [Parejas | Individual] · Jugadores [2 3 4], the same for everyone; only the host
+    // can change it, and in Parejas the count is fixed at 4 (shown, disabled), so nothing appears or vanishes
     const modeKey = `${me.isHost}|${room.mode}|${room.playerCount}`;
     if (modeKey !== lastModeKey) {
       lastModeKey = modeKey;
-      if (me.isHost) {
-        const modeSeg = segmented<GameMode>(
-          (['pairs', 'individual'] as GameMode[]).map((m) => ({ value: m, label: t(`mode.${m}` as Key) })),
-          room.mode,
-          (v) => o.onMode(v, v === 'pairs' ? 4 : Math.max(2, Math.min(4, room.playerCount === 4 && room.mode === 'pairs' ? 3 : room.playerCount))),
-          t('mode.label'),
-        );
-        modeSeg.classList.add('seg-mode');
-        const cnt = segmented<number>(
-          [2, 3, 4].map((n) => ({ value: n, label: String(n) })),
-          room.playerCount,
-          (v) => o.onMode('individual', v),
-          t('newgame.players'),
-        );
-        cnt.classList.add('seg-opp');
-        const opp = h('div.ng-opp', h('span.ng-opp-label', t('newgame.players')), cnt);
-        opp.hidden = room.mode !== 'individual';
-        modeRow.replaceChildren(modeSeg, opp);
-      } else {
-        modeRow.replaceChildren(h('span.lobby-mode-label', room.mode === 'pairs' ? t('mode.pairs') : `${t('mode.individual')} · ${room.playerCount}`));
-      }
+      const pairs = room.mode === 'pairs';
+      const modeSeg = segmented<GameMode>(
+        (['pairs', 'individual'] as GameMode[]).map((m) => ({ value: m, label: t(`mode.${m}` as Key) })),
+        room.mode,
+        (v) => o.onMode(v, v === 'pairs' ? 4 : Math.max(2, Math.min(4, room.playerCount === 4 && pairs ? 3 : room.playerCount))),
+        t('mode.label'),
+      );
+      modeSeg.classList.add('seg-mode');
+      const cnt = segmented<number>(
+        [2, 3, 4].map((n) => ({ value: n, label: String(n) })),
+        pairs ? 4 : room.playerCount,
+        (v) => o.onMode('individual', v),
+        t('newgame.players'),
+      );
+      cnt.classList.add('seg-opp');
+      const disable = (seg: HTMLElement, off: boolean) => {
+        seg.classList.toggle('is-disabled', off);
+        seg.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = off));
+      };
+      disable(modeSeg, !me.isHost);
+      disable(cnt, !me.isHost || pairs);
+      const opp = h('div.ng-opp', h('span.ng-opp-label', t('newgame.players')), cnt);
+      opp.classList.toggle('is-disabled', !me.isHost || pairs);
+      modeRow.replaceChildren(modeSeg, opp);
     }
     rulesValue.textContent = o.presetName(room.mode, room.rules);
     rulesLink.hidden = !me.isHost;
@@ -612,7 +616,13 @@ export function buildPhraseGrid(onPick: (id: QuickPhraseId) => void): HTMLElemen
 
 /** the join QR, big: scan it, or type the address under it; a tap anywhere closes it */
 export function buildQrCard(o: { qr: string; url: string; onClose(): void }): HTMLElement {
-  const addr = typedAddress(o.url);
+  // the big view always names the address (even localhost while developing)
+  let addr = typedAddress(o.url);
+  try {
+    addr ??= new URL(o.url).host;
+  } catch {
+    /* keep null */
+  }
   const card = h(
     'button.qr-card',
     { type: 'button', 'aria-label': t('common.close') },

@@ -830,6 +830,15 @@ body[data-mock] .menu,
 .seg-opt:active {
   transform: scale(0.95);
 }
+/* a control that applies but cannot be changed now (Parejas: always 4; not the host) */
+.seg.is-disabled .seg-opt,
+.seg-opt:disabled {
+  cursor: default;
+}
+.seg.is-disabled,
+.ng-opp.is-disabled .ng-opp-label {
+  opacity: 0.5;
+}
 .seg-opt[aria-checked='true'] {
   background: var(--cream);
   color: var(--ink);
@@ -4014,6 +4023,24 @@ button.ng-seat:hover {
   }
   .ng-opp-label {
     display: none;
+  }
+}
+/* the room lobby keeps "Jugadores" on narrow phones too (the row never changes shape): tighter buttons */
+@media (max-width: 400px) {
+  .lobby .ng-opp-label {
+    display: inline;
+    font-size: 12px;
+  }
+  .lobby .ng-opp {
+    gap: 4px;
+  }
+  .lobby .ng-mode .seg-opt {
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  .lobby .seg-opp .seg-opt {
+    min-width: 28px;
+    padding: 4px 0;
   }
 }
 @media (orientation: landscape) and (max-height: 520px) {
