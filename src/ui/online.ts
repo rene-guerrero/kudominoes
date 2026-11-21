@@ -6,6 +6,7 @@ import type { FaceSpec } from 'kuavatars/faces';
  * Pure builders: the online controller (src/app/online.ts) owns the state and the connection.
  */
 import type { GameMode, RuleSettings, Seat, TableStyle } from '../contracts';
+import { canFullscreen } from '../app/fullscreen';
 import type { PublicRoom, QuickPhraseId, SeatOccupant } from '../net/protocol';
 import { QUICK_PHRASES, ROOM_CODE_LENGTH, MAX_NAME_LENGTH } from '../net/protocol';
 import { Perspective } from '../net/perspective';
@@ -18,7 +19,7 @@ import { btn, ICONS, segmented } from './overlay';
 import { screenHeader } from './howto';
 import { staticFace } from './avatars';
 import { levelBadge } from './newgame';
-import { audioToggle, type AudioKey } from './summary';
+import { audioToggle, fullscreenToggle, type AudioKey } from './summary';
 import { SEATS_FOR } from '../contracts';
 
 export const ONLINE_ICONS = {
@@ -451,10 +452,11 @@ export function buildOnlinePause(o: { audio: Record<AudioKey, boolean>; onAudio(
       'div.stack',
       resume,
       h(
-        'div.pause-row',
+        'div.pause-grid.pause-icons',
         audioToggle('sound', o.audio.sound, o.onAudio),
         audioToggle('music', o.audio.music, o.onAudio),
         canVibrate ? audioToggle('vibration', o.audio.vibration, o.onAudio) : null,
+        canFullscreen() ? fullscreenToggle() : null,
       ),
       btn(t('online.leave'), o.onLeave, 'ghost', icon(ONLINE_ICONS.exit)),
     ),

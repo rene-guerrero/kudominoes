@@ -1,5 +1,6 @@
 import { h } from './dom';
 import { t } from './i18n';
+import { canFullscreen, toggleFullscreen } from '../app/fullscreen';
 import { btn, ICONS } from './overlay';
 import { tileSvg } from './tiles';
 import { onlineAvailable } from '../net/config';
@@ -67,12 +68,18 @@ export function buildMenu(o: MenuOpts): HTMLElement {
   }
   // hidden until the room server is deployed and its URL configured (src/net/config.ts)
   if (onlineAvailable()) actions.append(btn(t('menu.online'), o.onOnline, 'secondary lg menu-online', icon(GLOBE)));
-  // Ajustes is a square icon button so Cómo jugar always has room for its label
+  // one row of equal icon-only buttons: Ajustes, Cómo jugar, Acerca de, fullscreen, download
   const settingsLabel = t('menu.settings');
   const settings = h('button.btn.ghost.about-btn.settings-btn', { type: 'button', 'aria-label': settingsLabel, title: settingsLabel }, h('span.about-btn-icon', { html: ICONS.gear }));
   settings.addEventListener('click', o.onSettings);
-  const howto = btn(t('menu.howto'), o.onHowto, 'ghost', icon(ICONS.book));
-  actions.append(h('div.row.menu-row', settings, howto, aboutBtn(o.onAbout), apkBtn()));
+  const howtoLabel = t('menu.howto');
+  const howto = h('button.btn.ghost.about-btn', { type: 'button', 'aria-label': howtoLabel, title: howtoLabel }, h('span.about-btn-icon', { html: ICONS.book }));
+  howto.addEventListener('click', o.onHowto);
+  // fullscreen: browsers only (hidden in the Android app and on an iPhone home-screen icon)
+  const fsLabel = t('menu.fullscreen');
+  const fs = canFullscreen() ? h('button.btn.ghost.about-btn.fs-btn', { type: 'button', 'aria-label': fsLabel, title: fsLabel }, h('span.about-btn-icon', { html: ICONS.fullscreen })) : null;
+  fs?.addEventListener('click', () => void toggleFullscreen());
+  actions.append(h('div.row.menu-row', settings, howto, aboutBtn(o.onAbout), fs, apkBtn()));
   (actions.firstElementChild as HTMLElement).dataset.autofocus = '';
 
   // data-attract: the 3D attract scenes play behind this screen and react to taps on its empty area;

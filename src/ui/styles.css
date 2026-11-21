@@ -2223,6 +2223,32 @@ body[data-mock] .menu,
   cursor: default;
   opacity: 0.6;
 }
+.profile-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 10px;
+}
+.profile-links .link-btn.danger {
+  color: #ff8a80;
+}
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.profile-form .text-input {
+  width: 100%;
+  max-width: none;
+}
+.profile-form-btns {
+  display: flex;
+  gap: 8px;
+}
+.profile-form-btns .btn {
+  flex: 1 1 0;
+}
 .rule-group-card {
   padding: 0;
   overflow: hidden;
@@ -3112,9 +3138,6 @@ button.ng-seat:hover {
   min-width: 0;
   min-height: 52px;
   white-space: nowrap;
-}
-.ng-buttons .ng-start {
-  flex-grow: 1.35;
 }
 .ng-buttons .btn-icon {
   width: 22px;
@@ -5066,4 +5089,493 @@ button.ng-seat:hover {
   text-align: center;
   font-size: 13px;
   opacity: 0.8;
+}
+
+/* pause: rows that fill the card width, every button in a row the same width */
+.pause-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+  width: 100%;
+}
+.pause-grid > .btn {
+  width: 100%;
+  min-width: 0;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+.pause-icons > .audio-tg {
+  width: 100%;
+  min-height: 48px;
+}
+.fs-tg svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* a short note at the top of the screen (fullscreen hints) */
+.fs-toast {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--sat, 0px) + 14px);
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(10, 21, 28, 0.92);
+  color: #fff6e6;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  transition: opacity 0.4s;
+  pointer-events: none;
+}
+.fs-toast.out {
+  opacity: 0;
+}
+
+/* main menu: one row of equal icon buttons across the full width (settings, how to play, about,
+   fullscreen, download) */
+.menu-actions .row.menu-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 10px;
+  width: 100%;
+}
+.menu-actions .row.menu-row > .btn.about-btn {
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+}
+
+/* Reglas: rule-set dropdown (Cubano clásico / saved profiles / Personalizado) */
+.rsel {
+  position: relative;
+  margin-top: 4px;
+}
+.rsel-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #2ccdbf, var(--teal));
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow:
+    0 4px 0 var(--teal-d),
+    inset 0 2px 0 rgba(255, 255, 255, 0.25);
+}
+.rsel-btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--teal-d);
+}
+.rsel-btn:focus-visible {
+  outline: 3px solid var(--mango);
+  outline-offset: 3px;
+}
+.rsel-k {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+.rsel-v {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 900;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rsel-v.custom {
+  font-style: italic;
+}
+.rsel-chev {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border-right: 3px solid currentColor;
+  border-bottom: 3px solid currentColor;
+  transform: translateY(-3px) rotate(45deg);
+  transition: transform 0.2s;
+}
+.rsel.open .rsel-chev {
+  transform: translateY(2px) rotate(-135deg);
+}
+.rsel-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  max-height: 280px;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--wood-600), var(--wood-700));
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 2px rgba(255, 182, 39, 0.35);
+  animation: rsel-in 0.14s ease-out;
+}
+.rsel-list[hidden] {
+  display: none;
+}
+@keyframes rsel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.rsel-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 12px;
+  color: var(--cream);
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.rsel-opt:hover,
+.rsel-opt:focus {
+  outline: none;
+  background: rgba(255, 246, 230, 0.1);
+}
+.rsel-opt[aria-selected='true'] {
+  color: var(--mango);
+}
+.rsel-check {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 8px;
+  transform: translateY(-2px) rotate(-45deg);
+}
+.rsel-opt[aria-selected='true'] .rsel-check {
+  border-left: 3px solid currentColor;
+  border-bottom: 3px solid currentColor;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rsel-list {
+    animation: none;
+  }
+}
+
+/* Reglas: [label] [dropdown] [+ / trash] on one line */
+.rsel-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.rsel-line .rsel {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+}
+.rsel-label {
+  flex: 0 0 auto;
+  color: var(--cream-2);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rsel-act {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: rgba(255, 246, 230, 0.12);
+  color: var(--cream);
+  box-shadow:
+    0 4px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 0 2px rgba(255, 246, 230, 0.18);
+}
+.rsel-act svg {
+  width: 26px;
+  height: 26px;
+}
+.rsel-act.danger {
+  color: #ff8a80;
+}
+.rsel-act:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.rsel-act:not(:disabled):active {
+  transform: translateY(3px);
+}
+/* the list opens upward when there's no room below */
+.rsel.up .rsel-list {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+/* new game footer: a compact [REGLAS] [dropdown] [edit] line */
+.ng-rules-wrap > [hidden] {
+  display: none;
+}
+.ng-rsel {
+  margin-top: 0;
+  gap: 8px;
+}
+.ng-rsel .rsel-slot {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ng-rsel .rsel-btn {
+  min-height: 44px;
+  padding: 6px 14px;
+  border-radius: 14px;
+}
+.ng-rsel .rsel-v {
+  font-size: 15px;
+}
+.ng-rsel .rsel-act {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+}
+.ng-rsel .rsel-act svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* rule explanation: a dark bubble with white text, opened by tapping ⓘ */
+.tip {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 11px 14px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #1c120c, #120a06);
+  color: #fff;
+  font: 700 13.5px/1.45 var(--font);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1.5px rgba(255, 182, 39, 0.45);
+  animation: tip-in 0.14s ease-out;
+  pointer-events: auto;
+}
+.tip-arrow {
+  position: absolute;
+  left: var(--ax, 50%);
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: #160d08;
+  transform: rotate(45deg);
+}
+.tip.above .tip-arrow {
+  bottom: -6px;
+  box-shadow: inset -1.5px -1.5px 0 rgba(255, 182, 39, 0.45);
+}
+.tip.below .tip-arrow {
+  top: -6px;
+  background: #1c120c;
+  box-shadow: inset 1.5px 1.5px 0 rgba(255, 182, 39, 0.45);
+}
+.tip.above {
+  transform-origin: var(--ax, 50%) 100%;
+}
+.tip.below {
+  transform-origin: var(--ax, 50%) 0;
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tip {
+    animation: none;
+  }
+}
+
+/* rule options with 3+ choices: a quiet dropdown (dark felt, cream text) — the teal one is the rule set */
+.set-ctl > .rsel.soft {
+  width: min(230px, 52vw);
+  margin-top: 0;
+}
+.rsel.soft .rsel-btn {
+  min-height: 46px;
+  padding: 6px 14px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--cream);
+  box-shadow: inset 0 0 0 2px rgba(255, 246, 230, 0.12);
+}
+.rsel.soft .rsel-btn:active {
+  transform: none;
+  box-shadow: inset 0 0 0 2px rgba(255, 246, 230, 0.2);
+}
+.rsel.soft.open .rsel-btn {
+  box-shadow: inset 0 0 0 2px rgba(255, 182, 39, 0.45);
+}
+.rsel.soft .rsel-v {
+  font-size: 15px;
+  font-weight: 800;
+}
+.rsel.soft .rsel-chev {
+  width: 9px;
+  height: 9px;
+  color: var(--cream-2);
+}
+/* options stay on one line: the list grows to its widest option (at least the button's width) */
+.rsel-list {
+  right: auto;
+  min-width: 100%;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+}
+.rsel-opt {
+  white-space: nowrap;
+}
+.rsel-opt > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* in a settings row the dropdown sits at the right edge: its list opens leftward */
+.set-ctl > .rsel.soft .rsel-list {
+  left: auto;
+  right: 0;
+}
+/* an open dropdown can reach past its rule-group card (which clips for its rounded corners) */
+.rule-group-card:has(.rsel.open) {
+  position: relative;
+  z-index: 5;
+  overflow: visible;
+}
+/* new game footer: the rules list always opens upward, over the character grid */
+.ng-rsel .rsel-list {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+/* raised only while its list is open (otherwise it would sit over the phone's character sheet) */
+.ng-rules-wrap:has(.rsel.open) {
+  position: relative;
+  z-index: 10;
+}
+
+/* chat pop-up: the player's gestures above the quick phrases */
+.qp-gestures {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 246, 230, 0.1);
+}
+.qp-gesture {
+  display: grid;
+  place-items: center;
+  min-height: 56px;
+  padding: 4px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 246, 230, 0.08);
+  cursor: pointer;
+}
+.qp-gesture:hover,
+.qp-gesture:focus-visible {
+  background: rgba(255, 246, 230, 0.18);
+  outline: none;
+}
+.qp-gesture:active {
+  transform: scale(0.94);
+}
+.qp-gface {
+  display: block;
+  width: 48px;
+  height: 48px;
+}
+.qp-gface svg,
+.gp-face svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Ajustes: pick up to 5 gestures */
+.gp {
+  width: 100%;
+}
+.gp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+}
+.gp-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px 8px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--cream-2);
+  font: inherit;
+  cursor: pointer;
+}
+.gp-tile[aria-pressed='true'] {
+  background: rgba(255, 182, 39, 0.14);
+  box-shadow: inset 0 0 0 2px var(--mango);
+  color: var(--cream);
+}
+.gp-tile:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.gp-face {
+  display: block;
+  width: 52px;
+  height: 52px;
+}
+.gp-lbl {
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+}
+.gp-num {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--mango);
+  color: var(--wood-900);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 20px;
+  text-align: center;
+}
+.gp-num:empty {
+  display: none;
+}
+.gp-count {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 800;
+  text-align: right;
 }

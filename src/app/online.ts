@@ -22,8 +22,9 @@ import { displayCode, normalizeCode, playerId, rememberRoom, cleanName } from '.
 import { Perspective } from '../net/perspective';
 import { applyEvent, emptyMatch } from '../net/mirror';
 import { withPlaceholders } from '../net/redact';
-import { TURN_TIMEOUT_MS, type ErrorCode, type PublicRoom, type QuickPhraseId, type SeatView, type ServerMsg } from '../net/protocol';
-import { activeSeatsOf, buildLobby, buildOnlineHome, buildOnlinePause, buildPhraseGrid, buildRulesSheet, buildSeatSheet, occupantName, ONLINE_ICONS, phraseText, type Lobby, type OnlineHome } from '../ui/online';
+import { CHAT_GESTURES, TURN_TIMEOUT_MS, type ChatGesture, type ErrorCode, type PublicRoom, type QuickPhraseId, type SeatView, type ServerMsg } from '../net/protocol';
+import { activeSeatsOf, buildLobby, buildOnlineHome, buildOnlinePause, buildRulesSheet, buildSeatSheet, occupantName, phraseText, type Lobby, type OnlineHome } from '../ui/online';
+import type { ChatButton } from '../ui/chat';
 import { buildHandSummary, buildMatchEnd, buildStarterChooser } from '../ui/summary';
 import { confirmDialog } from '../ui/overlay';
 import { h } from '../ui/dom';
@@ -31,6 +32,7 @@ import { t } from '../ui/i18n';
 import { hapticTick } from '../audio/sfx';
 import { findTarget, rulesFor } from './settings';
 import { presetName } from '../ui/settings';
+import { allPresets, loadProfiles } from './ruleProfiles';
 import { sameRules } from '../engine/rules';
 
 type Names = [string, string, string, string];
@@ -62,6 +64,10 @@ export interface OnlineHost {
   /** live update of names / faces (someone joined, left, a CPU took over) */
   setPlayers(names: Names, faces: FaceSpec[]): void;
   setSfxMuted(m: boolean): void;
+  /** the in-game chat button (shared with offline games) */
+  chat: ChatButton;
+  /** where the chat button's picks go (null: back to offline, own avatar only) */
+  setChatSender(send: ((id: string) => void) | null): void;
   /** back to the main menu (clears the table) */
   exit(): void;
 }
@@ -112,8 +118,6 @@ export class OnlineController {
   private closeChooser: (() => void) | null = null;
   /** the opener choice of this hand was answered here (pick or wish): later repeats of it are stale */
   private starterAnswered = false;
-  private phraseBtn: HTMLButtonElement | null = null;
-  private phrasePop: HTMLElement | null = null;
   private netChip: HTMLElement | null = null;
   private hiddenAt = 0;
   private lastRules = '';
@@ -271,7 +275,7 @@ export class OnlineController {
         avatars: s.avatars !== false,
         tableStyle: s.tableStyle ?? 'green',
         myId: this.pid,
-        presetName: (mode, rules) => presetName(this.host.engine.RULE_PRESETS ?? [], rules, mode),
+        presetName: (mode, rules) => presetName(allPresets(this.host.engine), rules, mode),
         onShare: () => void this.share(),
         onSeat: (seat) => this.tapSeat(seat),
         onMode: (mode, count) => {
@@ -331,7 +335,12 @@ export class OnlineController {
     const mine = rulesFor(this.host.settings(), room.mode);
     const opts: { label: string; rules: RuleSettings }[] = [];
     if (preset) opts.push({ label: presetName([preset], preset.rules, room.mode), rules: preset.rules });
-    if (!preset || !sameRules(preset.rules, mine, room.mode)) opts.push({ label: `${t('lobby.myRules')} · ${presetName(this.host.engine.RULE_PRESETS ?? [], mine, room.mode)}`, rules: mine });
+    // the host's saved profiles of this mode, then their current rules (when not already listed)
+    for (const p of loadProfiles(this.host.engine)) {
+      if (p.mode !== room.mode || opts.some((x) => sameRules(x.rules, p.rules, room.mode))) continue;
+      opts.push({ label: p.name, rules: p.rules });
+    }
+    if (!opts.some((x) => sameRules(x.rules, mine, room.mode))) opts.push({ label: `${t('lobby.myRules')} · ${presetName(allPresets(this.host.engine), mine, room.mode)}`, rules: mine });
     const done = () => {
       this.closeSheet?.();
       this.closeSheet = null;
@@ -433,7 +442,7 @@ export class OnlineController {
     if (this.mode === 'home') return this.exit();
     if (this.mode === 'lobby') return void this.confirmLeave();
     if (this.mode === 'game') {
-      if (this.phrasePop) return this.togglePhrases(false);
+      if (this.host.chat.isOpen) return this.host.chat.toggle(false);
       if (this.closeMenu) return this.resumeFromMenu();
       if (!this.host.overlay.modalOpen || this.closeSummary || this.closeMatchEnd) this.openMenu();
     }
@@ -589,93 +598,19 @@ export class OnlineController {
 
   private buildGameChrome(): void {
     const layer = this.host.overlay.hudLayer;
-    if (!this.phraseBtn) {
-      const b = h('button.qp-btn', { type: 'button', 'aria-label': t('online.phrases'), title: t('online.phrases'), html: ONLINE_ICONS.chat }) as HTMLButtonElement;
-      b.addEventListener('click', () => this.togglePhrases());
-      this.phraseBtn = b;
-    }
     if (!this.netChip) this.netChip = h('div.net-chip', { role: 'status', 'aria-live': 'polite' });
-    layer.append(this.phraseBtn, this.netChip);
-    this.host.plates.onLayout = () => this.placePhraseBtn();
-    this.placePhraseBtn();
+    layer.append(this.netChip);
+    this.host.setChatSender((id) => this.client?.send({ t: 'phrase', id }));
+    this.host.chat.show();
     this.onConnState(this.client?.connState ?? 'open');
   }
 
-  /** the quick-phrase button sits just outside the own plate, on the table side */
-  private placePhraseBtn(): void {
-    const b = this.phraseBtn;
-    const box = this.host.plates.box(0);
-    if (!b) return;
-    if (!box || !box.visible) {
-      b.classList.remove('on');
-      return;
-    }
-    const W = window.innerWidth;
-    const size = 40;
-    const turned = Math.abs(Math.sin(box.rot)) > 0.7;
-    const pw = (turned ? box.h : box.w) * box.scale;
-    const ph = (turned ? box.w : box.h) * box.scale;
-    // beside the plate, on its outer side (a plate left of the hand gets it on the left), within the screen
-    const outerLeft = box.x < W * 0.45;
-    let x = outerLeft ? box.x - pw / 2 - 10 - size : box.x + pw / 2 + 10;
-    if (x < 8) x = box.x + pw / 2 + 10;
-    if (x + size > W - 8) x = box.x - pw / 2 - 10 - size;
-    let y = box.y - size / 2;
-    if (box.layout === 'stack') {
-      x = box.x - size / 2;
-      y = box.y - ph / 2 - size - 8;
-    }
-    b.style.transform = `translate(${Math.round(x)}px,${Math.round(Math.max(8, y))}px)`;
-    b.classList.add('on');
-    if (this.phrasePop) this.placePop();
-  }
-
-  private togglePhrases(force?: boolean): void {
-    const open = force ?? !this.phrasePop;
-    if (!open) {
-      this.phrasePop?.remove();
-      this.phrasePop = null;
-      this.phraseBtn?.setAttribute('aria-expanded', 'false');
-      document.removeEventListener('pointerdown', this.onDocDown, true);
-      return;
-    }
-    if (this.phrasePop) return;
-    const pop = h(
-      'div.qp-pop',
-      buildPhraseGrid((id) => {
-        this.client?.send({ t: 'phrase', id });
-        this.togglePhrases(false);
-      }),
-    );
-    this.phrasePop = pop;
-    this.host.overlay.hudLayer.append(pop);
-    this.phraseBtn?.setAttribute('aria-expanded', 'true');
-    this.placePop();
-    setTimeout(() => document.addEventListener('pointerdown', this.onDocDown, true), 0);
-  }
-
-  private onDocDown = (e: PointerEvent): void => {
-    const el = e.target as Node;
-    if (this.phrasePop?.contains(el) || this.phraseBtn?.contains(el)) return;
-    this.togglePhrases(false);
-  };
-
-  private placePop(): void {
-    const pop = this.phrasePop;
-    const b = this.phraseBtn;
-    if (!pop || !b) return;
-    const r = b.getBoundingClientRect();
-    const pw = pop.offsetWidth;
-    const ph = pop.offsetHeight;
-    const W = window.innerWidth;
-    let x = r.left + r.width / 2 - pw / 2;
-    x = Math.max(8, Math.min(W - pw - 8, x));
-    let y = r.top - ph - 10;
-    if (y < 8) y = r.bottom + 10;
-    pop.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
-  }
-
   private showPhrase(seat: Seat, id: string): void {
+    // a gesture: the seat's avatar makes it
+    if (id.startsWith('g:')) {
+      if ((CHAT_GESTURES as readonly string[]).includes(id.slice(2))) this.host.avatars.gesture(seat, id.slice(2) as ChatGesture);
+      return;
+    }
     const text = phraseText(id);
     if (!text) return;
     this.host.plates.say(seat, text, false, 2400);
@@ -685,8 +620,8 @@ export class OnlineController {
 
   private leaveGameUi(): void {
     this.bumpGen();
-    this.togglePhrases(false);
-    this.phraseBtn?.remove();
+    this.host.chat.hide();
+    this.host.setChatSender(null);
     this.netChip?.remove();
     this.host.plates.onLayout = null;
     this.host.plates.setTimer(null);
@@ -1100,7 +1035,7 @@ export class OnlineController {
   /** the in-game menu: the online match does not pause */
   openMenu(): void {
     if (this.mode !== 'game' || this.closeMenu) return;
-    this.togglePhrases(false);
+    this.host.chat.toggle(false);
     const s = this.host.settings();
     this.closeMenu = this.host.overlay.openModal(
       buildOnlinePause({

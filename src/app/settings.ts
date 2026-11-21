@@ -4,6 +4,7 @@ import { migrateRules, RULES_VERSION } from '../engine/rules';
 import { DEFAULT_LINEUP, isCharacter } from '../roster';
 import { sanitizeFace } from 'kuavatars/faces';
 import { resolveQuality } from './perf';
+import { DEFAULT_GESTURES, sanitizeGestures } from '../ui/chat';
 
 const KEY = 'kudominoes.settings.v1';
 
@@ -34,6 +35,7 @@ export function defaultSettings(engine: EngineApi): AppSettings {
     soloOpponents: 2,
     soloLineup: [],
     rulesTabMode: 'pairs',
+    gestures: [...DEFAULT_GESTURES],
   };
 }
 
@@ -132,6 +134,7 @@ export function loadSettings(engine: EngineApi): AppSettings {
       rulesIndividual: sanitizeRules(engine, s.rulesIndividual, 'individual'),
       soloOpponents: s.soloOpponents === 1 || s.soloOpponents === 2 || s.soloOpponents === 3 ? s.soloOpponents : 2,
       soloLineup: sanitizeSoloLineup(s.soloLineup),
+      gestures: sanitizeGestures(s.gestures),
       rulesTabMode: s.rulesTabMode === 'individual' ? 'individual' : s.rulesTabMode === 'pairs' ? 'pairs' : s.mode === 'individual' ? 'individual' : 'pairs',
     });
   } catch {

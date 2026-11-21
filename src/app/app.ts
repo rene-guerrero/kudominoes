@@ -1,4 +1,4 @@
-import type { AppSettings, Bonus, EngineApi, FrameStats, GameEvent, GameMode, Lineup, MatchState, Seat, SfxName, TableView, TableViewOptions } from '../contracts';
+import type { AppSettings, Bonus, RuleSettings, EngineApi, FrameStats, GameEvent, GameMode, Lineup, MatchState, Seat, SfxName, TableView, TableViewOptions } from '../contracts';
 import { ALL_TILES } from '../engine/tiles';
 import { staticFace, faceOfSeat } from '../ui/avatars';
 import { character, profileOf, randomLineup } from '../roster';
@@ -6,10 +6,13 @@ import { hapticTick, playSfx, setAudioPrefs, setAudioSuspended } from '../audio/
 import { buildHowto } from '../ui/howto';
 import { Hud } from '../ui/hud';
 import { loc, setLang, t, type Key } from '../ui/i18n';
+import { sameRules } from '../engine/rules';
 import { buildMenu } from '../ui/menu';
 import { buildAbout } from '../ui/about';
 import { confirmDialog, Overlay } from '../ui/overlay';
 import { buildSettings, presetName, type SettingsTab } from '../ui/settings';
+import { ChatButton, phraseText, sanitizeGestures } from '../ui/chat';
+import { allPresets, deleteProfile, loadProfiles, saveProfile } from './ruleProfiles';
 import { buildNewGame } from '../ui/newgame';
 import { setTileTheme } from '../ui/tiles';
 import { buildHandSummary, buildMatchEnd, buildPause, buildStarterChooser } from '../ui/summary';
@@ -57,6 +60,9 @@ export class App {
   private rulesNoticePending = false;
   private avatars = new AvatarController();
   private plates = new SeatPlates(this.avatars);
+  /** online: where chat picks go; null = offline (only the player's own avatar shows them) */
+  private chatSend: ((id: string) => void) | null = null;
+  private chat!: ChatButton;
   /** the characters of the match being played (from the new-game sheet or the save) */
   private lineup: Lineup;
   /** auto quality: steps the level down when the renderer reports sustained slow frames */
@@ -80,6 +86,18 @@ export class App {
     this.hud = new Hud(() => (this.screen === 'online' ? this.online?.openMenu() : this.pause()));
     // plates under the HUD (the turn pill and top bar stay on top)
     this.overlay.hudLayer.append(this.plates.el, this.hud.el);
+    // gestures and quick phrases, in every game (offline: on the player's own avatar)
+    this.chat = new ChatButton({
+      layer: this.overlay.hudLayer,
+      plates: this.plates,
+      gestures: () => sanitizeGestures(this.settings.gestures),
+      face: () => faceOfSeat(0),
+      onGesture: (g) => (this.chatSend ? this.chatSend(`g:${g}`) : this.avatars.gesture(0, g)),
+      onPhrase: (id) => {
+        if (this.chatSend) return this.chatSend(id);
+        this.plates.say(0, phraseText(id), false, 2400);
+      },
+    });
     this.avatars.setHumanFace(this.settings.avatarFace ?? 0);
     this.plates.setAvatars(this.settings.avatars !== false);
     this.avatars.setReducedMotion(prefersReducedMotion());
@@ -256,6 +274,8 @@ export class App {
         }
       },
       setSfxMuted: (m) => (this.sfxMuted = m),
+      chat: this.chat,
+      setChatSender: (send) => (this.chatSend = send),
       exit: () => {
         this.onlineNames = null;
         this.applyLineupFaces();
@@ -302,7 +322,10 @@ export class App {
         ruleDescriptorsIndividual: this.engine.RULE_SETTINGS_INDIVIDUAL,
         defaultRulesIndividual: this.engine.DEFAULT_RULES_INDIVIDUAL,
         presets: this.engine.RULE_PRESETS ?? [],
-        matchInProgress: !!this.session || !!loadSave(),
+        profiles: loadProfiles(this.engine),
+        onSaveProfile: (name, mode, rules) => saveProfile(this.engine, name, mode, rules),
+        onDeleteProfile: (id) => deleteProfile(this.engine, id),
+        profileLocked: from === 'game' || !!this.onlineNames,
         confirm: (o) => confirmDialog(this.overlay, o),
         resolvedQuality: () => this.settings.quality,
         onChange: (next, key) => {
@@ -341,7 +364,7 @@ export class App {
         humanFace: this.settings.avatarFace ?? 0,
         humanName: this.settings.playerName || t('seat.you'),
         tableStyle: this.settings.tableStyle ?? 'green',
-        presetName: (mode) => presetName(this.engine.RULE_PRESETS ?? [], rulesFor(this.settings, mode), mode),
+        presetName: (mode) => presetName(allPresets(this.engine), rulesFor(this.settings, mode), mode),
         onChange: (lineup) => {
           this.settings = { ...this.settings, lineup };
           saveSettings(this.settings);
@@ -355,6 +378,30 @@ export class App {
           saveSettings(this.settings);
         },
         onRules: (mode) => this.showSettings('rules', mode),
+        ruleChoices: (mode) => {
+          const key = mode === 'individual' ? 'rulesIndividual' : 'rules';
+          const cur = rulesFor(this.settings, mode);
+          const classic = (this.engine.RULE_PRESETS ?? []).find((p) => (p.mode ?? 'pairs') === mode);
+          const sets = [
+            ...(classic ? [{ label: loc(classic.label), rules: classic.rules }] : []),
+            ...loadProfiles(this.engine)
+              .filter((p) => p.mode === mode)
+              .map((p) => ({ label: p.name, rules: p.rules })),
+          ];
+          const pickSet = (rules: RuleSettings) => {
+            this.settings = { ...this.settings, [key]: { ...rules } };
+            saveSettings(this.settings);
+          };
+          const items = sets.map((x) => ({ label: x.label, on: sameRules(x.rules, cur, mode), pick: () => pickSet(x.rules) }));
+          // first match only (a profile equal to Cubano clásico shows as Cubano clásico)
+          let seen = false;
+          for (const i of items) {
+            if (i.on && seen) i.on = false;
+            if (i.on) seen = true;
+          }
+          if (!seen) items.push({ label: t('settings.preset.custom'), on: true, custom: true } as never);
+          return items;
+        },
         onStart: (o) => {
           clearSave();
           this.settings = { ...this.settings, mode: o.mode };
@@ -467,6 +514,8 @@ export class App {
     this.screen = 'game';
     this.hud.reset();
     this.plates.clearBubbles();
+    this.chatSend = null;
+    this.chat.show();
     this.avatars.reset();
     this.avatars.setPaused(false);
     this.avatars.setHold(false);
@@ -564,6 +613,8 @@ export class App {
 
   private toMenu(): void {
     this.stopSession();
+    this.chat.hide();
+    this.chatSend = null;
     this.closePause?.();
     this.closePause = null;
     this.overlay.closeAllModals();
@@ -582,6 +633,7 @@ export class App {
   // ───────────────────────── pause ─────────────────────────
 
   pause(): void {
+    this.chat.toggle(false);
     if (!this.session || this.screen !== 'game' || this.closePause) return;
     this.session.setPaused(true);
     this.openPauseModal();

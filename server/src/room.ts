@@ -16,7 +16,7 @@ import { applyMove, chooseStarter, cpuStarter, createMatch, legalMoves, startHan
 import {
   COVER_LEVEL,
   PROTOCOL_VERSION,
-  QUICK_PHRASES,
+  isChatId,
   type ClientMsg,
   type ErrorCode,
   type RoomInfoResponse,
@@ -461,7 +461,7 @@ export class Room extends DurableObject<Env> {
   private onPhrase(ws: WebSocket, pid: string, id: string): void {
     const r = this.data!;
     const seat = seatOf(r, pid);
-    if (seat === null || !(QUICK_PHRASES as readonly string[]).includes(id)) return this.err(ws, 'bad_request');
+    if (seat === null || !isChatId(id)) return this.err(ws, 'bad_request');
     const now = Date.now();
     const log = (this.phraseLog.get(pid) ?? []).filter((t) => now - t < PHRASE_WINDOW_MS);
     if ((log.length && now - log[log.length - 1] < PHRASE_GAP_MS) || log.length >= PHRASE_BURST) {

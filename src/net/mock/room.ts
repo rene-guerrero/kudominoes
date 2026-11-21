@@ -16,7 +16,7 @@ import {
   DISCONNECT_GRACE_MS,
   MAX_NAME_LENGTH,
   PROTOCOL_VERSION,
-  QUICK_PHRASES,
+  isChatId,
   TURN_TIMEOUT_MS,
   type ClientMsg,
   type PublicRoom,
@@ -140,7 +140,7 @@ export class MockRoom {
         return;
       }
       case 'phrase': {
-        if (m.seat === null || !(QUICK_PHRASES as readonly string[]).includes(msg.id)) return;
+        if (m.seat === null || !isChatId(msg.id)) return;
         const last = this.lastPhrase.get(m.pid) ?? 0;
         if (Date.now() - last < 1200) return sock.send({ t: 'error', code: 'rate_limited' });
         this.lastPhrase.set(m.pid, Date.now());

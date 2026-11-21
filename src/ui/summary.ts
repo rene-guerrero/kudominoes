@@ -1,5 +1,6 @@
 import type { Bonus, GameEvent, Seat, Team } from '../contracts';
 import { countUp, h, prefersReducedMotion } from './dom';
+import { canFullscreen, toggleFullscreen } from '../app/fullscreen';
 import { loc, t } from './i18n';
 import { btn, ICONS } from './overlay';
 import { tileSvg } from './tiles';
@@ -445,6 +446,13 @@ export function audioToggle(key: AudioKey, on: boolean, onChange: (key: AudioKey
   return b;
 }
 
+export function fullscreenToggle(): HTMLButtonElement {
+  const label = t('menu.fullscreen');
+  const b = h('button.icon-btn.audio-tg.fs-tg', { type: 'button', 'aria-label': label, title: label, html: ICONS.fullscreen });
+  b.addEventListener('click', () => void toggleFullscreen());
+  return b;
+}
+
 export function buildPause(o: {
   levels?: { name: string; level: string; partner: boolean }[];
   audio: Record<AudioKey, boolean>;
@@ -463,13 +471,19 @@ export function buildPause(o: {
     h(
       'div.stack',
       resume,
-      btn(t('menu.settings'), o.onSettings, 'secondary', h('span.btn-icon', { html: ICONS.gear })),
+      // two equal halves: settings, how to play
       h(
-        'div.pause-row',
+        'div.pause-grid',
+        btn(t('menu.settings'), o.onSettings, 'secondary', h('span.btn-icon', { html: ICONS.gear })),
+        btn(t('menu.howto'), o.onHowto, 'secondary', h('span.btn-icon', { html: ICONS.book })),
+      ),
+      // equal icon toggles across the whole row: sound, music, vibration, fullscreen
+      h(
+        'div.pause-grid.pause-icons',
         audioToggle('sound', o.audio.sound, o.onAudio),
         audioToggle('music', o.audio.music, o.onAudio),
         canVibrate ? audioToggle('vibration', o.audio.vibration, o.onAudio) : null,
-        btn(t('menu.howto'), o.onHowto, 'secondary pause-howto', h('span.btn-icon', { html: ICONS.book })),
+        canFullscreen() ? fullscreenToggle() : null,
       ),
       btn(t('pause.quit'), o.onQuit, 'ghost', h('span.btn-icon', { html: ICONS.home })),
     ),

@@ -8,9 +8,19 @@ import { screenHeader } from './howto';
 import { createAvatarEditor, type FaceSpec } from 'kuavatars';
 import { tileSvg } from './tiles';
 import { enhanceHScroll } from './hscroll';
+import { gestureLabel, MAX_GESTURES, sanitizeGestures } from './chat';
+import { staticFace } from './avatars';
+import { CHAT_GESTURES, type ChatGesture } from '../net/protocol';
 
 export type SettingsTab = 'game' | 'rules' | 'av';
-const TABS: SettingsTab[] = ['game', 'rules', 'av'];
+const ALL_TABS: SettingsTab[] = ['game', 'rules', 'av'];
+
+export interface RuleProfileItem {
+  id: string;
+  name: string;
+  mode: GameMode;
+  rules: RuleSettings;
+}
 
 export interface SettingsOpts {
   settings: AppSettings;
@@ -21,7 +31,12 @@ export interface SettingsOpts {
   defaultRulesIndividual?: RuleSettings;
   /** named rule sets; the first of each mode is its classic one ("Cubano clásico") */
   presets: RulePreset[];
-  matchInProgress: boolean;
+  /** the player's saved rule profiles (all modes) and how to change them; each returns the new list */
+  profiles?: RuleProfileItem[];
+  onSaveProfile?(name: string, mode: GameMode, rules: RuleSettings): RuleProfileItem[];
+  onDeleteProfile?(id: string): RuleProfileItem[];
+  /** opened from inside a game: the name and avatar can't change (a note replaces them), and no Reglas tab */
+  profileLocked?: boolean;
   confirm(o: { title: string; body: string; ok: string; cancel: string; danger?: boolean }): Promise<boolean>;
   /** called with the full new settings object after every change */
   onChange(next: AppSettings, key: keyof AppSettings): void;
@@ -38,23 +53,61 @@ let rowSeq = 0;
 
 /** a settings row; `help` sits behind a small ⓘ button (shown on demand) */
 function row(label: string, control: Node, help?: string, stack = false): HTMLElement {
-  const helpId = `set-help-${++rowSeq}`;
-  const helpEl = help ? h('div.set-help', { id: helpId, hidden: true }, help) : null;
   let info: HTMLButtonElement | null = null;
   if (help) {
-    info = h('button.info-btn', { type: 'button', 'aria-expanded': 'false', 'aria-controls': helpId, 'aria-label': `${t('settings.info')}: ${label}`, title: t('settings.info') }, 'i');
-    info.addEventListener('click', () => {
-      const open = info!.getAttribute('aria-expanded') !== 'true';
-      info!.setAttribute('aria-expanded', String(open));
-      helpEl!.hidden = !open;
-    });
+    info = h('button.info-btn', { type: 'button', 'aria-expanded': 'false', 'aria-label': `${t('settings.info')}: ${label}`, title: t('settings.info') }, 'i');
+    info.addEventListener('click', () => toggleTip(info!, help));
   }
   return h(
     'div.set-row',
     { class: stack ? 'stack' : '' },
-    h('div.set-text', h('div.set-label-line', h('span.set-label', label), info), helpEl),
+    h('div.set-text', h('div.set-label-line', h('span.set-label', label), info)),
     h('div.set-ctl', control),
   );
+}
+
+// ── rule explanation tooltip: one floating bubble, opened by tapping ⓘ ──
+let tipEl: HTMLElement | null = null;
+let tipFor: HTMLElement | null = null;
+const tipOff = (e: Event) => {
+  if (e.type === 'keydown' && (e as KeyboardEvent).key !== 'Escape') return;
+  if (e.type === 'pointerdown' && (tipEl?.contains(e.target as Node) || tipFor?.contains(e.target as Node))) return;
+  closeTip();
+};
+function closeTip(): void {
+  tipFor?.setAttribute('aria-expanded', 'false');
+  tipEl?.remove();
+  tipEl = tipFor = null;
+  document.removeEventListener('pointerdown', tipOff, true);
+  document.removeEventListener('keydown', tipOff, true);
+  document.removeEventListener('scroll', tipOff, true);
+  window.removeEventListener('resize', tipOff);
+}
+function toggleTip(anchor: HTMLElement, text: string): void {
+  if (tipFor === anchor) return closeTip();
+  closeTip();
+  const id = `tip-${++rowSeq}`;
+  const el = h('div.tip', { id, role: 'tooltip' }, h('div.tip-text', text), h('div.tip-arrow'));
+  document.body.append(el);
+  anchor.setAttribute('aria-expanded', 'true');
+  anchor.setAttribute('aria-describedby', id);
+  // above the ⓘ when it fits, else below; kept inside the screen with a 12px margin
+  const a = anchor.getBoundingClientRect();
+  const w = el.offsetWidth;
+  const hgt = el.offsetHeight;
+  const cx = a.left + a.width / 2;
+  const left = Math.max(12, Math.min(innerWidth - w - 12, cx - w / 2));
+  const above = a.top - hgt - 10 > 12;
+  el.style.left = `${left}px`;
+  el.style.top = `${above ? a.top - hgt - 4 : a.bottom + 4}px`;
+  el.classList.add(above ? 'above' : 'below');
+  el.style.setProperty('--ax', `${cx - left}px`);
+  tipEl = el;
+  tipFor = anchor;
+  document.addEventListener('pointerdown', tipOff, true);
+  document.addEventListener('keydown', tipOff, true);
+  document.addEventListener('scroll', tipOff, true);
+  window.addEventListener('resize', tipOff);
 }
 
 /**
@@ -154,7 +207,12 @@ function shownValue(d: SettingDescriptor, v: SettingValue, rules: RuleSettings):
 
 function optionLabel(d: SettingDescriptor, o: NonNullable<SettingDescriptor['options']>[number], rules: RuleSettings, short = false): string {
   const raw = loc(short ? (o.short ?? o.label) : o.label);
-  return raw.split('{n}').join(String(shownValue(d, o.value, rules)));
+  // singular after a 1 ("+1 punto", "1 point")
+  return raw
+    .split('{n}')
+    .join(String(shownValue(d, o.value, rules)))
+    .replace(/(^|[^\d.,])1 puntos(?!\w)/g, '$11 punto')
+    .replace(/(^|[^\d.,])1 points(?!\w)/g, '$11 point');
 }
 
 const isOff = (v: SettingValue) => v === 0 || v === 'off' || v === false;
@@ -188,6 +246,114 @@ function sameAs(rules: RuleSettings, preset: RuleSettings, descriptors: SettingD
 export function presetName(presets: RulePreset[], rules: RuleSettings, mode: GameMode = 'pairs'): string {
   const p = presets.find((x) => (x.mode ?? 'pairs') === mode && Object.keys(x.rules).every((k) => x.rules[k] === rules[k]));
   return p ? loc(p.label) : t('settings.preset.custom');
+}
+
+export interface RuleSelectItem {
+  label: string;
+  on: boolean;
+  /** "Personalizado": shown as the current value, not pickable */
+  custom?: boolean;
+  pick?: () => void;
+}
+
+/** the rule-set dropdown: a wood-and-cream button that opens a list (game-styled, not the native select) */
+const PLUS_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
+const TRASH_SVG =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.2h8.6L17.2 7M10.2 10.5v5.5M13.8 10.5v5.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+export function ruleSelect(items: RuleSelectItem[], label: string, variant?: 'soft'): HTMLElement {
+  const cur = items.find((i) => i.on) ?? items[0];
+  const listId = `rsel-${++rowSeq}`;
+  const btnEl = h(
+    'button.rsel-btn',
+    { type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-controls': listId, 'aria-label': `${label}: ${cur.label}` },
+    h('span.rsel-v', { class: cur.custom ? 'custom' : '' }, cur.label),
+    h('span.rsel-chev', { 'aria-hidden': 'true' }),
+  );
+  const opts = items
+    .filter((i) => !i.custom)
+    .map((i) => {
+      const o = h('li.rsel-opt', { role: 'option', tabindex: -1, 'aria-selected': String(i.on) }, h('span.rsel-check', { 'aria-hidden': 'true' }), h('span', i.label));
+      o.addEventListener('click', () => {
+        close();
+        if (!i.on) i.pick?.();
+      });
+      return o;
+    });
+  const list = h('ul.rsel-list', { id: listId, role: 'listbox', 'aria-label': label, hidden: true }, ...opts);
+  const wrap = h('div.rsel', { class: variant ?? '' }, btnEl, list);
+  const outside = (e: Event) => {
+    if (!wrap.contains(e.target as Node)) close();
+  };
+  function open(): void {
+    // open upward when the space below is short (the new-game footer sits at the bottom)
+    const r = wrap.getBoundingClientRect();
+    wrap.classList.toggle('up', innerHeight - r.bottom < 220 && r.top > innerHeight - r.bottom);
+    list.hidden = false;
+    btnEl.setAttribute('aria-expanded', 'true');
+    wrap.classList.add('open');
+    document.addEventListener('pointerdown', outside, true);
+    const sel = opts.find((o) => o.getAttribute('aria-selected') === 'true') ?? opts[0];
+    sel?.focus({ preventScroll: true });
+  }
+  function close(focusBtn = false): void {
+    if (list.hidden) return;
+    list.hidden = true;
+    btnEl.setAttribute('aria-expanded', 'false');
+    wrap.classList.remove('open');
+    document.removeEventListener('pointerdown', outside, true);
+    if (focusBtn) btnEl.focus();
+  }
+  btnEl.addEventListener('click', () => (list.hidden ? open() : close()));
+  btnEl.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      open();
+    }
+  });
+  list.addEventListener('keydown', (e) => {
+    const i = opts.indexOf(document.activeElement as HTMLLIElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      opts[(i + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length]?.focus();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      (document.activeElement as HTMLElement)?.click();
+    } else if (e.key === 'Escape' || e.key === 'Tab') {
+      e.preventDefault();
+      close(true);
+    }
+  });
+  return wrap;
+}
+
+/** up to 5 gestures for the in-game chat: tiles showing the player's face making each one */
+function gesturePicker(initial: ChatGesture[], face: FaceSpec | number, onChange: (v: ChatGesture[]) => void): HTMLElement {
+  let picked = [...initial];
+  const count = h('div.gp-count', { 'aria-live': 'polite' });
+  const tiles = CHAT_GESTURES.map((g) => {
+    const label = gestureLabel(g);
+    const b = h('button.gp-tile', { type: 'button', 'aria-pressed': 'false', 'aria-label': label, title: label }, h('span.gp-face', staticFace(face, 'idle', { gesture: g })), h('span.gp-lbl', label), h('span.gp-num', { 'aria-hidden': 'true' }));
+    b.addEventListener('click', () => {
+      if (picked.includes(g)) picked = picked.filter((x) => x !== g);
+      else if (picked.length < MAX_GESTURES) picked = [...picked, g];
+      else return;
+      sync();
+      onChange([...picked]);
+    });
+    return { g, b };
+  });
+  function sync(): void {
+    for (const { g, b } of tiles) {
+      const i = picked.indexOf(g);
+      b.setAttribute('aria-pressed', String(i >= 0));
+      (b.querySelector('.gp-num') as HTMLElement).textContent = i >= 0 ? String(i + 1) : '';
+      b.toggleAttribute('disabled', i < 0 && picked.length >= MAX_GESTURES);
+    }
+    count.textContent = t('settings.gesturesCount', { n: picked.length });
+  }
+  sync();
+  return h('div.gp', h('div.gp-grid', ...tiles.map((x) => x.b)), count);
 }
 
 /** Juego tab, last: a quiet full-width row that opens Acerca de */
@@ -238,10 +404,11 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
   const tabGame = () =>
     h(
       'div.set-tab-body',
+      o.profileLocked ? h('section.card.set-card.profile-locked', h('p.set-help.lead', t('settings.profileLocked'))) : null,
       h(
         'section.card.set-card',
-        row(t('settings.name'), name),
-        row(t('settings.avatarFace'), faceEditor(s.avatarFace ?? 0, (v) => set('avatarFace', v)), undefined, true),
+        o.profileLocked ? null : row(t('settings.name'), name),
+        o.profileLocked ? null : row(t('settings.avatarFace'), faceEditor(s.avatarFace ?? 0, (v) => set('avatarFace', v)), undefined, true),
         row(t('settings.tileTheme'), tileThemePicker(s.tileTheme ?? 'dark', (v) => set('tileTheme', v)), undefined, true),
         row(
           t('settings.tileBack'),
@@ -256,6 +423,7 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
           true,
         ),
       ),
+      h('section.card.set-card', row(t('settings.gestures'), gesturePicker(sanitizeGestures(s.gestures), s.avatarFace ?? 0, (v) => set('gestures', v)), t('settings.gesturesHelp'), true)),
       h(
         'section.card.set-card',
         row(t('settings.language'), seg('language', ['es', 'en'], (v) => (v === 'es' ? 'Español' : 'English'))),
@@ -312,6 +480,8 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
   // ── Reglas: presets + collapsible groups, rendered generically from engine descriptors ──
   // Parejas | Individual: each mode has its own rule list, values and "Cubano clásico"
   let openGroup: string | null = null;
+  let profiles: RuleProfileItem[] = o.profiles ?? [];
+  let naming = false;
   const hasSolo = !!o.ruleDescriptorsIndividual?.length;
   let rmode: GameMode = hasSolo && s.rulesTabMode === 'individual' ? 'individual' : 'pairs';
   const rulesWrap = h('div.set-tab-body');
@@ -337,31 +507,89 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
       set(key, { ...cur, [k]: v });
       renderRules();
     };
-    const presetBtn = (label: string, on: boolean, onClick?: () => void) => {
-      const b = h('button.preset-chip', { type: 'button', 'aria-pressed': String(on), disabled: !onClick && !on ? true : undefined }, label);
-      if (onClick) b.addEventListener('click', onClick);
-      return b;
+    const mine = profiles.filter((p) => p.mode === rmode);
+    const active = isClassic ? null : (mine.find((p) => sameAs(cur, p.rules, descriptors)) ?? null);
+    const apply = (rules: RuleSettings) => {
+      set(key, { ...rules });
+      renderRules();
     };
-    const restore = async () => {
+    const restore = () => {
       if (isClassic) return;
-      if (o.matchInProgress) {
-        const ok = await o.confirm({
-          title: t('settings.presetConfirmTitle', { name: loc(classic.label) }),
-          body: t('settings.presetConfirmBody'),
-          ok: t('settings.presetConfirmOk'),
-          cancel: t('common.cancel'),
-        });
-        if (!ok) return;
-      }
       set(key, { ...classic.rules });
       renderRules();
     };
-    const presets = h(
-      'div.presets',
-      { role: 'group', 'aria-label': t('settings.preset') },
-      presetBtn(loc(classic.label), isClassic, isClassic ? undefined : () => void restore()),
-      presetBtn(t('settings.preset.custom'), !isClassic),
+    // which rule set: a dropdown (Cubano clásico, the saved profiles, and "Personalizado" while nothing matches)
+    const presets = ruleSelect(
+      [
+        { label: loc(classic.label), on: isClassic, pick: restore },
+        ...mine.map((p) => ({ label: p.name, on: p === active, pick: () => apply(p.rules) })),
+        ...(!isClassic && !active ? [{ label: t('settings.preset.custom'), on: true, custom: true }] : []),
+      ],
+      t('settings.preset'),
     );
+    // save the current rules as a profile / delete the selected one
+    let profileCtl: HTMLElement | null = null;
+    let profileAct: HTMLElement | null = null;
+    if (o.onSaveProfile && o.onDeleteProfile) {
+      const save = o.onSaveProfile;
+      const del = o.onDeleteProfile;
+      if (naming) {
+        const input = h('input.text-input', {
+          type: 'text',
+          maxlength: 24,
+          placeholder: t('settings.profileName'),
+          autocomplete: 'off',
+          enterkeyhint: 'done',
+          'aria-label': t('settings.profileName'),
+        }) as HTMLInputElement;
+        const ok = h('button.btn.primary.profile-ok', { type: 'button' }, t('settings.profileSaveOk'));
+        const cancel = h('button.btn.secondary.profile-cancel', { type: 'button' }, t('common.cancel'));
+        const commit = () => {
+          const n = input.value.trim();
+          if (!n) return input.focus();
+          profiles = save(n, rmode, cur);
+          naming = false;
+          renderRules();
+        };
+        ok.addEventListener('click', commit);
+        cancel.addEventListener('click', () => {
+          naming = false;
+          renderRules();
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') cancel.click();
+        });
+        profileCtl = h('div.profile-form', input, h('div.profile-form-btns', cancel, ok));
+        setTimeout(() => input.focus(), 50);
+      } else {
+        if (active) {
+          const label = t('settings.profileDelete', { name: active.name });
+          profileAct = h('button.icon-btn.rsel-act.danger', { type: 'button', 'aria-label': label, title: label, html: TRASH_SVG });
+          profileAct.addEventListener('click', async () => {
+            const ok = await o.confirm({
+              title: t('settings.profileDeleteTitle', { name: active.name }),
+              body: t('settings.profileDeleteBody'),
+              ok: t('settings.profileDeleteOk'),
+              cancel: t('common.cancel'),
+              danger: true,
+            });
+            if (!ok) return;
+            profiles = del(active.id);
+            renderRules();
+          });
+        } else {
+          // + saves the current rules (nothing to save while they are Cubano clásico or the list is full)
+          const label = t('settings.profileSave');
+          const canSave = !isClassic && profiles.length < 20;
+          profileAct = h('button.icon-btn.rsel-act', { type: 'button', 'aria-label': label, title: label, html: PLUS_SVG, disabled: canSave ? undefined : true });
+          profileAct.addEventListener('click', () => {
+            naming = true;
+            renderRules();
+          });
+        }
+      }
+    }
     // which mode's rules are shown: a segmented switch at the very top, the line under it says which
     const modeSwitch = hasSolo
       ? segmented<GameMode>(
@@ -398,7 +626,15 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
         for (const d of list) {
           const val = cur[d.key] ?? d.default;
           let ctl: Node;
+          const many = d.type === 'select' && (d.options?.length ?? 0) > 2;
           if (d.type === 'toggle') ctl = toggle(Boolean(val), (v) => setRule(d.key, v), loc(d.label));
+          // three or more options: a quiet dropdown (the teal one is for the rule set)
+          else if (many)
+            ctl = ruleSelect(
+              (d.options ?? []).map((op) => ({ label: optionLabel(d, op, cur), on: op.value === val, pick: () => setRule(d.key, op.value) })),
+              loc(d.label),
+              'soft',
+            );
           else
             ctl = segmented(
               (d.options ?? []).map((op) => ({ value: op.value, label: optionLabel(d, op, cur) })),
@@ -406,7 +642,7 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
               (v) => setRule(d.key, v),
               loc(d.label),
             );
-          const longOpts = d.type === 'select' && ((d.options?.length ?? 0) > 2 || (d.options ?? []).some((op) => optionLabel(d, op, cur).length > 9));
+          const longOpts = d.type === 'select' && !many && ((d.options ?? []).some((op) => optionLabel(d, op, cur).length > 9));
           body.append(row(loc(d.label), ctl, d.help ? loc(d.help) : undefined, longOpts));
         }
       }
@@ -417,9 +653,8 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
       h(
         'section.card.set-card.preset-card',
         modeSwitch,
-        h('p.set-help.lead', hasSolo ? `${t(solo ? 'settings.rulesForIndividual' : 'settings.rulesForPairs')} ${t('settings.rulesNext')}` : t('settings.rulesHelp')),
-        presets,
-        o.matchInProgress ? h('p.warn', { role: 'note' }, t('settings.rulesWarn')) : null,
+        h('div.rsel-line', presets, profileAct),
+        profileCtl,
       ),
       ...groupEls,
     );
@@ -427,6 +662,8 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
   renderRules();
 
   // ── tabs ──
+  // inside a game the rules can't change: no Reglas tab
+  const TABS: SettingsTab[] = o.profileLocked ? ALL_TABS.filter((k) => k !== 'rules') : ALL_TABS;
   let tab: SettingsTab = TABS.includes(s.settingsTab as SettingsTab) ? (s.settingsTab as SettingsTab) : 'game';
   const panel = h('div.content.set-panel', { role: 'tabpanel' });
   const scroll = h('div.scroll.set-scroll', panel);
@@ -465,7 +702,7 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
   return h(
     'section.screen.panel-screen.settings',
     screenHeader(t('settings.title'), () => {
-      if (name.value.trim() && name.value.trim() !== s.playerName) set('playerName', name.value.trim().slice(0, 14));
+      if (!o.profileLocked && name.value.trim() && name.value.trim() !== s.playerName) set('playerName', name.value.trim().slice(0, 14));
       o.onBack();
     }),
     h('div.set-layout', h('nav.set-tabs', { role: 'tablist', 'aria-label': t('settings.tabs') }, ...tabBtns), scroll),

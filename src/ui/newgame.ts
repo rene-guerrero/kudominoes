@@ -5,6 +5,7 @@ import { h, prefersReducedMotion } from './dom';
 import { loc, t, type Key } from './i18n';
 import { btn, ICONS, segmented } from './overlay';
 import { screenHeader } from './howto';
+import { ruleSelect, type RuleSelectItem } from './settings';
 import { liveFace, staticFace } from './avatars';
 
 type Slot = 1 | 2 | 3;
@@ -61,6 +62,8 @@ export interface NewGameOpts {
   onSoloChange(list: string[], opponents: Opp): void;
   onMode(mode: GameMode): void;
   onRules(mode: GameMode): void;
+  /** the rule sets to pick from (Cubano clásico + saved profiles); picking one applies it */
+  ruleChoices?(mode: GameMode): RuleSelectItem[];
   onStart(o: NewGameStart): void;
   onBack(): void;
 }
@@ -319,6 +322,7 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
   const applyMode = () => {
     oppCtl.hidden = mode !== 'individual';
     rulesValue.textContent = o.presetName(mode);
+    renderRuleSelect();
   };
 
   // ── bottom sheet (phone portrait) ──
@@ -381,7 +385,28 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
   // ── footer: rules line + Sorpréndeme + Comenzar ──
   const rulesLink = h('button.link-btn', { type: 'button' }, t('newgame.change'));
   rulesLink.addEventListener('click', () => o.onRules(mode));
-  const rulesLine = h('div.ng-rules', h('span.preset-k', `${t('newgame.rules')}:`), rulesValue, h('span.ng-dot', '·'), rulesLink);
+  // [REGLAS] [dropdown: Cubano clásico + saved profiles] [edit → Ajustes › Reglas]
+  const rulesSlot = h('div.rsel-slot');
+  const editLabel = t('newgame.editRules');
+  const editBtn = h('button.icon-btn.rsel-act', { type: 'button', 'aria-label': editLabel, title: editLabel, html: ICONS.gear });
+  editBtn.addEventListener('click', () => o.onRules(mode));
+  const rulesPick = h('div.rsel-line.ng-rsel', h('span.rsel-label', t('newgame.rules')), rulesSlot, editBtn);
+  const plainLine = h('div.ng-rules', h('span.preset-k', `${t('newgame.rules')}:`), rulesValue, h('span.ng-dot', '·'), rulesLink);
+  const rulesLine = h('div.ng-rules-wrap', rulesPick, plainLine);
+  function renderRuleSelect(): void {
+    const items = o.ruleChoices?.(mode) ?? [];
+    // the dropdown always shows (rules are picked here); the plain line is only a fallback without choices
+    const pickable = items.length > 0;
+    rulesPick.hidden = !pickable;
+    plainLine.hidden = pickable;
+    if (!pickable) return;
+    rulesSlot.replaceChildren(
+      ruleSelect(
+        items.map((i) => ({ ...i, pick: () => (i.pick?.(), applyMode()) })),
+        t('newgame.rules'),
+      ),
+    );
+  }
   let shuffling = 0;
   const draw = (): string[] => {
     const p = ROSTER.map((c) => c.id);

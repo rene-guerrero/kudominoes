@@ -550,4 +550,6 @@ export interface AppSettings {
   soloLineup?: string[];
   /** last mode shown in Ajustes → Reglas */
   rulesTabMode?: GameMode;
+  /** the gestures in the in-game chat (up to 5, KuAvatars gesture names) */
+  gestures?: string[];
 }
