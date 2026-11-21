@@ -27,6 +27,7 @@ import { errorReport, logError, onErrorLogged, type LoggedError } from './errorL
 import { buildCrash } from '../ui/crash';
 import type { OnlineController, OnlineHost } from './online';
 import type { FaceSpec } from '../roster';
+import { served, type NetMode } from '../net/config';
 
 type Names = [string, string, string, string];
 
@@ -205,14 +206,15 @@ export class App {
         onHowto: () => this.showHowto(),
         onAbout: () => this.showAbout(),
         onOnline: () => void this.openOnline(),
+        onFriends: () => void this.openOnline(undefined, false, 'local'),
       }),
     );
   }
 
   // ───────────────────────── online play ─────────────────────────
 
-  /** "Jugar en línea" (or a share link / a reload inside a room: join that code) */
-  async openOnline(code?: string, quiet = false): Promise<void> {
+  /** "Jugar en línea" / "Jugar con amigos" (or a share link / a reload inside a room: join that code) */
+  async openOnline(code?: string, quiet = false, net: NetMode = served() ? 'local' : 'online'): Promise<void> {
     this.onlineLoading ??= import('./online').then((m) => {
       this.online = new m.OnlineController(this.onlineHost());
       return this.online;
@@ -220,7 +222,7 @@ export class App {
     const ctl = await this.onlineLoading;
     this.stopSession();
     this.screen = 'online';
-    ctl.open(code, quiet);
+    ctl.open(code, quiet, net);
   }
 
   private onlineHost(): OnlineHost {
@@ -927,6 +929,7 @@ export class App {
         this.overlay.closeAllModals();
         return true;
       }
+      if (this.screen === 'online' && this.online?.closeTopSheet()) return true;
       if (this.overlay.modalOpen && this.screen !== 'game') {
         this.overlay.closeAllModals();
         return true;

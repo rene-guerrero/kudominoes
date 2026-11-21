@@ -830,6 +830,15 @@ body[data-mock] .menu,
 .seg-opt:active {
   transform: scale(0.95);
 }
+/* a control that applies but cannot be changed now (Parejas: always 4; not the host) */
+.seg.is-disabled .seg-opt,
+.seg-opt:disabled {
+  cursor: default;
+}
+.seg.is-disabled,
+.ng-opp.is-disabled .ng-opp-label {
+  opacity: 0.5;
+}
 .seg-opt[aria-checked='true'] {
   background: var(--cream);
   color: var(--ink);
@@ -1363,10 +1372,12 @@ body[data-mock] .menu,
 .score-card {
   justify-self: start;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  /* Nosotros 5 · Ellos 0 on one line, a thin bar under each */
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
   width: auto;
-  min-width: 148px;
+  min-width: 0;
   max-width: 100%;
   padding: 8px 10px;
   border-radius: 16px;
@@ -1468,6 +1479,41 @@ body[data-mock] .menu,
 .pause-btn {
   justify-self: end;
 }
+/* phones: score | hand + ends | pause fit one row above the top player */
+@media (max-width: 519px) {
+  .hud-top {
+    gap: 6px;
+  }
+  .score-card {
+    gap: 10px;
+    padding: 6px 9px;
+  }
+  .team-row {
+    gap: 6px;
+  }
+  .team-name {
+    font-size: 11px;
+  }
+  .team-pts {
+    font-size: 17px;
+    min-width: 1.4ch;
+  }
+  .hand-line {
+    padding: 5px 10px;
+  }
+  .ends {
+    padding: 4px 6px;
+    gap: 4px;
+  }
+  .end,
+  .end svg {
+    width: 20px;
+    height: 20px;
+  }
+  .ends-dot {
+    width: 10px;
+  }
+}
 /* rare-event notice: under the open ends (narrow) or beside them (wide); fades in and out */
 .notice {
   max-width: 100%;
@@ -1497,7 +1543,8 @@ body[data-mock] .menu,
 /* hand counter + open ends: one centred row when there is room, stacked (wrapped) on narrow screens */
 .hud-info {
   display: flex;
-  flex-wrap: wrap;
+  /* the hand pill and the open ends always share one row */
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 6px 8px;
@@ -1852,7 +1899,6 @@ body[data-mock] .menu,
 @media (max-width: 380px) {
   .score-card {
     width: auto;
-    min-width: 124px;
     padding: 7px 8px;
   }
   .team-pts {
@@ -1939,7 +1985,7 @@ body[data-mock] .menu,
 }
 @media (min-width: 900px) {
   .score-card {
-    width: 180px;
+    width: auto;
   }
   .team-pts {
     font-size: 24px;
@@ -3467,6 +3513,11 @@ button.ng-seat:hover {
 .audio-tg:active {
   transform: translateY(3px);
 }
+/* online menu: no Cómo jugar, so the toggles share the whole row */
+.online-pause .pause-row .audio-tg {
+  flex: 1 1 0;
+  width: auto;
+}
 /* Cómo jugar takes the rest of the row; if its label cannot fit beside the toggles it gets its own line */
 .pause-row .pause-howto {
   flex: 1 1 0;
@@ -3710,10 +3761,36 @@ button.ng-seat:hover {
   flex-shrink: 0;
 }
 
-/* ───────────────────────── puntos abajo: HUD chip beside the hand pill ───────────────────────── */
+/* ───────────────────────── puntos abajo / pozo: a small tab under the score card ───────────────────────── */
+.score-box {
+  position: relative;
+  justify-self: start;
+  min-width: 0;
+}
+.score-tabs {
+  position: absolute;
+  top: 100%;
+  left: 12px;
+  display: flex;
+  gap: 4px;
+  pointer-events: none;
+}
+.score-tabs .abajo-chip {
+  padding: 2px 9px 3px;
+  border-radius: 0 0 10px 10px;
+  background: rgba(29, 15, 8, 0.78);
+  box-shadow: inset 0 -1.5px 0 rgba(255, 182, 39, 0.55);
+  font-size: 12px;
+}
+.score-tabs .abajo-label {
+  font-size: 10.5px;
+}
+.score-tabs .pile-chip {
+  box-shadow: inset 0 -1.5px 0 rgba(255, 246, 230, 0.32);
+}
 .hand-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -4039,6 +4116,24 @@ button.ng-seat:hover {
     display: none;
   }
 }
+/* the room lobby keeps "Jugadores" on narrow phones too (the row never changes shape): tighter buttons */
+@media (max-width: 400px) {
+  .lobby .ng-opp-label {
+    display: inline;
+    font-size: 12px;
+  }
+  .lobby .ng-opp {
+    gap: 4px;
+  }
+  .lobby .ng-mode .seg-opt {
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  .lobby .seg-opp .seg-opt {
+    min-width: 28px;
+    padding: 4px 0;
+  }
+}
 @media (orientation: landscape) and (max-height: 520px) {
   .ng2 .ng-left {
     gap: 6px;
@@ -4331,6 +4426,151 @@ button.ng-seat:hover {
   width: 100%;
   height: 100%;
 }
+/* [Jugar en línea] [Jugar con amigos] on one row; they stack only when both labels cannot fit */
+.menu-actions .row.menu-net {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.menu-actions .row.menu-net > .btn {
+  flex: 1 1 150px;
+  min-width: 0;
+  /* phones (and a bigger system font): smaller text, and an ellipsis rather than a second line */
+  font-size: clamp(12.5px, 3.45vw, 16px);
+  padding-left: 10px;
+  padding-right: 10px;
+  gap: 6px;
+}
+.menu-actions .row.menu-net > .btn .btn-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.menu-actions .row.menu-net > .btn .btn-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* lobby, Jugar con amigos: the QR and address other devices open */
+.lobby-join {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.26);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 246, 230, 0.08);
+}
+.lobby-join-qr {
+  flex: 0 0 auto;
+  width: clamp(96px, 22vmin, 136px);
+  aspect-ratio: 1;
+  padding: 6px;
+  border-radius: 12px;
+  background: #fff;
+  color: #111;
+}
+.lobby-join-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.lobby-join-qr {
+  border: 0;
+  cursor: zoom-in;
+}
+/* the QR icon beside Compartir: phones only (wider screens show the join card) */
+.lobby-qr-btn {
+  display: none;
+}
+.lobby-qr-btn .btn-icon,
+.lobby-qr-btn .btn-icon svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+/* the big join QR (a sheet over the lobby) */
+.qr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(86vw, 420px);
+  padding: 18px 18px 20px;
+  border: 0;
+  border-radius: 24px;
+  background: #fff;
+  color: #1d120b;
+  font: inherit;
+  cursor: zoom-out;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.qr-card-code {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+}
+.qr-card-code svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.qr-card-title {
+  font-size: 18px;
+  font-weight: 900;
+}
+.qr-card-addr {
+  font-size: 16px;
+  font-weight: 700;
+  color: #5b4a3e;
+}
+.qr-card-addr b {
+  color: #1d120b;
+  white-space: nowrap;
+  user-select: text;
+}
+@media (orientation: portrait) and (max-width: 760px) {
+  .lobby .lobby-join {
+    order: 0;
+    padding: 8px 12px;
+    gap: 12px;
+  }
+  .lobby .lobby-join-qr {
+    width: 66px;
+    padding: 4px;
+    border-radius: 8px;
+  }
+  .lobby .lobby-join-main {
+    font-size: 14px;
+  }
+}
+.lobby-join-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.lobby-join-main {
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.25;
+  color: var(--cream);
+}
+.lobby-join-addr {
+  white-space: nowrap;
+  color: var(--cream);
+  user-select: text;
+}
+.lobby-join-hint {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.oh-note {
+  font-weight: 800;
+}
 
 /* "Jugar en línea" screen */
 .oh-scroll {
@@ -4468,6 +4708,84 @@ button.ng-seat:hover {
   flex: 0 0 auto;
   min-width: 110px;
   white-space: nowrap;
+}
+/* Jugar con amigos in the app: resume, games nearby, the other phone's address */
+.oh-resume {
+  width: 100%;
+}
+.oh-nearby-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.oh-nearby-empty {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+}
+.btn.oh-nearby-game {
+  width: 100%;
+  justify-content: space-between;
+}
+.oh-nearby-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  opacity: 0.8;
+}
+.oh-nearby-via {
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.22);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+.oh-bt-offer {
+  align-self: center;
+}
+.oh-loc {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 182, 39, 0.12);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 182, 39, 0.35);
+}
+.oh-loc[hidden] {
+  display: none;
+}
+.oh-loc-text {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.oh-bt-offer[hidden] {
+  display: none;
+}
+.oh-addr {
+  flex: none;
+}
+.oh-addr-input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cream);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 900;
+  outline: none;
+}
+.oh-addr-input::placeholder {
+  color: rgba(255, 246, 230, 0.35);
 }
 .oh-error {
   margin: 0;
@@ -5080,6 +5398,61 @@ button.ng-seat:hover {
     min-height: 42px;
     padding-left: 12px;
     padding-right: 12px;
+  }
+}
+
+/* phones in portrait: [code | Compartir] on one row and a two-line join card, so the table keeps its room */
+@media (orientation: portrait) and (max-width: 760px) {
+  .lobby .lobby-code {
+    flex-wrap: nowrap;
+    gap: 10px;
+    padding: 8px 12px;
+  }
+  .lobby .lobby-code .lobby-code-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .lobby .lobby-code-v {
+    font-size: clamp(20px, 6.2vw, 28px);
+    letter-spacing: 0.02em;
+  }
+  .lobby .lobby-sub {
+    min-height: 0;
+  }
+  .lobby .lobby-code .lobby-share,
+  .lobby .lobby-code .lobby-qr-btn {
+    flex: 0 0 auto;
+    margin-left: 0;
+    width: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    padding: 0;
+    justify-content: center;
+  }
+  .lobby .lobby-code .lobby-share .btn-label,
+  .lobby .lobby-code .lobby-qr-btn .btn-label {
+    display: none;
+  }
+  .lobby .lobby-code .lobby-qr-btn {
+    display: inline-flex;
+  }
+  .lobby .lobby-join {
+    display: none;
+  }
+  .lobby .ng-felt-box {
+    min-height: 230px;
+  }
+  /* four seat cards that never overlap on a narrow table */
+  .lobby .ng-table {
+    --sf: clamp(34px, 10.5vw, 52px);
+  }
+  .lobby .ng-seat,
+  .lobby .ng-seat.pos-bottom {
+    width: clamp(72px, 25%, 112px);
+  }
+  .lobby .ng-seat.pos-left,
+  .lobby .ng-seat.pos-right {
+    top: 46%;
   }
 }
 

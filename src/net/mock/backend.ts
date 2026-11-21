@@ -44,8 +44,7 @@ class Hub {
     do {
       code = Array.from({ length: ROOM_CODE_LENGTH }, () => ROOM_CODE_ALPHABET[Math.floor(Math.random() * ROOM_CODE_ALPHABET.length)]).join('');
     } while (this.rooms.has(code));
-    const room = new MockRoom(code);
-    room.hostId = pid;
+    const room = new MockRoom(code, pid);
     room.onEmpty = () => setTimeout(() => this.rooms.delete(code), 30_000);
     this.rooms.set(code, room);
     return code;
@@ -53,10 +52,7 @@ class Hub {
 
   private localInfo(code: string): RoomInfoResponse | null {
     const r = this.rooms.get(code);
-    if (!r) return null;
-    const pr = r.publicRoom();
-    const free = pr.seats.filter((o) => o.kind !== 'human').length;
-    return { exists: true, phase: pr.phase, freeSeats: pr.phase === 'lobby' ? free : 0 };
+    return r ? r.info() : null;
   }
 
   roomInfo(code: string): Promise<RoomInfoResponse> {

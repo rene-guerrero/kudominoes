@@ -3,8 +3,8 @@ import { sanitizeFace as cleanFace, type FaceSpec } from 'kuavatars/faces';
  * Room model and the pure lobby rules: seats, host, mode/rules, CPU fill, room codes, names.
  * The Durable Object (room.ts) persists a RoomData and calls these; nothing here touches I/O.
  */
-import { SEATS_FOR, type GameMode, type MatchState, type RuleSettings, type Seat } from '../../src/contracts';
-import { defaultRulesFor, normalizeRules } from '../../src/engine/rules';
+import { SEATS_FOR, type GameMode, type MatchState, type RuleSettings, type Seat } from '../../contracts';
+import { defaultRulesFor, normalizeRules } from '../../engine/rules';
 import {
   MAX_NAME_LENGTH,
   ROOM_CODE_ALPHABET,
@@ -12,8 +12,8 @@ import {
   type PublicRoom,
   type RoomPhase,
   type SeatOccupant,
-} from '../../src/net/protocol';
-import { isCharacter, ROSTER } from '../../src/roster';
+} from '../protocol';
+import { isCharacter, ROSTER } from '../../roster';
 import { emptySchedule, type Schedule } from './schedule';
 
 /** what a seat holds (member details live in RoomData.members) */

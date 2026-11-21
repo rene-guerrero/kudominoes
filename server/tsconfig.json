@@ -10,6 +10,6 @@
     "isolatedModules": true,
     "skipLibCheck": true
   },
-  "include": ["src", "test/**/*.ts", "../src/engine", "../src/contracts.ts", "../src/roster.ts", "../src/net/protocol.ts"],
+  "include": ["src", "test/**/*.ts", "../src/engine", "../src/contracts.ts", "../src/roster.ts", "../src/net/protocol.ts", "../src/net/room"],
   "exclude": ["../src/engine/**/*.test.ts", "../src/engine/testutil.ts"]
 }

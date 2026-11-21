@@ -11,8 +11,8 @@
  * Public (as at a real table): plays, passes, the chain, passes per pip, scores, the hands revealed in
  * handEnd.remaining, counts of tiles in each hand and in the pozo.
  */
-import type { GameEvent, MatchState, Move, Seat, Tile } from '../../src/contracts';
-import { HIDDEN_TILE, type SeatView } from '../../src/net/protocol';
+import type { GameEvent, MatchState, Move, Seat, Tile } from '../../contracts';
+import { HIDDEN_TILE, type SeatView } from '../protocol';
 
 const hidden = (n: number): Tile[] => Array.from({ length: n }, () => ({ ...HIDDEN_TILE }) as Tile);
 

@@ -62,10 +62,11 @@ export class Hud {
       'div.hud',
       h(
         'div.hud-top',
-        this.card,
+        // Abajo / Pozo hang under the score card as a small tab (the top row stays score | hand + ends | pause)
+        h('div.score-box', this.card, h('div.score-tabs', this.abajoChip, this.pileChip)),
         h(
           'div.hud-center',
-          h('div.hud-info', h('div.hand-row', h('div.hand-line', this.handNo, h('span.sep', '·'), this.target), this.abajoChip, this.pileChip), this.endsBox),
+          h('div.hud-info', h('div.hand-row', h('div.hand-line', this.handNo)), this.endsBox),
           this.noticeEl,
         ),
         this.pauseBtn,

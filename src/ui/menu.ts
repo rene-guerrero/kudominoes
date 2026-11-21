@@ -3,7 +3,7 @@ import { t } from './i18n';
 import { canFullscreen, toggleFullscreen } from '../app/fullscreen';
 import { btn, ICONS } from './overlay';
 import { tileSvg } from './tiles';
-import { onlineAvailable } from '../net/config';
+import { localPlayAvailable, onlineAvailable, served } from '../net/config';
 
 export interface MenuOpts {
   save: { hand: number; us: number; them: number } | null;
@@ -14,6 +14,8 @@ export interface MenuOpts {
   onAbout(): void;
   /** "Jugar en línea" */
   onOnline(): void;
+  /** "Jugar con amigos" (same Wi-Fi, no internet) */
+  onFriends?(): void;
 }
 
 /**
@@ -38,7 +40,7 @@ const DOWNLOAD_SVG =
 function apkBtn(): HTMLElement | null {
   const native = !!(window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
   const devPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('apk');
-  if (native || !(import.meta.env.PROD || devPreview)) return null;
+  if (native || served() || !(import.meta.env.PROD || devPreview)) return null;
   const label = t('menu.apk');
   const a = h('a.btn.ghost.about-btn.apk-btn', { href: './kudominoes.apk', download: 'kudominoes.apk', 'aria-label': label, title: label }, h('span.about-btn-icon', { html: DOWNLOAD_SVG })) as HTMLAnchorElement;
   return a;
@@ -46,6 +48,10 @@ function apkBtn(): HTMLElement | null {
 
 const GLOBE =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M3.6 12h16.8M12 3.4c2.4 2.4 3.6 5.3 3.6 8.6s-1.2 6.2-3.6 8.6c-2.4-2.4-3.6-5.3-3.6-8.6s1.2-6.2 3.6-8.6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
+
+/** two people side by side (Jugar con amigos) */
+const FRIENDS =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.6" cy="8.4" r="3.3" fill="none" stroke="currentColor" stroke-width="2.1"/><path d="M2.6 19.4c.5-3.4 2.9-5.4 6-5.4s5.5 2 6 5.4" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><circle cx="16.4" cy="7.6" r="2.7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.4 12.9c2.7 0 4.6 1.8 5 4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
 /** square icon-only Acerca de button, last in the Ajustes / Cómo jugar row */
 function aboutBtn(onClick: () => void): HTMLButtonElement {
@@ -67,7 +73,13 @@ export function buildMenu(o: MenuOpts): HTMLElement {
     actions.append(btn(t('menu.play'), o.onPlay, 'primary xl', icon(ICONS.play)));
   }
   // hidden until the room server is deployed and its URL configured (src/net/config.ts)
-  if (onlineAvailable()) actions.append(btn(t('menu.online'), o.onOnline, 'secondary lg menu-online', icon(GLOBE)));
+  // Jugar en línea and Jugar con amigos share one row (whichever this build offers)
+  const net = [
+    onlineAvailable() ? btn(t('menu.online'), o.onOnline, 'secondary lg menu-online', icon(GLOBE)) : null,
+    localPlayAvailable() && o.onFriends ? btn(t('menu.friends'), o.onFriends, 'secondary lg menu-online menu-friends', icon(FRIENDS)) : null,
+  ].filter((b): b is HTMLButtonElement => !!b);
+  if (net.length === 1) actions.append(net[0]);
+  else if (net.length) actions.append(h('div.row.menu-row.menu-net', ...net));
   // one row of equal icon-only buttons: Ajustes, Cómo jugar, Acerca de, fullscreen, download
   const settingsLabel = t('menu.settings');
   const settings = h('button.btn.ghost.about-btn.settings-btn', { type: 'button', 'aria-label': settingsLabel, title: settingsLabel }, h('span.about-btn-icon', { html: ICONS.gear }));
