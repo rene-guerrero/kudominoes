@@ -20,7 +20,7 @@
     "@capacitor/android": "^8.6.2",
     "@capacitor/core": "^8.6.2",
     "kuavatars": "github:rene-guerrero/kuavatars#v0.3.0",
-    "kunet": "file:../../../../kunet",
+    "kunet": "github:rene-guerrero/kunet#v0.1.0",
     "three": "^0.170.0"
   },
   "devDependencies": {
