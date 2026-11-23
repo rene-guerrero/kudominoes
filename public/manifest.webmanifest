@@ -1,8 +1,8 @@
 {
-  "name": "Kudominoes — Dominó por parejas",
+  "name": "Kudominoes — Dominoes",
   "short_name": "Kudominoes",
-  "description": "Dominó por parejas, doble seis, contra la computadora. Sin conexión.",
-  "lang": "es",
+  "description": "Dominoes in pairs or solo, against the computer or with friends nearby or online. Plays offline too.",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

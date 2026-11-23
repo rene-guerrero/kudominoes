@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -13,7 +13,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Kudominoes" />
     <meta name="format-detection" content="telephone=no" />
-    <meta name="description" content="Dominó por parejas — doble seis, contra la computadora." />
+    <meta name="description" content="Dominoes for web and Android: play in pairs or solo against the computer, with friends nearby or online." />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" href="./icon.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
@@ -62,7 +62,7 @@
           var boot = document.getElementById('boot');
           if (shown || !boot || !boot.parentNode) return;
           shown = true;
-          var es = (navigator.language || 'es').slice(0, 2) !== 'en';
+          var es = ((navigator.languages && navigator.languages[0]) || navigator.language || '').toLowerCase().indexOf('es') === 0;
           var box = document.createElement('div');
           box.style.cssText = 'position:fixed;left:0;right:0;bottom:18%;display:flex;flex-direction:column;align-items:center;gap:12px;font:600 15px system-ui,sans-serif;color:#f3e7cf;text-align:center;padding:0 24px';
           var msg = document.createElement('p');

@@ -71,7 +71,7 @@ const RULE_SETTINGS: SettingDescriptor[] = [
     group: 'salida',
     type: 'toggle',
     default: true,
-    label: { es: 'Sale el doble seis', en: 'Double six leads' },
+    label: { es: 'Sale el doble seis', en: 'Double six opens' },
     help: { es: 'La primera mano la abre quien tenga el doble seis (6-6).', en: 'The first hand is opened by whoever holds the 6-6.' },
   },
   {
@@ -91,7 +91,7 @@ const RULE_SETTINGS: SettingDescriptor[] = [
       { value: 'team', label: { es: 'Gana la pareja con menos', en: 'Lowest team wins' } },
       { value: 'player', label: { es: 'Gana el jugador con menos', en: 'Lowest player wins' } },
     ],
-    label: { es: 'Quién gana el juego cerrado', en: 'Who wins a block' },
+    label: { es: 'Quién gana el juego cerrado', en: 'Who wins a blocked game' },
   },
 ];
 

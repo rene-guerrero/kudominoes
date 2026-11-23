@@ -427,7 +427,7 @@ export class TableViewImpl implements TableView {
     this.quality = opts.quality;
     this.q = QUALITY[opts.quality];
     this.reduced = !!opts.reducedMotion;
-    this.lang = opts.language ?? 'es';
+    this.lang = opts.language ?? 'en';
     this.theme = opts.tileTheme ?? 'classic';
     this.tableStyle = opts.tableStyle && tex.TABLE_STYLE_DEFS[opts.tableStyle] ? opts.tableStyle : 'green';
     this.tileBack = opts.tileBack ?? 'ornate';

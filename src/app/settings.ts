@@ -8,8 +8,15 @@ import { DEFAULT_GESTURES, sanitizeGestures } from '../ui/chat';
 
 const KEY = 'kudominoes.settings.v1';
 
+/** Spanish when the browser prefers it (es, es-MX, es-419…), English otherwise */
+export function browserLang(): 'es' | 'en' {
+  const nav = typeof navigator !== 'undefined' ? navigator : undefined;
+  const first = nav?.languages?.[0] ?? nav?.language ?? '';
+  return first.toLowerCase().startsWith('es') ? 'es' : 'en';
+}
+
 export function defaultSettings(engine: EngineApi): AppSettings {
-  const lang = 'es' as const; // Spanish is the default; English is opt-in in Ajustes
+  const lang = browserLang(); // first visit: the browser's language (Spanish or English); a pick in Ajustes is saved
   return {
     language: lang,
     // auto: resolved per device on load (src/app/perf.ts); 'medium' is only a placeholder until then

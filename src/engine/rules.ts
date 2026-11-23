@@ -52,7 +52,7 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     short: L('1.ª mano', '1st hand'),
     help: L(
       'Quién abre la primera mano y si está obligado a salir con el doble más alto (6-6 en doble seis, 9-9 en doble nueve).',
-      'Who opens the first hand and whether they must lead the highest double (6-6 in double-six, 9-9 in double-nine).',
+      'Who opens the first hand and whether they must open with the highest double (6-6 in double six, 9-9 in double nine).',
     ),
   },
   {
@@ -63,14 +63,14 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     options: [
       { value: 'rotate', label: L('Rota a la derecha', 'Rotates to the right'), short: L('rota', 'rotates') },
       { value: 'winner', label: L('Sale el que ganó', 'Hand winner opens'), short: L('sale el ganador', 'winner opens') },
-      { value: 'winnerTeam', label: L('Sale la pareja ganadora: elige quién', 'Winning pair opens: they choose who'), short: L('sale la pareja ganadora', 'winning pair opens') },
+      { value: 'winnerTeam', label: L('Sale la pareja ganadora: elige quién', 'Winning team opens: they choose who'), short: L('sale la pareja ganadora', 'winning team opens') },
       { value: 'double6', label: L('Siempre el doble más alto', 'Always the highest double'), short: L('siempre doble más alto', 'always highest double') },
     ],
     label: L('Salida de las siguientes manos', 'Opening of later hands'),
     short: L('Después', 'Later'),
     help: L(
       'Pareja ganadora: la pareja que ganó la mano anterior decide, después de ver sus fichas, cuál de los dos sale. Rotación: sale el siguiente jugador. Si la mano es nula, vuelve a salir el mismo jugador, salvo con rotación.',
-      'Winning pair: the pair that won the previous hand decides, after seeing their tiles, which of the two opens. Rotation: the next player opens. After a void hand the same player opens again, except in rotation.',
+      'Winning team: after seeing their tiles, the team that won the previous hand decides which of the two partners opens. Rotation: the next player opens. After a void hand the same player opens again, except with rotation.',
     ),
   },
   {
@@ -78,9 +78,9 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     group: 'salida',
     type: 'toggle',
     default: false,
-    label: L('Repartir de nuevo con cinco dobles', 'Reshuffle on five doubles'),
+    label: L('Repartir de nuevo con cinco dobles', 'Redeal on five doubles'),
     short: L('Reparto con 5 dobles', 'Redeal on 5 doubles'),
-    help: L('Si un jugador recibe 5 o más dobles se vuelven a repartir las fichas.', 'If anyone is dealt 5 or more doubles the tiles are reshuffled.'),
+    help: L('Si un jugador recibe 5 o más dobles se vuelven a repartir las fichas.', 'If a player is dealt 5 or more doubles, the tiles are dealt again.'),
   },
   // ── Puntuación ──
   {
@@ -94,7 +94,7 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     short: L('A', 'To'),
     help: L(
       'La primera pareja en llegar a estos puntos gana la partida. Sin redondeo se cuentan los puntos exactos de las fichas, por eso la meta es diez veces mayor.',
-      'First team to reach this score wins the match. Without rounding the exact pips are counted, so the target is ten times larger.',
+      'The first team to reach this score wins the match. Without rounding, the exact pips are counted, so the target is ten times larger.',
     ),
   },
   {
@@ -108,7 +108,7 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
       { value: 'down', label: L('Hacia abajo', 'Down'), short: L('redondeo hacia abajo', 'round down') },
       { value: 'none', label: L('Sin redondeo', 'No rounding'), short: L('puntos exactos', 'exact pips') },
     ],
-    label: L('Redondeo de los puntos', 'Rounding of points'),
+    label: L('Redondeo de los puntos', 'Point rounding'),
     short: L('Redondeo', 'Rounding'),
     help: L(
       'Los puntos de la mano se redondean a la decena y se dividen entre diez. Hacia arriba: 31 → 40 → 4 puntos, 65 → 70 → 7. Al más cercano: el 5 sube (65 → 7, 64 → 6). Hacia abajo: 69 → 6. Sin redondeo: se suman los puntos exactos (65).',
@@ -121,14 +121,14 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     type: 'select',
     default: 'all',
     options: [
-      { value: 'all', label: L('Todos los puntos de la mesa', 'All pips left (incl. partner)'), short: L('todas las manos', 'all hands') },
-      { value: 'opponents', label: L('Solo los puntos de los contrarios', "Opponents' pips only"), short: L('solo contrarios', 'opponents only') },
+      { value: 'all', label: L('Todos los puntos de la mesa', 'Everyone’s pips'), short: L('todas las manos', 'all hands') },
+      { value: 'opponents', label: L('Solo los puntos de los contrarios', 'Opponents’ pips only'), short: L('solo contrarios', 'opponents only') },
     ],
     label: L('Puntos para el ganador', 'Points for the winner'),
     short: L('Cuenta', 'Counts'),
     help: L(
       'Al estilo cubano se cuentan las fichas que quedan en las cuatro manos.',
-      'Cuban style counts the tiles left in all four hands.',
+      'Cuban style counts the pips left in all four hands.',
     ),
   },
   {
@@ -150,15 +150,15 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     type: 'select',
     default: 'lowestPlayer',
     options: [
-      { value: 'lowestPlayer', label: L('Gana el jugador con menos puntos', 'Lowest individual hand wins'), short: L('gana el jugador con menos', 'lowest player wins') },
-      { value: 'lowestTeam', label: L('Gana la pareja con menos puntos', 'Lowest team total wins'), short: L('gana la pareja con menos', 'lowest team wins') },
+      { value: 'lowestPlayer', label: L('Gana el jugador con menos puntos', 'Player with fewest pips wins'), short: L('gana el jugador con menos', 'lowest player wins') },
+      { value: 'lowestTeam', label: L('Gana la pareja con menos puntos', 'Team with fewest pips wins'), short: L('gana la pareja con menos', 'lowest team wins') },
       { value: 'blockerRisk', label: L('El que cierra el juego arriesga', 'Blocker takes the risk'), short: L('el que cierra arriesga', 'blocker risks') },
     ],
-    label: L('Quién gana el juego cerrado', 'Who wins a blocked hand'),
+    label: L('Quién gana el juego cerrado', 'Who wins a blocked game'),
     short: L('Gana', 'Winner'),
     help: L(
       'Con «El que cierra el juego arriesga», la pareja del que cerró gana solo si este tiene menos puntos que ambos contrarios.',
-      'With "blocker takes the risk", the blocker\'s team wins only if the blocker has fewer pips than both opponents.',
+      'With “Blocker takes the risk”, the blocker’s team wins only if the blocker has fewer pips than both opponents.',
     ),
   },
   {
@@ -168,14 +168,14 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     default: 'mano',
     options: [
       { value: 'mano', label: L('Gana la pareja que salió (la mano)', 'Opening team wins (la mano)'), short: L('empate: gana la mano', 'tie: opener wins') },
-      { value: 'void', label: L('Mano nula', 'Hand is void'), short: L('empate: mano nula', 'tie: void') },
+      { value: 'void', label: L('Mano nula', 'Void hand'), short: L('empate: mano nula', 'tie: void hand') },
       { value: 'blockerLoses', label: L('Pierde el que cerró', 'The blocker loses'), short: L('empate: pierde el que cerró', 'tie: blocker loses') },
     ],
-    label: L('Empate en el juego cerrado', 'Tie in a blocked hand'),
+    label: L('Empate en el juego cerrado', 'Tied blocked game'),
     short: L('Empate', 'Tie'),
     help: L(
       'Qué pasa si las dos parejas empatan en el juego cerrado. Al estilo cubano gana la pareja que salió en esa mano (la mano) y se anota los puntos como en cualquier cerrado. También puede anularse la mano o perderla el que cerró.',
-      'What happens when both teams tie in a blocked hand. Cuban style, the team that opened that hand (la mano) wins and scores the points like any blocked hand. The hand can also be void, or lost by the blocker.',
+      'What happens when both teams tie in a blocked game. Cuban style, the team that opened that hand (la mano) wins and scores the points as in any blocked game. Alternatively the hand is void, or the blocker loses it.',
     ),
   },
   {
@@ -187,11 +187,11 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
       { value: 'same', label: L('Igual que el dominó', 'Same as a domino'), short: L('cuenta igual', 'scored the same') },
       { value: 'opponents', label: L('Solo los puntos de los perdedores', "Losers' pips only"), short: L('solo perdedores', 'losers only') },
     ],
-    label: L('Puntos del juego cerrado', 'Points in a blocked hand'),
+    label: L('Puntos del juego cerrado', 'Blocked game points'),
     short: L('Puntos', 'Points'),
     help: L(
       'Los puntos del cerrado se redondean igual que los de un dominó.',
-      'Blocked-hand points are rounded just like a domino.',
+      'Blocked game points are rounded the same way as a domino.',
     ),
   },
   // ── Bonos ──
@@ -211,7 +211,7 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     label: L('Capicúa', 'Capicúa'),
     help: L(
       'Ganar la mano con una ficha que entraba por los dos extremos. «Vale doble»: primero se redondea y después se dobla (65 → 7, ×2 = 14). También puede dar un premio fijo.',
-      'Going out with a tile that fits both ends. "Counts double": round first, then double (65 → 7, ×2 = 14). It can also give a fixed bonus.',
+      'Winning the hand with a tile that fits both ends. “Counts double”: round first, then double (65 → 7, ×2 = 14). It can also give a fixed bonus.',
     ),
   },
   {
@@ -249,7 +249,7 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     label: L('Pase de los tres', 'Triple pass'),
     help: L(
       'Premio cuando una ficha hace pasar a los otros tres y el turno vuelve al mismo jugador. Se suma al terminar la mano.',
-      'Bonus when one play makes the other three pass and the turn comes back. Paid when the hand ends.',
+      'Bonus when one tile makes the other three players pass and the turn comes back to the same player. Added when the hand ends.',
     ),
   },
   {
@@ -261,7 +261,7 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     options: [{ ...off, short: L('no', 'off') }, pts(1), pts(2), pts(3)],
     label: L('Cierre con doble blanco', 'Double-blank finish'),
     short: L('Doble blanco', 'Double blank'),
-    help: L('Premio por ganar la mano con el doble blanco.', 'Bonus for going out with the double blank.'),
+    help: L('Premio por ganar la mano con el doble blanco.', 'Bonus for winning the hand with the double blank.'),
   },
   {
     key: 'pollona',
@@ -271,12 +271,12 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     options: [
       { value: 'off', label: L('No', 'Off'), short: L('no', 'off') },
       { value: 'double', label: L('Vale doble', 'Counts double'), short: L('×2', '×2') },
-      { value: 'halfTarget', label: L('Gana a mitad de partida', 'Wins at half target'), short: L('a la mitad', 'at half') },
+      { value: 'halfTarget', label: L('Gana a mitad de partida', 'Win at half the target'), short: L('a la mitad', 'at half') },
     ],
     label: L('Blanqueo', 'Shutout'),
     help: L(
       'Ganar sin que los contrarios anoten: dobla los puntos finales, o termina la partida al llegar a la mitad.',
-      'Winning while the opponents have zero: doubles the final score, or ends the match at half the target.',
+      'Winning the match with the opponents on zero: doubles the final score, or ends the match at half the target.',
     ),
   },
 ];
@@ -307,7 +307,7 @@ export const RULE_SETTINGS_INDIVIDUAL: SettingDescriptor[] = [
     short: L('se roba del pozo', 'draw from the boneyard'),
     help: L(
       'Con doble seis sobran fichas con 2 o 3 jugadores; con doble nueve sobran con cualquier número. Si no puedes jugar, robas del pozo una a una hasta que salga una que sirva, y la juegas; si el pozo se acaba, pasas. Desactivado: las fichas que sobran quedan apartadas y el que no puede jugar pasa.',
-      'With double-six there are leftovers with 2 or 3 players; with double-nine there are leftovers with any count. If you cannot play, you draw one at a time until one fits, and you play it; when the boneyard runs out, you pass. Off: the leftover tiles are set aside and whoever cannot play passes.',
+      'With double six, tiles are left over with 2 or 3 players; with double nine, with any number of players. If you cannot play, you draw from the boneyard one tile at a time until one fits, and you play it; when the boneyard runs out, you pass. Off: the leftover tiles are set aside and whoever cannot play passes.',
     ),
   },
   shared('tileSet', 'pozo'),
@@ -318,7 +318,7 @@ export const RULE_SETTINGS_INDIVIDUAL: SettingDescriptor[] = [
     'puntuacion',
     L(
       'El primer jugador en llegar a estos puntos gana la partida. Sin redondeo se cuentan los puntos exactos de las fichas, por eso la meta es diez veces mayor.',
-      'First player to reach this score wins the match. Without rounding the exact pips are counted, so the target is ten times larger.',
+      'The first player to reach this score wins the match. Without rounding, the exact pips are counted, so the target is ten times larger.',
     ),
   ),
   shared(
@@ -337,13 +337,13 @@ export const RULE_SETTINGS_INDIVIDUAL: SettingDescriptor[] = [
     default: 'mano',
     options: [
       { value: 'mano', label: L('Gana el más cercano a la salida', 'Closest to the opener wins'), short: L('empate: gana la mano', 'tie: opener wins') },
-      { value: 'void', label: L('Mano nula', 'Hand is void'), short: L('empate: mano nula', 'tie: void') },
+      { value: 'void', label: L('Mano nula', 'Void hand'), short: L('empate: mano nula', 'tie: void hand') },
     ],
-    label: L('Empate en el juego cerrado', 'Tie in a blocked hand'),
+    label: L('Empate en el juego cerrado', 'Tied blocked game'),
     short: L('Empate', 'Tie'),
     help: L(
       'En el cerrado gana el jugador con menos puntos y se anota los de todos los demás. Si empatan varios, gana el que salió en esa mano o, si no está entre ellos, el primero de los empatados que juega después de él. También puede anularse la mano.',
-      'In a blocked hand the player with the fewest pips wins and scores everyone else’s. If several tie, the player who opened that hand wins or, if they are not among them, the first of the tied players to play after the opener. The hand can also be void.',
+      'In a blocked game the player with the fewest pips wins and scores everyone else’s. If several players tie, the player who opened that hand wins or, if they are not among them, the first of the tied players to play after the opener. Alternatively the hand is void.',
     ),
   },
   // ── Bonos ──

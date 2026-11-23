@@ -96,7 +96,7 @@ export function saveCustomMode(def: DominoMode): DominoMode[] {
   const clean: DominoMode = {
     v: 1,
     id: def.id,
-    name: L(def.name.es.trim().slice(0, 24) || 'Mi modo', (def.name.en || def.name.es).trim().slice(0, 24)),
+    name: L(def.name.es.trim().slice(0, 24) || 'Mi modo', (def.name.en || def.name.es).trim().slice(0, 24) || 'My mode'),
     icon: def.icon || (def.base === 'pairs' ? 'pair' : 'solo'),
     base: def.base,
     rules: normalizeRules(def.rules, def.base),
@@ -158,7 +158,7 @@ export function migrateProfilesToModes(engine: EngineApi, settings: AppSettings)
     else if (list.length < MAX_CUSTOM_MODES) {
       const id = newModeId();
       const name = pick();
-      list.push({ v: 1, id, name: L(name, name), icon: currentMode === 'pairs' ? 'pair' : 'solo', base: currentMode, rules: currentRules });
+      list.push({ v: 1, id, name: L(name, name.replace('Mis reglas', 'My rules')), icon: currentMode === 'pairs' ? 'pair' : 'solo', base: currentMode, rules: currentRules });
       selected = id;
     }
   }
