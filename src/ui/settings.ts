@@ -4,7 +4,7 @@ import { tableThumb, tileBackThumb } from '../render';
 import { deleteCustomMode, draftFrom, isBuiltInMode, modeDef } from '../app/modes';
 import { defaultRulesFor } from '../engine/rules';
 import { h } from './dom';
-import { loc, t, tMaybe, type Key } from './i18n';
+import { getLang, loc, t, tMaybe, type Key } from './i18n';
 import { ICONS, segmented, toggle } from './overlay';
 import { screenHeader } from './howto';
 import { createAvatarEditor, type FaceSpec } from 'kuavatars';
@@ -156,7 +156,7 @@ function radioItems<T>(values: T[], value: T, make: (v: T, on: boolean) => Node[
 /** the human's face: the shared KuAvatars editor (every option is a thumbnail of the player's own face) */
 function faceEditor(value: number | FaceSpec, onChange: (v: FaceSpec) => void): HTMLElement {
   const box = h('div.face-editor');
-  createAvatarEditor(box, { value, onChange, moods: false, gestures: false });
+  createAvatarEditor(box, { value, onChange, lang: getLang(), moods: false, gestures: false });
   return box;
 }
 
