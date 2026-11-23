@@ -94,6 +94,14 @@ describe('redaction and the client mirror', () => {
     expect(full.hand!.hands[0].every((t) => t.id === -1)).toBe(true);
   });
 
+  it('a seat view does not leak the engine’s double-nine set-aside ids', () => {
+    let m = engine.createMatch({ ...engine.DEFAULT_RULES, tileSet: 'double9' as const }, 7);
+    m = engine.startHand(m).match;
+    expect((m.hand as { setAsideIds?: number[] } | null)?.setAsideIds).toHaveLength(15);
+    const r = redactMatch(m, 1);
+    expect(r.match.hand).not.toHaveProperty('setAsideIds');
+  });
+
   it('the mirror follows a whole match played by CPUs (counts, chain, scores)', () => {
     for (const me of [0, 1, 2, 3] as Seat[]) {
       let m: MatchState = engine.createMatch(engine.DEFAULT_RULES, 11 + me);

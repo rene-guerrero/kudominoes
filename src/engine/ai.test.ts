@@ -3,8 +3,9 @@ import type { Difficulty, MatchState, Move, PlayStyle, RuleSettings } from '../c
 import { ROSTER, type Character } from '../roster';
 import { chooseMove, lastHardStats, MASTER_MS, type AiOptions } from './ai';
 import { applyMove, chooseStarter, cpuStarter, createMatch, legalMoves, startHand } from './game';
-import { DEFAULT_RULES } from './rules';
+import { DEFAULT_RULES, DEFAULT_RULES_INDIVIDUAL } from './rules';
 import { scenario, tid } from './testutil';
+import { tileIdsFor } from './tiles';
 
 const sameMove = (a: Move, b: Move) =>
   a.kind === b.kind && a.seat === b.seat && (a.kind !== 'play' || (b.kind === 'play' && a.tileId === b.tileId && a.side === b.side));
@@ -335,4 +336,65 @@ describe('CPU: characters', () => {
     const o = { maxRollouts: 600, timeMs: 10_000 };
     expect(chooseMove(m2, 'master', o)).toEqual(chooseMove(m, 'master', o));
   });
+});
+
+// ───────────────────────── double-nine set ─────────────────────────
+
+describe('CPU: double-nine set', () => {
+  const D9_RULES: RuleSettings = { ...DEFAULT_RULES, tileSet: 'double9' };
+  const D9_IDS = new Set(tileIdsFor(D9_RULES)); // 55 ids, 28..82
+  const FAST_D9: AiOptions = { maxRollouts: 60, timeMs: 20 };
+
+  const d9Hand = (seed: number): MatchState => {
+    let m = startHand(createMatch(D9_RULES, seed)).match;
+    if (m.hand!.pendingStarterChoice != null) m = chooseStarter(m, cpuStarter(m));
+    return m;
+  };
+
+  it('returns a legal move for seeded deals at every difficulty', () => {
+    for (const d of ['easy', 'normal', 'hard', 'master'] as Difficulty[]) {
+      for (let s = 0; s < 3; s++) {
+        const seed = 20_000 + s;
+        let m = d9Hand(seed);
+        for (let step = 0; step < 3 && !m.hand!.over; step++) {
+          const mv = chooseMove(m, d, FAST_D9);
+          expect(legalMoves(m).some((l) => sameMove(l, mv)), `${d} seed ${seed}`).toBe(true);
+          if (mv.kind === 'play') expect(D9_IDS.has(mv.tileId), `${d} played a tile outside the set`).toBe(true);
+          m = applyMove(m, mv).match;
+        }
+      }
+    }
+  });
+
+  it('hard and master finish a hand without throwing or leaving the double-nine ids', () => {
+    for (const [i, d] of (['hard', 'master'] as Difficulty[]).entries()) {
+      let m = d9Hand(21_000 + i);
+      let steps = 0;
+      while (!m.hand!.over) {
+        if (++steps > 200) throw new Error('hand does not terminate');
+        const mv = chooseMove(m, d, FAST_D9);
+        expect(legalMoves(m).some((l) => sameMove(l, mv)), `${d} step ${steps}`).toBe(true);
+        if (mv.kind === 'play') expect(D9_IDS.has(mv.tileId), `${d} played a tile outside the set`).toBe(true);
+        for (const t of [...m.hand!.hands.flat(), ...m.hand!.chain.map((p) => p.tile)]) {
+          expect(D9_IDS.has(t.id), `${d} dealt/played a tile outside the set`).toBe(true);
+        }
+        m = applyMove(m, mv).match;
+      }
+    }
+  }, 60_000);
+
+  it('hard and master handle the individual-mode boneyard', () => {
+    const rules: RuleSettings = { ...DEFAULT_RULES_INDIVIDUAL, tileSet: 'double9' };
+    for (const [i, d] of (['hard', 'master'] as Difficulty[]).entries()) {
+      let m = startHand(createMatch(rules, 22_000 + i, { mode: 'individual', players: 3 })).match;
+      let steps = 0;
+      while (!m.hand!.over) {
+        if (++steps > 200) throw new Error('hand does not terminate');
+        const mv = chooseMove(m, d, FAST_D9);
+        expect(legalMoves(m).some((l) => sameMove(l, mv)), `${d} step ${steps}`).toBe(true);
+        if (mv.kind === 'play') expect(D9_IDS.has(mv.tileId), `${d} played a tile outside the set`).toBe(true);
+        m = applyMove(m, mv).match;
+      }
+    }
+  }, 60_000);
 });

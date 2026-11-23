@@ -18,6 +18,11 @@ import type { FaceSpec } from 'kuavatars/faces';
  */
 import type { Difficulty, GameEvent, GameMode, Move, RuleSettings, Seat, Team } from '../contracts';
 
+/**
+ * Stays 1 until the room server is redeployed (the live room speaks v1, and the plan is to deploy only when
+ * online, Wi-Fi and Bluetooth are all stable). Bump it to 2 together with that deploy: double-nine tile ids
+ * (28..82) must not reach older clients.
+ */
 export const PROTOCOL_VERSION = 1;
 /** room codes: 4 chars from an unambiguous alphabet (no 0/O/1/I), shown as KUDO-XXXX */
 export const ROOM_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -161,7 +166,7 @@ export type ErrorCode =
   | 'version_mismatch'
   | 'rate_limited';
 
-/** placeholder for a hidden tile in redacted events (id -1 never collides with real ids 0..27) */
+/** placeholder for a hidden tile in redacted events (id -1 never collides with real ids 0..82) */
 export const HIDDEN_TILE = { id: -1, a: 0, b: 0 } as const;
 
 /** CPU level used when a CPU covers a human seat (timeout / disconnect) */

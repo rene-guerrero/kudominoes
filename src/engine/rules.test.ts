@@ -1,11 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { engine, RULE_SETTINGS, DEFAULT_RULES, ALL_TILES, normalizeRules } from './index';
+import {
+  engine,
+  RULE_SETTINGS,
+  RULE_SETTINGS_INDIVIDUAL,
+  DEFAULT_RULES,
+  ALL_TILES,
+  DOUBLE9_TILES,
+  TILE_BY_ID,
+  MAX_TILE_ID,
+  normalizeRules,
+  tilesFor,
+  tileSetOf,
+  tileById,
+} from './index';
 import { CAPICUA_DOUBLE_BEFORE_ROUNDING, capicuaDoubleTotal, resolveHandCore, roundPoints, toScoreRules } from './scoring';
 import { matchTarget, migrateRules, readRules, RULE_PRESETS, RULES_VERSION, sameRules, scoreUnit } from './rules';
 import type { RuleSettings } from '../contracts';
 
 describe('tiles', () => {
-  it('has 28 unique ordered tiles', () => {
+  it('has 28 unique ordered tiles in the classic set', () => {
     expect(ALL_TILES).toHaveLength(28);
     ALL_TILES.forEach((t, i) => {
       expect(t.id).toBe(i);
@@ -15,6 +28,24 @@ describe('tiles', () => {
     expect(ALL_TILES[1]).toMatchObject({ a: 0, b: 1 });
     expect(ALL_TILES[27]).toMatchObject({ a: 6, b: 6 });
     expect(new Set(ALL_TILES.map((t) => `${t.a}-${t.b}`)).size).toBe(28);
+  });
+
+  it('has 55 unique ordered tiles in the double-nine set, with stable global ids', () => {
+    expect(DOUBLE9_TILES).toHaveLength(55);
+    DOUBLE9_TILES.forEach((t, i) => {
+      expect(t.id).toBe(28 + i);
+      expect(t.a).toBeLessThanOrEqual(t.b);
+      expect(t.a).toBeLessThanOrEqual(9);
+      expect(t.b).toBeLessThanOrEqual(9);
+      expect(TILE_BY_ID[t.id]).toBe(t);
+    });
+    expect(DOUBLE9_TILES[0]).toMatchObject({ a: 0, b: 0 });
+    expect(DOUBLE9_TILES[DOUBLE9_TILES.length - 1]).toMatchObject({ id: MAX_TILE_ID, a: 9, b: 9 });
+    expect(new Set(DOUBLE9_TILES.map((t) => `${t.a}-${t.b}`)).size).toBe(55);
+    expect(tilesFor({ tileSet: 'double9' })).toBe(DOUBLE9_TILES);
+    expect(tilesFor(DEFAULT_RULES)).toBe(ALL_TILES);
+    expect(tileSetOf(28)).toBe('double9');
+    expect(tileById({ tileSet: 'double9' }, 28)).toMatchObject({ a: 0, b: 0 });
   });
 });
 
@@ -37,6 +68,19 @@ describe('settings', () => {
     expect(engine.RULE_SETTINGS).toBe(RULE_SETTINGS);
   });
 
+  it('offers the physical tile set in both modes', () => {
+    for (const list of [RULE_SETTINGS, RULE_SETTINGS_INDIVIDUAL]) {
+      const d = list.find((x) => x.key === 'tileSet');
+      expect(d).toBeTruthy();
+      expect(d!.default).toBe('double6');
+      expect(d!.options!.map((o) => o.value)).toEqual(['double6', 'double9']);
+    }
+    expect(DEFAULT_RULES.tileSet).toBe('double6');
+    expect(normalizeRules({ tileSet: 'double9' }).tileSet).toBe('double9');
+    expect(normalizeRules({ tileSet: 'bogus' }).tileSet).toBe('double6');
+    expect(normalizeRules({ tileSet: 'double9' }, 'individual').tileSet).toBe('double9');
+  });
+
   it('normalizes missing and invalid values to defaults', () => {
     const r = normalizeRules({ target: 15, scoring: 'bogus', capicua: 2, extra: 1 });
     expect(r.target).toBe(15);
@@ -44,8 +88,9 @@ describe('settings', () => {
     expect(r.capicua).toBe(2);
     expect(r.extra).toBeUndefined();
     expect(Object.keys(r).sort()).toEqual(Object.keys(DEFAULT_RULES).sort());
-    // old raw-pip values are not valid any more
-    expect(normalizeRules({ target: 100, capicua: 25 })).toMatchObject({ target: 20, capicua: 'double' });
+    // old raw-pip values are not valid any more; 100 is now a valid tens-scale target
+    expect(normalizeRules({ target: 25, capicua: 25 })).toMatchObject({ target: 20, capicua: 'double' });
+    expect(normalizeRules({ target: 100 }).target).toBe(100);
   });
 
   it('cuban defaults (tens scale)', () => {
@@ -70,6 +115,15 @@ describe('settings', () => {
     expect(sameRules({ ...DEFAULT_RULES, target: 30 }, DEFAULT_RULES)).toBe(false);
   });
 
+  it('has a Cuban double-nine preset for each base mode', () => {
+    const pairs = RULE_PRESETS.find((p) => p.id === 'cubanoDoble9')!;
+    const individual = RULE_PRESETS.find((p) => p.id === 'cubanoIndividualDoble9')!;
+    expect(pairs).toMatchObject({ mode: 'pairs', label: { es: 'Cubano doble 9' } });
+    expect(individual).toMatchObject({ mode: 'individual' });
+    for (const p of [pairs, individual]) expect(p.rules).toMatchObject({ tileSet: 'double9', target: 100 });
+    expect(matchTarget(pairs.rules)).toBe(100);
+  });
+
   it('rule groups are the four collapsible groups', () => {
     expect([...new Set(RULE_SETTINGS.map((d) => d.group))]).toEqual(['salida', 'puntuacion', 'tranque', 'bonos']);
   });
@@ -91,10 +145,13 @@ describe('settings', () => {
     expect(migrateRules({ nextStarter: 'rotate' }, 2).nextStarter).toBe('winnerTeam');
     // already current: kept as is
     expect(migrateRules({ ...DEFAULT_RULES, target: 30 }, RULES_VERSION).target).toBe(30);
+    // schema 4 → 5: the physical set is new; a missing value is double-six, a stored one is kept
+    expect(migrateRules({ ...DEFAULT_RULES, target: 30 }, 4)).toMatchObject({ target: 30, tileSet: 'double6' });
+    expect(migrateRules({ ...DEFAULT_RULES, target: 100, tileSet: 'double9' }, 4)).toMatchObject({ target: 100, tileSet: 'double9' });
   });
 
   it('migrates schema-3 rules: the old Cubano clásico moves to the new one, custom sets keep their choices', () => {
-    expect(RULES_VERSION).toBe(4);
+    expect(RULES_VERSION).toBe(5);
     // the old preset as stored by v3 (no abajo key, void tie): never changed → new defaults
     const { abajo: _a, ...v3 }: RuleSettings = { ...DEFAULT_RULES, tranqueTie: 'void' };
     void _a;

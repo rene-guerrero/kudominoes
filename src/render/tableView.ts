@@ -17,8 +17,10 @@ import type {
   TableViewOptions,
   Tile,
   TileBack,
+  TileSet,
   TileTheme,
 } from '../contracts';
+import { MAX_TILE_ID, TILE_BY_ID, TILE_SETS, type TileSetDef } from '../engine/tiles';
 import { layoutChain, type AvoidRect, type ChainBounds, type ChainLayoutResult } from './chainLayout';
 import { Animator, ease, lerp, clamp01, type Ease } from './tween';
 import * as tex from './textures';
@@ -42,6 +44,8 @@ const SLAM_HOLD_MS = 600;
 const sameMove = (a: Move, b: Move): boolean =>
   a.kind === b.kind && (a.kind !== 'play' || (b.kind === 'play' && a.tileId === b.tileId && a.side === b.side));
 const MAX_CELL = 1;
+/** global id space: 0..27 (double-six) + 28..82 (double-nine) */
+const TILE_COUNT = MAX_TILE_ID + 1;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const Q_FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
@@ -93,8 +97,10 @@ const QUALITY: Record<Quality, QualityCfg> = {
   },
 };
 
-/** 'pile' = the boneyard of individual play (face down at one side of the felt) */
+/** 'pile' = the boneyard of individual play (face down at a free side, or a corner when all four seats play) */
 type Loc = 'idle' | 'pool' | 'hand' | 'chain' | 'reveal' | 'pile';
+type PileSide = 'top' | 'left' | 'corner';
+type RectXZ = { x0: number; x1: number; z0: number; z1: number };
 
 interface TileObj {
   id: number;
@@ -160,12 +166,6 @@ const tmpQW = new THREE.Quaternion();
 const bx = new THREE.Vector3();
 const by = new THREE.Vector3();
 const bz = new THREE.Vector3();
-
-const ALL_TILES: Tile[] = (() => {
-  const out: Tile[] = [];
-  for (let a = 0; a <= 6; a++) for (let b = a; b <= 6; b++) out.push({ id: out.length, a: a as Pip, b: b as Pip });
-  return out;
-})();
 
 /** the only on-table words: the match-end celebration (per-player callouts are the plates' speech bubbles) */
 const LABELS = {
@@ -289,8 +289,16 @@ export class TableViewImpl implements TableView {
   /** individual: the boneyard tiles left (drawn from the end) and their fixed slots (the order at the deal) */
   private pile: number[] = [];
   private pileOrder: number[] = [];
+  /** the keep-out pushed into chainAvoid for the boneyard, so it can be replaced when the pile changes */
+  private pileAvoidEntry: RectXZ | null = null;
   /** online: tiles whose identity is not known here (they stand in for hidden tiles; see hiddenTiles.ts) */
-  private unknown: boolean[] = new Array<boolean>(28).fill(false);
+  private unknown: boolean[] = new Array<boolean>(TILE_COUNT).fill(false);
+  /** physical set driving hand size and which global tile ids are live on the table */
+  private tileSet: TileSet = 'double6';
+  private tileSetDef: TileSetDef = TILE_SETS.double6;
+  private get handSize(): number {
+    return this.tileSetDef.handSize;
+  }
   private chain: PlacedTile[] = [];
   private ends: { left: Pip; right: Pip } | null = null;
   private layoutRes: ChainLayoutResult = { poses: [], cell: MAX_CELL, fits: true, vertical: false, shift: { x: 0, y: 0 } };
@@ -840,14 +848,14 @@ export class TableViewImpl implements TableView {
     // tiles
     this.atlas = tex.makeTileAtlas(this.q.atlas, this.theme, this.tileBack);
     this.tileGeo = buildTileGeometry(this.q.seg);
-    this.fxAttr = new THREE.InstancedBufferAttribute(new Float32Array(28 * 2), 2);
+    this.fxAttr = new THREE.InstancedBufferAttribute(new Float32Array(TILE_COUNT * 2), 2);
     this.fxAttr.setUsage(THREE.DynamicDrawUsage);
     this.tileGeo.setAttribute('aFx', this.fxAttr);
     // matte, view-independent shading (Lambert: diffuse only, no specular/fresnel), so every tile in
     // the hand has the same face colour and pip contrast whatever its position or tilt
     this.tileMat = new THREE.MeshLambertMaterial({ map: this.atlas });
     patchTileMaterial(this.tileMat, this.uTime);
-    this.tilesMesh = new THREE.InstancedMesh(this.tileGeo, this.tileMat, 28);
+    this.tilesMesh = new THREE.InstancedMesh(this.tileGeo, this.tileMat, TILE_COUNT);
     this.tilesMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.tilesMesh.frustumCulled = false;
     this.tilesMesh.castShadow = true;
@@ -863,15 +871,15 @@ export class TableViewImpl implements TableView {
         '#include <color_fragment>\n#ifdef USE_INSTANCING_COLOR\n diffuseColor.a *= vColor.r; diffuseColor.rgb = vec3(0.02,0.01,0.0);\n#endif',
       );
     };
-    this.blobMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), blobMat, 28);
-    this.blobMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(28 * 3).fill(1), 3);
+    this.blobMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), blobMat, TILE_COUNT);
+    this.blobMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(TILE_COUNT * 3).fill(1), 3);
     this.blobMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.blobMesh.frustumCulled = false;
     this.blobMesh.renderOrder = 1;
     this.blobMesh.visible = !this.q.shadows;
     this.scene.add(this.blobMesh);
 
-    // glows: 0..27 halos behind tiles, 28..29 ghost slots
+    // glows: one halo behind every global tile id; the drop slots use their own 2-instance mesh below
     const glowMat = new THREE.MeshBasicMaterial({
       map: tex.makeGhostSlot(), // shared tile-shaped outline (rims on playable tiles + drop slots)
       transparent: true,
@@ -891,8 +899,8 @@ export class TableViewImpl implements TableView {
 #endif`,
       );
     };
-    this.glowMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), glowMat, 28);
-    this.glowMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(28 * 3), 3);
+    this.glowMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), glowMat, TILE_COUNT);
+    this.glowMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(TILE_COUNT * 3), 3);
     this.glowMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.glowMesh.frustumCulled = false;
     this.glowMesh.renderOrder = 2;
@@ -1008,10 +1016,10 @@ export class TableViewImpl implements TableView {
   }
 
   private initTiles(): void {
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < TILE_COUNT; i++) {
       this.tiles.push({
         id: i,
-        tile: ALL_TILES[i],
+        tile: TILE_BY_ID[i],
         pos: new THREE.Vector3(0, -5, 0),
         quat: new THREE.Quaternion(),
         s: 0.8,
@@ -1067,19 +1075,20 @@ export class TableViewImpl implements TableView {
     const elev = THREE.MathUtils.degToRad(this.portrait ? 63 : 56);
 
     // human hand metrics in units of the hand plane half-height (independent of distance)
-    const hsN = Math.min((2 * aspect * 0.92) / (7 * 1.06 * TW), (this.portrait ? 0.3 : 0.34) / TL);
+    const hand = this.handSize;
+    const hsN = Math.min((2 * aspect * 0.92) / (hand * 1.06 * TW), (this.portrait ? 0.3 : 0.34) / TL);
     const bottomN = this.portrait ? 0.05 : 0.06;
     const handTopNdc = -1 + bottomN + TL * hsN + 0.3 * hsN;
     this.plateW = Math.round(THREE.MathUtils.clamp(Math.min(W, H) * 0.32, 104, 176));
     this.plateH = Math.round((this.plateW * tex.PLATE_H) / tex.PLATE_W);
-    const handLeftNdc = -(7 * 1.06 * TW * hsN) / 2 / aspect;
-    // HTML plates: avatar diameter and the two box shapes
+    const handLeftNdc = -(hand * 1.06 * TW * hsN) / 2 / aspect;
+    // HTML plates (KuCards): bigger faces, and one wide compact plate per seat (avatar above the name)
     const minWH = Math.min(W, H);
-    const D = minWH < 520 ? 46 : Math.round(THREE.MathUtils.clamp(minWH * 0.068, 50, 66));
-    const rowW = Math.round(D * 3.1);
-    const rowH = D;
-    const stackW = Math.round(Math.max(D + 18, D * 1.45));
-    const stackH = Math.round(D * 1.36);
+    const D = this.portrait ? Math.max(44, Math.min(70, Math.round(minWH * 0.13))) : Math.max(40, Math.min(78, Math.round(minWH * 0.105)));
+    const rowW = Math.round(Math.max(96, D * 1.8));
+    const rowH = Math.round(D * 1.36);
+    const stackW = rowW;
+    const stackH = rowH;
     const humanW = this.htmlPlates ? rowW : this.plateW;
     const plateBesideHand = (handLeftNdc + 1) * 0.5 * W > humanW + 24;
     const yBot = handTopNdc + (plateBesideHand ? 0.05 : this.htmlPlates ? (2 * (rowH + 10)) / H + 0.02 : (this.plateH * 2) / H + 0.03);
@@ -1200,7 +1209,7 @@ export class TableViewImpl implements TableView {
     // portrait: the partner's row is centred (its HTML plate sits under it); the 3D plate needs room beside it
     this.topOffX = this.portrait && !this.htmlPlates ? -1.2 : 0;
     this.sideBeside = !this.portrait && !this.edgeMode;
-    const handHalfLen = (7 * TW * OPP_SCALE * 1.12) / 2;
+    const handHalfLen = (hand * TW * OPP_SCALE * 1.12) / 2;
 
     // chain bounds: between the hands
     const cz0 = this.topZ + 1.7;
@@ -1291,7 +1300,9 @@ export class TableViewImpl implements TableView {
    *    above the human's plate and hand (avatars shrink a step when the viewport is too short);
    *  - partner (2): beside its row with the pair centred as a unit (or centred under the row when the
    *    pair does not fit the width), clear of the top HUD;
-   *  - human (0): bottom-left of the hand.
+   *  - human (0): to the left of the hand of fichas (just above its left end when there is no room beside it);
+   * Every seat uses the same compact stack plate (KuCards): the avatar sits above a wide name pill,
+   * with the fichas-left count at the pill's right end.
    * Each seat also gets a speech-bubble anchor on its table-centre side, and the chain bounds avoid
    * all plates and bubble zones. Overlay px, y up (converted to CSS on emit).
    */
@@ -1302,6 +1313,7 @@ export class TableViewImpl implements TableView {
     const scr = { x: 0, y: 0 };
     const so = OPP_SCALE;
     const topPitch = TW * so * 1.12;
+    const halfRow = this.handSize / 2;
     const lean = 0.32;
     const box = this.box;
     let D = D0;
@@ -1325,12 +1337,12 @@ export class TableViewImpl implements TableView {
     };
     /** side stack at centre z `sz`: screen x/y (y up) of its near foot, the y of its far top and of its far foot */
     const sideMeasure = (sz: number, out: { nx: number; ny: number; ty: number; fy: number }) => {
-      this.toScreen(tmpV2.set(this.sideX, 0, sz + 3.5 * pitch), scr);
+      this.toScreen(tmpV2.set(this.sideX, 0, sz + halfRow * pitch), scr);
       out.nx = scr.x;
       out.ny = scr.y;
-      this.toScreen(tmpV2.set(this.sideX + Math.sin(lean) * TL * so, Math.cos(lean) * TL * so, sz - 3.5 * pitch), scr);
+      this.toScreen(tmpV2.set(this.sideX + Math.sin(lean) * TL * so, Math.cos(lean) * TL * so, sz - halfRow * pitch), scr);
       out.ty = scr.y;
-      this.toScreen(tmpV2.set(this.sideX, 0, sz - 3.5 * pitch), scr);
+      this.toScreen(tmpV2.set(this.sideX, 0, sz - halfRow * pitch), scr);
       out.fy = scr.y;
     };
     const m = { nx: 0, ny: 0, ty: 0, fy: 0 };
@@ -1344,34 +1356,35 @@ export class TableViewImpl implements TableView {
     const landEdge = edge && !this.portrait;
     const sideTop = landEdge ? H - HUD_SIDE_PX : topFree;
     for (let attempt = 0; ; attempt++) {
-      rowW = Math.round(D * 3.1);
-      rowH = D;
-      // edge plates: a narrow column (avatar + name under it), count badge on the inboard side
-      stackW = edge ? Math.round(D + 14) : Math.round(Math.max(D + 18, D * 1.45));
-      stackH = Math.round(D * 1.36);
-      // human: bottom-left, beside the hand when there is room, else just above its left end
-      if (besideHand) setBox(0, 'row', Math.max(rowW / 2 + 10, this.handLeftPx - rowW / 2 - 16), ((-1 + bottomN + (TL * hsN) / 2 + 1) / 2) * H);
-      else setBox(0, 'row', rowW / 2 + 10, this.handTopPx + rowH / 2 + 6);
+      // one compact plate shape for everyone: wide enough for a full name and the ficha count at its end
+      rowW = Math.round(Math.max(96, D * 1.8));
+      rowH = Math.round(D * 1.36);
+      stackW = rowW;
+      stackH = rowH;
+      // human: left of the hand (y-up: small y is the bottom), just above its left end when there is
+      // no room beside it — same spot as before the plate redesign
+      if (besideHand) setBox(0, 'stack', Math.max(stackW / 2 + 10, this.handLeftPx - stackW / 2 - 16), ((-1 + bottomN + (TL * hsN) / 2 + 1) / 2) * H);
+      else setBox(0, 'stack', stackW / 2 + 10, this.handTopPx + stackH / 2 + 6);
 
       // partner: avatar beside the row, the pair centred as a unit; otherwise centred under the row
       this.topOffX = 0;
-      this.toScreen(tmpV2.set(-3.5 * topPitch, 0.4, this.topZ), scr);
+      this.toScreen(tmpV2.set(-halfRow * topPitch, 0.4, this.topZ), scr);
       const xl = scr.x;
-      this.toScreen(tmpV2.set(3.5 * topPitch, 0.4, this.topZ), scr);
+      this.toScreen(tmpV2.set(halfRow * topPitch, 0.4, this.topZ), scr);
       const rowPx = scr.x - xl;
       const rowY = scr.y;
-      const ppu = rowPx / (7 * topPitch);
+      const ppu = rowPx / (this.handSize * topPitch);
       const gapTop = 10;
       const total = rowPx + gapTop + rowW;
       if (total <= W - 24) {
         this.topAnchor = 'right';
         const left = W / 2 - total / 2;
         this.topOffX = (left + rowPx / 2 - W / 2) / ppu;
-        setBox(2, 'row', left + rowPx + gapTop + rowW / 2, Math.min(rowY, topFree - rowH / 2));
+        setBox(2, 'stack', left + rowPx + gapTop + stackW / 2, Math.min(rowY, topFree - stackH / 2));
       } else {
         this.topAnchor = 'center';
         this.toScreen(tmpV2.set(0, 0, this.topZ + TL * so * 0.5), scr);
-        setBox(2, 'row', scr.x, Math.min(scr.y - rowH / 2 - 2, topFree - rowH / 2));
+        setBox(2, 'stack', scr.x, Math.min(scr.y - stackH / 2 - 2, topFree - stackH / 2));
       }
 
       // sides: the stack + its plate (just inboard-below the stack's near end) form one unit, centred
@@ -1391,7 +1404,7 @@ export class TableViewImpl implements TableView {
       const unitBottom = (sz: number) =>
         (sideMeasure(sz, m), beside ? Math.min(m.ny, (m.ty + m.ny) / 2 - stackH / 2) : m.ny + PLATE_RISE * stackH - stackH);
       // one side tile's length on screen near the top of the band
-      const tileLenPx = (sz: number) => (sideMeasure(sz, m), ((m.fy - m.ny) / 7) * (TL / (TW * 1.12 * this.sidePitchK)));
+      const tileLenPx = (sz: number) => (sideMeasure(sz, m), ((m.fy - m.ny) / this.handSize) * (TL / (TW * 1.12 * this.sidePitchK)));
       /** z where the screen y `f(z)` equals `want` (screen y falls as z grows, nearer the viewer) */
       const solve = (f: (z: number) => number, want: number): number => {
         let lo = box.z0 - 6;
@@ -1438,7 +1451,7 @@ export class TableViewImpl implements TableView {
         // fully visible: its outer top corner keeps a few px from the screen edge
         const limitPx = W - Math.max(this.safeL, this.safeR) - 5;
         const outerTop = (x: number) => (
-          this.toScreen(tmpV2.set(x + Math.sin(lean) * TL * so + TH * so, Math.cos(lean) * TL * so, sz + 3.5 * pitch + TW * so * 0.5), scr), scr.x
+          this.toScreen(tmpV2.set(x + Math.sin(lean) * TL * so + TH * so, Math.cos(lean) * TL * so, sz + halfRow * pitch + TW * so * 0.5), scr), scr.x
         );
         let lo = box.x - 3;
         let hi = box.x + EDGE_STACK_OUT;
@@ -1467,7 +1480,7 @@ export class TableViewImpl implements TableView {
         let x3 = inset + stackW / 2;
         if (!this.portrait) {
           // landscape: centred under the stack's near tile (the stack hugs the edge), never past the edge
-          this.toScreen(tmpV2.set(this.sideX + 0.5 * Math.sin(lean) * TL * so, 0.5 * Math.cos(lean) * TL * so, sz + 3.5 * pitch), scr);
+          this.toScreen(tmpV2.set(this.sideX + 0.5 * Math.sin(lean) * TL * so, 0.5 * Math.cos(lean) * TL * so, sz + halfRow * pitch), scr);
           x3 = Math.max(x3, W - scr.x);
         }
         setBox(1, 'stack', W - x3, py);
@@ -1696,7 +1709,7 @@ export class TableViewImpl implements TableView {
       addPx();
     }
     if (land) {
-      // the human's fan (7 tiles wide, raised tiles included)
+      // the human's fan (a full hand wide, raised tiles included)
       r.x0 = this.handLeftPx - 6;
       r.x1 = W - this.handLeftPx + 6;
       r.y0 = -20;
@@ -1704,15 +1717,12 @@ export class TableViewImpl implements TableView {
       addPx();
     }
     // side stacks and the zone their tiles are revealed in at the end of a hand (only seats in play)
-    const zHalf = 3.5 * TW * so * 1.12 * this.sidePitchK + 0.45;
+    const zHalf = (this.handSize / 2) * TW * so * 1.12 * this.sidePitchK + 0.45;
     const xIn = this.sideX - SIDE_REVEAL_X - (TL * so) / 2 - 0.25;
     if (this.active[1]) avoid.push({ x0: xIn, x1: xIn + 20, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
     if (this.active[3]) avoid.push({ x0: -xIn - 20, x1: -xIn, z0: this.sideZ - zHalf, z1: this.sideZ + zHalf });
-    // individual: the boneyard pile at the left side of the felt (2 players) keeps the chain off it
-    if (this.pileSide() === 'left') {
-      const pr = this.pileRect();
-      avoid.push({ x0: pr.x0 - 20, x1: pr.x1 + 0.35, z0: pr.z0 - 0.35, z1: pr.z1 + 0.35 });
-    }
+    // individual: the boneyard keeps the chain off it (left side with 2 players, inner corner with 4)
+    this.updatePileAvoid(avoid);
     this.chainAvoid = avoid;
     this.chainVertical = this.portrait;
     this.chainFlip = land;
@@ -1827,7 +1837,7 @@ export class TableViewImpl implements TableView {
   /** world pose of a slot in a seat's hand; returns scale */
   private slotPose(seat: number, idx: number, n: number, out: V3, outQ: Q): number {
     if (seat === 0) {
-      // more than 7 tiles (individual play, after drawing): the fan keeps its 7-tile width; tiles shrink a
+      // more than a full hand (individual play, after drawing): the fan keeps its hand-width; tiles shrink a
       // little and close up, later ones a hair nearer the camera so overlaps never flicker
       const hk = this.humanHandK(n);
       const hs = this.handHs * hk.s;
@@ -1838,7 +1848,7 @@ export class TableViewImpl implements TableView {
       const r = this.req;
       const id = this.hands[0][idx];
       let lift = 0;
-      let z = -this.handDh + (n > 7 ? idx * 0.004 * this.handHs : 0);
+      let z = -this.handDh + (n > this.handSize ? idx * 0.004 * this.handHs : 0);
       if (r && !r.passOnly && id !== undefined) {
         if (r.sides.has(id)) lift = 0.3 * hs;
         if (r.selected === id) {
@@ -1853,9 +1863,9 @@ export class TableViewImpl implements TableView {
       outQ.premultiply(this.baseCamQuat);
       return hs;
     }
-    // more than 7 tiles (individual play): smaller tiles, closer together, never overlapping
-    const so = OPP_SCALE * (n > 7 ? Math.max(0.5, 7 / n) : 1);
-    const pitch = Math.max(TW * so * 1.04, TW * OPP_SCALE * 1.12 * (seat === 2 ? 1 : this.sidePitchK) * Math.min(1, 7 / Math.max(1, n)));
+    // more than a full hand (individual play): smaller tiles, closer together, never overlapping
+    const so = OPP_SCALE * (n > this.handSize ? Math.max(0.5, this.handSize / n) : 1);
+    const pitch = Math.max(TW * so * 1.04, TW * OPP_SCALE * 1.12 * (seat === 2 ? 1 : this.sidePitchK) * Math.min(1, this.handSize / Math.max(1, n)));
     const lean = 0.32;
     let ox = 0;
     let oz = 0;
@@ -1865,19 +1875,19 @@ export class TableViewImpl implements TableView {
     let outZ = 0;
     // rows keep the end next to their plate fixed (side stacks: the near end) and shrink away from it
     if (seat === 2) {
-      ox = this.topOffX + (this.topAnchor === 'right' ? idx - n + 4 : idx - (n - 1) / 2) * pitch;
+      ox = this.topOffX + (idx - (n - 1) / 2) * pitch;
       oz = this.topZ;
       rowX = 1;
       outZ = -1;
     } else if (seat === 1) {
       ox = this.sideX;
       // plate beside the stack's middle: the stack shrinks toward its centre; else toward the near end
-      oz = this.sideZ + (this.sideBeside ? (n - 1) / 2 - idx : 3 - idx) * pitch;
+      oz = this.sideZ + ((n - 1) / 2 - idx) * pitch;
       rowZ = -1;
       outX = 1;
     } else {
       ox = -this.sideX;
-      oz = this.sideZ + (this.sideBeside ? idx - (n - 1) / 2 : idx - n + 4) * pitch;
+      oz = this.sideZ + (idx - (n - 1) / 2) * pitch;
       rowZ = 1;
       outX = -1;
     }
@@ -1903,47 +1913,84 @@ export class TableViewImpl implements TableView {
     return out;
   }
 
-  /** the human fan with n tiles: tile scale and pitch factors (1 up to 7 tiles; the fan never gets wider) */
+  /** the human fan with n tiles: tile scale and pitch factors (1 up to a full hand; the fan never gets wider) */
   private humanHandK(n: number): { s: number; p: number } {
-    if (n <= 7) return { s: 1, p: 1 };
-    return { s: Math.max(0.62, 7 / n), p: 7 / n };
+    const full = this.handSize;
+    if (n <= full) return { s: 1, p: 1 };
+    return { s: Math.max(0.62, full / n), p: full / n };
   }
 
   // ───────── individual play: the boneyard pile ─────────
 
-  /** where the boneyard lies: the free top (3 players), the free left side (2 players), else none */
-  private pileSide(): 'top' | 'left' | null {
-    if (this.active[0] && this.active[1] && this.active[2] && this.active[3]) return null;
+  /** where the boneyard lies: a free top/left side, or an inner corner when all four seats play */
+  private pileSide(): PileSide | null {
+    if (this.active[0] && this.active[1] && this.active[2] && this.active[3]) return this.pileOrder.length ? 'corner' : null;
     if (!this.active[2]) return 'top';
     if (!this.active[1] && !this.active[3]) return 'left';
     return null;
   }
 
-  /** pile geometry: per-layer column count, pitch and centre (table units) */
-  private pileGeo(): { side: 'top' | 'left'; perLayer: number; pitch: number; s: number; cx: number; cz: number } | null {
+  /** pile geometry: columns per layer, pitch and centre (table units) */
+  private pileGeo(): { side: PileSide; perLayer: number; pitch: number; s: number; cx: number; cz: number } | null {
     const side = this.pileSide();
     if (!side) return null;
-    const total = Math.max(this.pileOrder.length, side === 'left' ? 14 : 7);
-    const perLayer = Math.ceil(total / (total > 7 ? 2 : 1));
-    const s = OPP_SCALE;
+    const minimum = this.handSize * (side === 'left' ? 2 : 1);
+    const total = Math.max(this.pileOrder.length, minimum);
+    const s = side === 'corner' ? OPP_SCALE * 0.82 : OPP_SCALE;
     const pitch = TW * s * 1.08;
+    if (side === 'corner') {
+      // four-player double-nine: a compact stack just below the top row, inside the felt's top-left corner
+      const perLayer = 4;
+      const len = perLayer * pitch;
+      return {
+        side,
+        perLayer,
+        pitch,
+        s,
+        cx: -this.box.x + len / 2 + 0.8,
+        cz: this.topZ + (TL * s) / 2 + 0.65,
+      };
+    }
+    // double-six keeps its familiar flat pile; the 35-tile double-nine boneyard gets extra layers
+    // so it stays on the felt instead of becoming a 13-unit row
+    const available = (side === 'left' ? this.box.z1 - this.box.z0 : this.box.x * 2) - 3.0;
+    const cap = Math.max(1, Math.floor(available / pitch));
+    const perLayer = this.tileSet === 'double6' ? Math.ceil(total / (total > this.handSize ? 2 : 1)) : Math.min(Math.ceil(total / 2), cap);
     if (side === 'top') return { side, perLayer, pitch, s, cx: 0, cz: this.topZ + 0.2 };
     // left: inside the felt, clear of the frame, at the side seats' height
     return { side, perLayer, pitch, s, cx: -(this.box.x - (TL * s) / 2 - 0.45), cz: this.sideZ };
   }
 
   /** the pile's footprint on the table (for the chain's keep-out) */
-  private pileRect(): { x0: number; x1: number; z0: number; z1: number } {
+  private pileRect(): RectXZ {
     const g = this.pileGeo();
     if (!g) return { x0: 0, x1: 0, z0: 0, z1: 0 };
     const len = g.perLayer * g.pitch;
     const deep = TL * g.s;
-    return g.side === 'top'
-      ? { x0: g.cx - len / 2, x1: g.cx + len / 2, z0: g.cz - deep / 2, z1: g.cz + deep / 2 }
-      : { x0: g.cx - deep / 2, x1: g.cx + deep / 2, z0: g.cz - len / 2, z1: g.cz + len / 2 };
+    return g.side === 'left'
+      ? { x0: g.cx - deep / 2, x1: g.cx + deep / 2, z0: g.cz - len / 2, z1: g.cz + len / 2 }
+      : { x0: g.cx - len / 2, x1: g.cx + len / 2, z0: g.cz - deep / 2, z1: g.cz + deep / 2 };
   }
 
-  /** a pile tile's slot (fixed by its place at the deal: bottom layer first, the top layer is drawn first) */
+  /** replace the boneyard keep-out when the seats or the pile size change (pileRect depends on both) */
+  private updatePileAvoid(avoid: RectXZ[]): void {
+    if (this.pileAvoidEntry) {
+      const i = avoid.indexOf(this.pileAvoidEntry);
+      if (i >= 0) avoid.splice(i, 1);
+      this.pileAvoidEntry = null;
+    }
+    const side = this.pileSide();
+    if (side !== 'left' && side !== 'corner') return;
+    const pr = this.pileRect();
+    const rect: RectXZ =
+      side === 'left'
+        ? { x0: pr.x0 - 20, x1: pr.x1 + 0.35, z0: pr.z0 - 0.35, z1: pr.z1 + 0.35 }
+        : { x0: pr.x0 - 0.35, x1: pr.x1 + 0.35, z0: pr.z0 - 0.35, z1: pr.z1 + 0.35 };
+    avoid.push(rect);
+    this.pileAvoidEntry = rect;
+  }
+
+  /** a pile tile's slot (fixed by its place at the deal: bottom layers first, the top layer is drawn first) */
   private pilePose(id: number, out: V3, outQ: Q): number {
     const g = this.pileGeo();
     const p = Math.max(0, this.pileOrder.indexOf(id));
@@ -1952,18 +1999,18 @@ export class TableViewImpl implements TableView {
       outQ.identity();
       return OPP_SCALE;
     }
-    const layer = p < g.perLayer ? 0 : 1;
-    const inLayer = layer === 0 ? Math.min(g.perLayer, this.pileOrder.length) : this.pileOrder.length - g.perLayer;
-    const col = layer === 0 ? p : p - g.perLayer;
+    const layer = Math.floor(p / g.perLayer);
+    const inLayer = Math.min(g.perLayer, this.pileOrder.length - layer * g.perLayer);
+    const col = p % g.perLayer;
     const c = (col - (inLayer - 1) / 2) * g.pitch;
     const y = TH * g.s * (0.5 + layer);
-    if (g.side === 'top') {
+    if (g.side === 'left') {
+      out.set(g.cx, y, g.cz + c);
+      outQ.copy(Q_FLIP);
+    } else {
       out.set(g.cx + c, y, g.cz);
       // long axis along z, face down
       outQ.setFromAxisAngle(UP, Math.PI / 2).multiply(Q_FLIP);
-    } else {
-      out.set(g.cx, y, g.cz + c);
-      outQ.copy(Q_FLIP);
     }
     return g.s;
   }
@@ -2268,7 +2315,7 @@ export class TableViewImpl implements TableView {
    * with a hidden tile there. Both are face down, so the trade is invisible. No-op in local games.
    */
   private claim(id: number, seat: number, keep?: readonly number[]): void {
-    if (id < 0 || id >= 28) return;
+    if (id < 0 || id >= TILE_COUNT || !this.tileSetDef.ids.includes(id)) return;
     const dest = seat < 0 ? this.pile : this.hands[seat];
     if (!dest) return;
     const y = pickSwap(id, dest, this.unknown, seat < 0, keep);
@@ -2301,7 +2348,7 @@ export class TableViewImpl implements TableView {
 
   /** online fallback: some hidden tile (no pile left to draw from) */
   private anyUnknown(): number {
-    for (let i = 0; i < 28; i++) if (this.unknown[i] && this.tiles[i].loc !== 'chain') return i;
+    for (const id of this.tileSetDef.ids) if (this.unknown[id] && this.tiles[id].loc !== 'chain') return id;
     return -1;
   }
 
@@ -2400,10 +2447,11 @@ export class TableViewImpl implements TableView {
     this.pileOrder = (ev.boneyard ?? []).map((t) => t.id);
     this.chain = [];
     this.ends = null;
+    this.updatePileAvoid(this.chainAvoid);
     this.layoutRes = this.fitChain([]);
     const dealt = ev.hands.map((h) => h.map((t) => t.id));
     // online: other players' tiles and the boneyard arrive hidden (placeholders); they borrow free ids
-    resolvePlaceholders([...dealt, this.pileOrder], [], this.unknown);
+    resolvePlaceholders([...dealt, this.pileOrder], [], this.unknown, this.tileSetDef.ids);
     this.pile = this.pileOrder.slice();
     this.hands = dealt.map((h) => h.slice());
     this.sortHuman();
@@ -2424,9 +2472,10 @@ export class TableViewImpl implements TableView {
     // Non-overlapping shuffle slots: concentric rings, tiles lying tangentially. Each ring then
     // rotates rigidly (alternate rings counter-rotate) and the radii only ever grow, so the spacing
     // between any two tiles never shrinks and nothing interpenetrates.
-    const slots = this.shuffleSlots(Math.min(this.sideX + 0.4, b.h / 2 + 1.6));
+    const active = this.tileSetDef.ids;
+    const slots = this.shuffleSlots(Math.min(this.sideX + 0.4, b.h / 2 + 1.6), active.length);
     const sc = slots.scale;
-    const perm = Array.from({ length: 28 }, (_, i) => i);
+    const perm = Array.from({ length: active.length }, (_, i) => i);
     for (let i = perm.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [perm[i], perm[j]] = [perm[j], perm[i]];
@@ -2443,8 +2492,8 @@ export class TableViewImpl implements TableView {
     };
     this.sfx('shuffle');
     const gather: Promise<void>[] = [];
-    for (let i = 0; i < 28; i++) {
-      const t = this.tiles[i];
+    for (let i = 0; i < active.length; i++) {
+      const t = this.tiles[active[i]];
       poseAt(i, 0, 1, tmpV, tmpQ);
       const ring = slots.list[perm[i]].ring;
       // staggered, height-separated arcs so tiles never cross at the same height
@@ -2454,15 +2503,15 @@ export class TableViewImpl implements TableView {
     if (g !== this.gen) return;
     if (!this.reduced) {
       for (const t of this.tiles) t.token++;
-      const tokens = this.tiles.map((t) => t.token);
+      const tokens = active.map((id) => this.tiles[id].token);
       this.sfxAt('shuffle', 0.4);
       await this.anim.tween(
         1.15,
         (k) => {
           const rot = k * Math.PI * 1.3;
           const grow = 1 + 0.12 * Math.sin(Math.PI * k);
-          for (let i = 0; i < 28; i++) {
-            const t = this.tiles[i];
+          for (let i = 0; i < active.length; i++) {
+            const t = this.tiles[active[i]];
             if (t.token !== tokens[i]) continue;
             poseAt(i, rot, grow, t.pos, t.quat);
           }
@@ -2471,10 +2520,10 @@ export class TableViewImpl implements TableView {
       );
       if (g !== this.gen) return;
     }
-    // deal 7 to each seat, round robin from the starter
+    // deal a full hand to each seat, round robin from the starter
     const ps: Promise<void>[] = [];
     let n = 0;
-    for (let r = 0; r < 7; r++) {
+    for (let r = 0; r < this.handSize; r++) {
       for (let j = 0; j < 4; j++) {
         const s = (ev.starter + j) % 4;
         const id = dealt[s][r];
@@ -2497,7 +2546,7 @@ export class TableViewImpl implements TableView {
         n++;
       }
     }
-    // individual (2–3 players): the undealt tiles gather face down into a neat pile at one side
+    // individual: the undealt tiles gather face down into the boneyard (free side, or a corner with 4 players)
     this.pileOrder.forEach((id, i) => {
       const t = this.tiles[id];
       t.loc = 'pile';
@@ -2505,16 +2554,34 @@ export class TableViewImpl implements TableView {
       const sc = this.pilePose(id, tmpV, tmpQ);
       ps.push(this.fly(t, tmpV, tmpQ, sc, { dur: 0.4, arc: 0.9, delay: n * 0.045 + 0.1 + i * 0.03, rotEase: ease.outCubic }));
     });
+    // pairs with a double-nine set: the 15 tiles nobody holds slide off the felt and shrink away
+    const inPlay = new Set<number>([...dealt.flat(), ...this.pileOrder]);
+    const leftovers = active.filter((id) => !inPlay.has(id));
+    leftovers.forEach((id, i) => {
+      const t = this.tiles[id];
+      const dx = t.pos.x;
+      const dz = t.pos.z - this.bounds.cz;
+      const len = Math.hypot(dx, dz) || 1;
+      tmpV.set(t.pos.x + (dx / len) * 3.2, -1.6, t.pos.z + (dz / len) * 3.2);
+      ps.push(this.fly(t, tmpV, t.quat, 0, { dur: 0.34, delay: n * 0.045 + 0.12 + i * 0.02, posEase: ease.inQuad }));
+    });
     await Promise.all(ps);
     if (g !== this.gen) return;
+    for (const id of leftovers) {
+      const t = this.tiles[id];
+      t.loc = 'pool';
+      t.seat = -1;
+      t.s = 0;
+      t.pos.set(0, -5, 0);
+    }
     this.redrawPlates();
     // the fan "breathes" open
     const hand = this.hands[0].map((id) => this.tiles[id]);
     await Promise.all(hand.map((t, i) => this.hop(t, this.handHs * 0.25, 0.22, i * 0.03)));
   }
 
-  /** ring slots for 28 tangential tiles that cannot overlap (shrinks tiles until within maxR) */
-  private shuffleSlots(maxR: number): { list: { r: number; a: number; ring: number; dir: number }[]; scale: number } {
+  /** ring slots for `count` tangential tiles that cannot overlap (shrinks tiles until within maxR) */
+  private shuffleSlots(maxR: number, count: number): { list: { r: number; a: number; ring: number; dir: number }[]; scale: number } {
     let scale = 0.85;
     for (;;) {
       const L = (TL / 2) * scale; // half length
@@ -2524,10 +2591,10 @@ export class TableViewImpl implements TableView {
       let R = 1.25 * scale + 0.25;
       let ring = 0;
       let outer = 0;
-      while (list.length < 28) {
+      while (list.length < count) {
         const half = Math.asin(Math.min(1, (L + gap) / R)); // half angle each tile needs
         const cap = Math.max(1, Math.floor(Math.PI / half));
-        const n = Math.min(cap, 28 - list.length);
+        const n = Math.min(cap, count - list.length);
         const a0 = Math.random() * Math.PI * 2;
         for (let k = 0; k < n; k++) list.push({ r: R, a: a0 + (k / n) * Math.PI * 2, ring, dir: ring % 2 ? -1 : 1 });
         outer = Math.sqrt((R + w) ** 2 + L * L);
@@ -2542,8 +2609,8 @@ export class TableViewImpl implements TableView {
 
   private sortHuman(): void {
     this.hands[0].sort((x, y) => {
-      const a = ALL_TILES[x];
-      const b = ALL_TILES[y];
+      const a = TILE_BY_ID[x];
+      const b = TILE_BY_ID[y];
       return a.a + a.b - (b.a + b.b) || a.a - b.a;
     });
   }
@@ -2978,7 +3045,7 @@ export class TableViewImpl implements TableView {
       this.plateRot[s] = 0;
     }
     this.redrawPlates();
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < TILE_COUNT; i++) {
       const t = this.tiles[i];
       t.token++;
       t.loc = 'idle';
@@ -3073,6 +3140,19 @@ export class TableViewImpl implements TableView {
   setLanguage(lang: 'es' | 'en'): void {
     if (lang === this.lang) return;
     this.lang = lang;
+  }
+
+  /**
+   * Choose the physical tile set for the next hand. All global ids (0..82) are allocated up front;
+   * this switches which ids are live (and the hand size used by layout and the deal). Inactive ids
+   * are hidden by flushTiles. The main-menu attract ring always uses the decorative double-six ids.
+   */
+  setTileSet(set: TileSet): void {
+    if (set === this.tileSet) return;
+    this.tileSet = set;
+    this.tileSetDef = TILE_SETS[set];
+    this.computeLayout();
+    this.kick();
   }
 
   setTileTheme(theme: TileTheme): void {
@@ -3181,6 +3261,7 @@ export class TableViewImpl implements TableView {
     this.pileOrder = (h.boneyard ?? []).map((t) => t.id);
     this.chain = h.chain.slice();
     this.ends = h.ends ? { left: h.ends.left, right: h.ends.right } : null;
+    this.updatePileAvoid(this.chainAvoid);
     this.layoutRes = this.fitChain(this.chain);
     this.hands = [0, 1, 2, 3].map((s) => (h.hands[s] ?? []).map((t) => t.id));
     // online: hidden tiles (placeholders) borrow the ids of tiles that are nowhere in sight
@@ -3188,6 +3269,7 @@ export class TableViewImpl implements TableView {
       [...this.hands, this.pileOrder],
       this.chain.map((p) => p.tile.id),
       this.unknown,
+      this.tileSetDef.ids,
     );
     this.pile = this.pileOrder.slice();
     this.sortHuman();
@@ -3223,11 +3305,20 @@ export class TableViewImpl implements TableView {
       t.loc = 'pile';
       t.seat = -1;
     }
+    // restored hands have no leftovers on the felt (15 undealt double-nine tiles in pairs)
+    const used = new Set<number>([...this.chain.map((p) => p.tile.id), ...this.hands.flat(), ...this.pile]);
+    for (const id of this.tileSetDef.ids) {
+      if (used.has(id)) continue;
+      const t = this.tiles[id];
+      t.loc = 'pool';
+      t.seat = -1;
+      t.s = 0;
+    }
     this.snapAll();
 
     for (let s = 0; s < 4; s++) {
       const info = this.plateInfo[s];
-      info.pips = over && !this.hands[s].some((id) => this.unknown[id]) ? this.hands[s].reduce((n, id) => n + ALL_TILES[id].a + ALL_TILES[id].b, 0) : null;
+      info.pips = over && !this.hands[s].some((id) => this.unknown[id]) ? this.hands[s].reduce((n, id) => n + TILE_BY_ID[id].a + TILE_BY_ID[id].b, 0) : null;
       info.winner = false;
       info.active = false;
       this.plateScale[s] = 1;
@@ -3474,8 +3565,22 @@ export class TableViewImpl implements TableView {
     const fx = this.fxAttr.array as Float32Array;
     const blobCol = this.blobMesh.instanceColor!.array as Float32Array;
     const glowCol = this.glowMesh.instanceColor!.array as Float32Array;
-    for (let i = 0; i < 28; i++) {
-      const t = this.tiles[i];
+    for (let id = 0; id < TILE_COUNT; id++) {
+      // The attract ring uses the decorative double-six ids; in play only the active set is live.
+      // Every other global id is scaled away, so an inactive tile can never appear on the table.
+      const visible = this.idleActive ? id < TILE_SETS.double6.count : this.tileSetDef.ids.includes(id);
+      if (!visible) {
+        tmpM.makeScale(0, 0, 0);
+        this.tilesMesh.setMatrixAt(id, tmpM);
+        this.blobMesh.setMatrixAt(id, tmpM);
+        this.glowMesh.setMatrixAt(id, tmpM);
+        fx[id * 2] = 0;
+        fx[id * 2 + 1] = 0;
+        blobCol[id * 3] = blobCol[id * 3 + 1] = blobCol[id * 3 + 2] = 0;
+        glowCol[id * 3] = glowCol[id * 3 + 1] = glowCol[id * 3 + 2] = 0;
+        continue;
+      }
+      const t = this.tiles[id];
       const s = t.s;
       const sx = s * (1 + (1 - t.sq) * 0.45);
       tmpV.copy(t.pos).add(t.off);
@@ -3484,16 +3589,16 @@ export class TableViewImpl implements TableView {
         tmpQW.setFromEuler(tmpE.set(t.wx, 0, t.wz)).multiply(t.quat);
         tmpM.compose(tmpV, tmpQW, tmpS);
       } else tmpM.compose(tmpV, t.quat, tmpS);
-      this.tilesMesh.setMatrixAt(i, tmpM);
-      fx[i * 2] = t.glow;
-      fx[i * 2 + 1] = t.dim;
+      this.tilesMesh.setMatrixAt(id, tmpM);
+      fx[id * 2] = t.glow;
+      fx[id * 2 + 1] = t.dim;
 
       // blob shadow
       const inHand = t.loc === 'hand' && t.seat === 0;
       const hgt = tmpV.y;
       if (inHand || t.s <= 0.01 || (t.loc === 'pool' && hgt < -1)) {
         tmpM.makeScale(0, 0, 0);
-        blobCol[i * 3] = 0;
+        blobCol[id * 3] = 0;
       } else {
         const ax = tmpV2.set(TL * s, 0, 0).applyQuaternion(t.quat);
         const az = tmpV3.set(0, 0, TW * s).applyQuaternion(t.quat);
@@ -3511,9 +3616,9 @@ export class TableViewImpl implements TableView {
           tmpV2.set(tmpV.x, 0.012, tmpV.z);
           tmpM.compose(tmpV2, tmpQ, tmpS);
         }
-        blobCol[i * 3] = clamp01(1.1 - hgt / 3.5) * clamp01((s - 0.3) * 3) * (t.loc === 'idle' ? 0.5 : 1);
+        blobCol[id * 3] = clamp01(1.1 - hgt / 3.5) * clamp01((s - 0.3) * 3) * (t.loc === 'idle' ? 0.5 : 1);
       }
-      this.blobMesh.setMatrixAt(i, tmpM);
+      this.blobMesh.setMatrixAt(id, tmpM);
 
       // halo behind glowing tiles
       if (t.glow > 0.01) {
@@ -3525,13 +3630,13 @@ export class TableViewImpl implements TableView {
         tmpS.set((TL * s + 2 * m) * GHOST_SX, (TW * s + 2 * m) * GHOST_SY, 1);
         tmpM.compose(tmpV, tmpQ, tmpS);
         const gl = Math.min(1, t.glow);
-        glowCol[i * 3] = 0.75 * gl;
-        glowCol[i * 3 + 1] = 0.55 * gl;
-        glowCol[i * 3 + 2] = 0.18 * gl;
+        glowCol[id * 3] = 0.75 * gl;
+        glowCol[id * 3 + 1] = 0.55 * gl;
+        glowCol[id * 3 + 2] = 0.18 * gl;
       } else {
         tmpM.makeScale(0, 0, 0);
       }
-      this.glowMesh.setMatrixAt(i, tmpM);
+      this.glowMesh.setMatrixAt(id, tmpM);
     }
     // ghost slots
     const r = this.req;
@@ -3692,7 +3797,7 @@ export class TableViewImpl implements TableView {
     const n = this.hands[0].length;
     if (!n) return -1;
     const pxPerWorld = this.H / (2 * this.handHalfH);
-    // (more than 7 tiles: the fan closes up, see slotPose)
+    // (more than a full hand: the fan closes up, see slotPose)
     const hk = this.humanHandK(n);
     const tw = TW * this.handHs * hk.s * pxPerWorld;
     const th = TL * this.handHs * hk.s * pxPerWorld;
@@ -3794,7 +3899,7 @@ export class TableViewImpl implements TableView {
     r.hover = -1;
     const moves = r.sides.get(tileId);
     if (!moves) return;
-    const tile = ALL_TILES[tileId];
+    const tile = TILE_BY_ID[tileId];
     const seen = new Set<string>();
     for (const m of moves) {
       if (m.kind !== 'play') continue;
@@ -4120,7 +4225,7 @@ function patchTileMaterial(m: THREE.MeshLambertMaterial, uTime: { value: number 
       );
     // (no emissive boost for playable/landing glow: the gold outline quad behind the tile carries it)
   };
-  m.customProgramCacheKey = () => 'kudo-tile-v4';
+  m.customProgramCacheKey = () => `kudo-tile-v5-${cols}x${rows}`;
 }
 
 function roundedRectPath(p: THREE.Path, x: number, y: number, w: number, h: number, r: number): void {

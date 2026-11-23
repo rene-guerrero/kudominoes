@@ -1,15 +1,18 @@
 /** Procedural canvas textures: tile atlas, felt, wood, glows, plates, popups. No external assets. */
 import * as THREE from 'three';
 import type { TableStyle, TileBack, TileTheme } from '../contracts';
+import { MAX_TILE_ID, TILE_BY_ID } from '../engine/tiles';
 
-export const ATLAS_COLS = 8;
-export const ATLAS_ROWS = 4;
-/** atlas cells (col,row from top) for the back face and the ivory side colour */
-export const BACK_CELL = { col: 4, row: 3 };
-export const SIDE_CELL = { col: 5, row: 3 };
+export const ATLAS_COLS = 11;
+export const ATLAS_ROWS = 8;
+/** atlas cells (col,row from top) for the back face and the ivory side colour.
+ *  Tile ids occupy cells 0..MAX_TILE_ID in id order (last one is row 7, col 5), so the
+ *  back/side live in two of the unused cells at the end of the last row. */
+export const BACK_CELL = { col: 6, row: 7 };
+export const SIDE_CELL = { col: 7, row: 7 };
 
 /** all pips black; the lone pip of the 1 is the only (red) accent */
-const PIP_COLORS = ['#141210', '#c8231b', '#141210', '#141210', '#141210', '#141210', '#141210'];
+const PIP_COLORS = ['#141210', '#c8231b', '#141210', '#141210', '#141210', '#141210', '#141210', '#141210', '#141210', '#141210'];
 
 interface FacePalette {
   face0: string;
@@ -81,6 +84,10 @@ const PIP_LAYOUT: [number, number][][] = [
   [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]],
   // six: two lines of three running along the tile's long axis (canvas x = long axis)
   [[-1, -1], [0, -1], [1, -1], [-1, 1], [0, 1], [1, 1]],
+  // seven/eight/nine fill the 3x3 grid; canvas x = the tile's long axis
+  [[-1, -1], [0, -1], [1, -1], [0, 0], [-1, 1], [0, 1], [1, 1]],
+  [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]],
+  [[-1, -1], [0, -1], [1, -1], [-1, 0], [0, 0], [1, 0], [-1, 1], [0, 1], [1, 1]],
 ];
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -405,14 +412,13 @@ export function makeTileAtlas(cellW: number, theme: TileTheme = 'classic', back:
   const [c, g] = canvas(cellW * ATLAS_COLS, cellH * ATLAS_ROWS);
   g.fillStyle = P.fill;
   g.fillRect(0, 0, c.width, c.height);
-  let id = 0;
-  for (let a = 0; a <= 6; a++)
-    for (let b = a; b <= 6; b++) {
-      const col = id % ATLAS_COLS;
-      const row = Math.floor(id / ATLAS_COLS);
-      drawFace(g, col * cellW, row * cellH, cellW, cellH, a, b, P);
-      id++;
-    }
+  // One face per global tile id, in id order, so the shader can use gl_InstanceID directly.
+  for (let id = 0; id <= MAX_TILE_ID; id++) {
+    const t = TILE_BY_ID[id];
+    const col = id % ATLAS_COLS;
+    const row = Math.floor(id / ATLAS_COLS);
+    drawFace(g, col * cellW, row * cellH, cellW, cellH, t.a, t.b, P);
+  }
   drawBack(g, BACK_CELL.col * cellW, BACK_CELL.row * cellH, cellW, cellH, back);
   const sg = g.createLinearGradient(0, SIDE_CELL.row * cellH, 0, (SIDE_CELL.row + 1) * cellH);
   sg.addColorStop(0, P.side0);

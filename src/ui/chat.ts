@@ -1,5 +1,5 @@
 /**
- * The in-game chat button (offline and online): a round button beside the player's own plate that opens
+ * The in-game chat button (offline and online): a dark-glass square beside the player's own avatar that opens
  * a pop-up with the player's chosen gestures (up to 5, Ajustes → Juego) and the quick phrases.
  * Offline it only plays on the player's own avatar; online the app sends it to the room.
  */
@@ -43,7 +43,7 @@ export class ChatButton {
   private shown = false;
 
   constructor(private o: ChatOpts) {
-    this.btn = h('button.qp-btn', { type: 'button', 'aria-label': t('chat.title'), title: t('chat.title'), 'aria-expanded': 'false', html: CHAT_ICON }) as HTMLButtonElement;
+    this.btn = h('button.qp-btn.icon-btn', { type: 'button', 'aria-label': t('chat.title'), title: t('chat.title'), 'aria-expanded': 'false', html: CHAT_ICON }) as HTMLButtonElement;
     this.btn.addEventListener('click', () => this.toggle());
   }
 
@@ -66,7 +66,7 @@ export class ChatButton {
     if (this.o.plates.onLayout) this.o.plates.onLayout = null;
   }
 
-  /** just outside the own plate, on the table side */
+  /** beside the player's own avatar, following its plate (KuCards) */
   private place(): void {
     const b = this.btn;
     const box = this.o.plates.box(0);
@@ -75,19 +75,37 @@ export class ChatButton {
       return;
     }
     const W = window.innerWidth;
-    const size = 40;
+    const size = 46;
     const turned = Math.abs(Math.sin(box.rot)) > 0.7;
     const pw = (turned ? box.h : box.w) * box.scale;
     const ph = (turned ? box.w : box.h) * box.scale;
-    const outerLeft = box.x < W * 0.45;
-    let x = outerLeft ? box.x - pw / 2 - 10 - size : box.x + pw / 2 + 10;
-    if (x < 8) x = box.x + pw / 2 + 10;
-    if (x + size > W - 8) x = box.x - pw / 2 - 10 - size;
-    let y = box.y - size / 2;
+    const d = (box.d || box.h * 0.7) * box.scale;
+    let x: number;
+    let y: number;
     if (box.layout === 'stack') {
-      x = box.x - size / 2;
-      y = box.y - ph / 2 - size - 8;
+      // avatar on top: beside its circle on the right, level with the lower half of the face,
+      // with the button's bottom just above the name bar
+      x = box.x + d / 2 + 6;
+      y = box.y - ph / 2 + d * 0.96 - size - 4;
+      if (x + size > W - 8) x = box.x - d / 2 - 6 - size;
+    } else if (!turned) {
+      // our own plate is a row: the avatar is on the left, the name pill to its right, so sit just
+      // outside the avatar. On a narrow phone there is no room there: tuck it above the avatar instead.
+      const avX = box.x - ((box.w - box.d) / 2) * box.scale;
+      const left = avX - d / 2 - 6 - size;
+      if (left >= 8) {
+        x = left;
+        y = box.y - size / 2;
+      } else {
+        x = avX - size / 2;
+        y = box.y - d / 2 - size - 6;
+      }
+    } else {
+      // rotated plate: keep it outside the plate, on the table side
+      x = box.x < W * 0.45 ? box.x - pw / 2 - 10 - size : box.x + pw / 2 + 10;
+      y = box.y - size / 2;
     }
+    x = Math.max(8, Math.min(W - 8 - size, x));
     b.style.transform = `translate(${Math.round(x)}px,${Math.round(Math.max(8, y))}px)`;
     b.classList.add('on');
     if (this.pop) this.placePop();

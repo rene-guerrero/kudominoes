@@ -1,11 +1,12 @@
 import type { GameMode, Lineup, TableStyle } from '../contracts';
+import { customMode } from '../app/modes';
 import { character, LEVEL_STARS, ROSTER, type Character, type FaceSpec } from '../roster';
 import { tableThumb } from '../render';
 import { h, prefersReducedMotion } from './dom';
 import { loc, t, type Key } from './i18n';
 import { btn, ICONS, segmented } from './overlay';
 import { screenHeader } from './howto';
-import { ruleSelect, type RuleSelectItem } from './settings';
+import { modeSelect } from './modeSelect';
 import { liveFace, staticFace } from './avatars';
 
 type Slot = 1 | 2 | 3;
@@ -46,6 +47,8 @@ export interface NewGameStart {
 export interface NewGameOpts {
   /** the mode chosen last time */
   mode: GameMode;
+  /** a player-made mode chosen last time (overrides `mode`'s rules) */
+  customMode?: string;
   /** last pairs selection (character ids; a stored 'random' is drawn here) */
   lineup: Lineup;
   /** last individual selection: number of opponents and the opponents in order */
@@ -60,10 +63,8 @@ export interface NewGameOpts {
   presetName(mode: GameMode): string;
   onChange(l: Lineup): void;
   onSoloChange(list: string[], opponents: Opp): void;
-  onMode(mode: GameMode): void;
-  onRules(mode: GameMode): void;
-  /** the rule sets to pick from (Cubano clásico + saved profiles); picking one applies it */
-  ruleChoices?(mode: GameMode): RuleSelectItem[];
+  onMode(mode: GameMode, customMode?: string): void;
+  onRules(mode: GameMode, customMode?: string): void;
   onStart(o: NewGameStart): void;
   onBack(): void;
 }
@@ -97,6 +98,7 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
   for (const id of [...o.soloLineup, 'carlos', 'rosa', 'andres', ...pool]) if (pool.includes(id) && !sl.includes(id) && sl.length < 3) sl.push(id);
   let opp: Opp = o.soloOpponents;
   let mode: GameMode = o.mode;
+  let customId: string | undefined = o.customMode && customMode(o.customMode) ? o.customMode : undefined;
 
   const slots = (): Slot[] => (mode === 'pairs' ? SLOTS : SOLO_SLOTS[opp]);
   const idAt = (s: Slot): string => (mode === 'pairs' ? lu[s] : sl[SOLO_SLOTS[opp].indexOf(s)]);
@@ -303,26 +305,36 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
   oppSeg.classList.add('seg-opp');
   oppCtl.append(oppSeg);
   const rulesValue = h('span.preset-v');
-  const modeSeg = segmented<GameMode>(
-    (['pairs', 'individual'] as GameMode[]).map((m) => ({ value: m, label: t(`mode.${m}` as Key) })),
-    mode,
-    (v) => {
-      mode = v;
-      active = slots()[0];
-      shown = idAt(active);
-      applyMode();
-      renderSeats();
-      refresh();
-      o.onMode(mode);
-    },
-    t('mode.label'),
-  );
-  modeSeg.classList.add('seg-mode');
-  const modeRow = h('div.ng-mode', modeSeg, oppCtl);
+  const modeSlot = h('div.rsel-slot');
+  const modeEditLabel = t('newgame.editRules');
+  const modeEdit = h('button.icon-btn.rsel-act', { type: 'button', 'aria-label': modeEditLabel, title: modeEditLabel, html: ICONS.gear });
+  modeEdit.addEventListener('click', () => o.onRules(mode, customId));
+  const modeRow = h('div.ng-mode', h('div.rsel-line.ng-mode-select', h('span.rsel-label', t('mode.label')), modeSlot, modeEdit), oppCtl);
+  const renderModeSelect = () => {
+    modeSlot.replaceChildren(
+      modeSelect({
+        current: customId ?? mode,
+        onPick: (id) => {
+          const c = customMode(id);
+          customId = c?.id;
+          setMode(c ? c.base : (id as GameMode));
+        },
+      }),
+    );
+  };
+  const setMode = (v: GameMode) => {
+    mode = v;
+    active = slots()[0];
+    shown = idAt(active);
+    applyMode();
+    renderSeats();
+    refresh();
+    o.onMode(mode, customId);
+  };
   const applyMode = () => {
     oppCtl.hidden = mode !== 'individual';
-    rulesValue.textContent = o.presetName(mode);
-    renderRuleSelect();
+    rulesValue.textContent = customId ? loc(customMode(customId)!.name) : o.presetName(mode);
+    renderModeSelect();
   };
 
   // ── bottom sheet (phone portrait) ──
@@ -382,31 +394,10 @@ export function buildNewGame(o: NewGameOpts): HTMLElement {
   window.addEventListener('keydown', onKey, true);
   window.matchMedia(SHEET_MQ).addEventListener?.('change', () => closeSheet());
 
-  // ── footer: rules line + Sorpréndeme + Comenzar ──
+  // ── footer: read-only rules line (modes are picked in the dropdown above) + actions ──
   const rulesLink = h('button.link-btn', { type: 'button' }, t('newgame.change'));
-  rulesLink.addEventListener('click', () => o.onRules(mode));
-  // [REGLAS] [dropdown: Cubano clásico + saved profiles] [edit → Ajustes › Reglas]
-  const rulesSlot = h('div.rsel-slot');
-  const editLabel = t('newgame.editRules');
-  const editBtn = h('button.icon-btn.rsel-act', { type: 'button', 'aria-label': editLabel, title: editLabel, html: ICONS.gear });
-  editBtn.addEventListener('click', () => o.onRules(mode));
-  const rulesPick = h('div.rsel-line.ng-rsel', h('span.rsel-label', t('newgame.rules')), rulesSlot, editBtn);
-  const plainLine = h('div.ng-rules', h('span.preset-k', `${t('newgame.rules')}:`), rulesValue, h('span.ng-dot', '·'), rulesLink);
-  const rulesLine = h('div.ng-rules-wrap', rulesPick, plainLine);
-  function renderRuleSelect(): void {
-    const items = o.ruleChoices?.(mode) ?? [];
-    // the dropdown always shows (rules are picked here); the plain line is only a fallback without choices
-    const pickable = items.length > 0;
-    rulesPick.hidden = !pickable;
-    plainLine.hidden = pickable;
-    if (!pickable) return;
-    rulesSlot.replaceChildren(
-      ruleSelect(
-        items.map((i) => ({ ...i, pick: () => (i.pick?.(), applyMode()) })),
-        t('newgame.rules'),
-      ),
-    );
-  }
+  rulesLink.addEventListener('click', () => o.onRules(mode, customId));
+  const rulesLine = h('div.ng-rules-wrap', h('div.ng-rules', h('span.preset-k', `${t('newgame.rules')}:`), rulesValue, h('span.ng-dot', '·'), rulesLink));
   let shuffling = 0;
   const draw = (): string[] => {
     const p = ROSTER.map((c) => c.id);

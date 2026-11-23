@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { GameEvent, MatchState } from '../contracts';
-import { ALL_TILES, DEFAULT_RULES } from './index';
+import { ALL_TILES, DOUBLE9_TILES, DEFAULT_RULES } from './index';
 import { applyMove, createMatch, legalMoves, pass, play, scenario, startHand, tid } from './testutil';
-import { chooseStarter, cpuStarter, starterPreference } from './game';
+import { chooseStarter, cpuStarter, forcedOpener, starterPreference, type EngineHand } from './game';
 
 /** exact pips (old behaviour): handy for checking raw arithmetic */
 const RAW = { rounding: 'none' };
@@ -33,6 +33,18 @@ describe('dealing', () => {
     const c = startHand(createMatch(DEFAULT_RULES, 8)).match.hand!.hands;
     expect(a).toEqual(b);
     expect(a).not.toEqual(c);
+  });
+
+  it('deals 4 hands of 10 distinct double-nine tiles', () => {
+    const rules = { ...DEFAULT_RULES, tileSet: 'double9' as const };
+    const { match } = startHand(createMatch(rules, 42));
+    const h = match.hand!;
+    expect(h.hands.map((x) => x.length)).toEqual([10, 10, 10, 10]);
+    const ids = h.hands.flat().map((t) => t.id);
+    expect(ids.every((id) => id >= 28 && id <= 82)).toBe(true);
+    expect(new Set(ids).size).toBe(40);
+    expect(ids.every((id) => DOUBLE9_TILES.some((t) => t.id === id))).toBe(true);
+    expect((h as EngineHand).setAsideIds).toHaveLength(15);
   });
 
   it('does not mutate the input state', () => {
@@ -91,6 +103,37 @@ describe('opening (first hand)', () => {
     expect(p.placed).toMatchObject({ side: 'right', outer: 6 });
     expect(p.tilesLeft).toBe(6);
     expect(match.hand!.turn).toBe((m.hand!.starter + 1) % 4);
+  });
+
+  it('double-nine: the highest double actually dealt opens and must be led', () => {
+    const rules = { ...DEFAULT_RULES, tileSet: 'double9' as const };
+    let sawNoNine = 0;
+    for (let seed = 0; seed < 40; seed++) {
+      const m = startHand(createMatch(rules, seed)).match;
+      const h = m.hand!;
+      const dealt = h.hands.flat();
+      const best = forcedOpener(h.hands);
+      const doubles = dealt.filter((t) => t.a === t.b).sort((x, y) => y.a - x.a);
+      expect(best).toEqual(doubles[0] ?? dealt.slice().sort((x, y) => y.a + y.b - (x.a + x.b) || y.b - x.b)[0]);
+      expect(h.hands[h.starter].some((t) => t.id === best.id)).toBe(true);
+      expect(h.openTile).toBe(best.id);
+      expect(legalMoves(m)).toEqual([{ kind: 'play', seat: h.starter, tileId: best.id, side: 'right' }]);
+      if (!dealt.some((t) => t.a === 9 && t.b === 9)) sawNoNine++;
+    }
+    expect(sawNoNine).toBeGreaterThan(0);
+  });
+
+  it('double-nine: chuchazo uses the set’s double blank (0-0, id 28)', () => {
+    const rules: Record<string, string | number | boolean> = { tileSet: 'double9', chuchazo: 3 };
+    const m = scenario({
+      rules,
+      hands: [[tid(1, 1, 'double9')], [tid(0, 0, 'double9')], [tid(4, 4, 'double9')], [tid(2, 6, 'double9')]],
+      chain: [tid(0, 3, 'double9')],
+      ends: { left: 0, right: 3 },
+      turn: 1,
+    });
+    const { events } = play(m, 0, 0, 'left');
+    expect(ev(events, 'handEnd')!.bonuses).toEqual([expect.objectContaining({ id: 'chuchazo', points: 3, team: 1 })]);
   });
 });
 
@@ -453,6 +496,26 @@ describe('tranque (blocked hand)', () => {
     expect(e.winnerSeat).toBe(0);
     expect(e.pipCounts).toEqual([4, 5, 12, 6]);
     expect(e.points).toBe(27);
+    expect(match.hand!.over).toBe(true);
+  });
+
+  it('double-nine pairs: set-aside tiles do not hide a block or award pase corrido', () => {
+    // two matching tiles stay out of the deal, so the full-set count never reaches 10 per end
+    const d9 = (a: number, b: number) => tid(a, b, 'double9');
+    const setAside = new Set([d9(8, 0), d9(9, 0)]);
+    const chain = DOUBLE9_TILES.filter((t) => (t.a === 8 || t.b === 8 || t.a === 9 || t.b === 9) && t.id !== d9(8, 9) && !setAside.has(t.id)).map((t) => t.id);
+    const m = scenario({
+      rules: { ...RAW, tileSet: 'double9', paseCorrido: 3 },
+      hands: [[d9(8, 9), d9(2, 2)], [d9(1, 1)], [d9(3, 3)], [d9(4, 4)]],
+      chain,
+      ends: { left: 8, right: 8 },
+      turn: 0,
+      setAsideIds: [...setAside],
+    });
+    const { match, events } = play(m, 8, 9, 'right');
+    const e = ev(events, 'handEnd')!;
+    expect(e.reason).toBe('blocked');
+    expect(e.bonuses ?? []).toEqual([]);
     expect(match.hand!.over).toBe(true);
   });
 

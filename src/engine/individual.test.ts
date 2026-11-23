@@ -4,7 +4,7 @@ import { chooseMove } from './ai';
 import { applyMove, createMatch, legalMoves, startHand, type EngineHand } from './game';
 import { DEFAULT_RULES_INDIVIDUAL, normalizeRules, RULE_SETTINGS_INDIVIDUAL } from './rules';
 import { tid } from './testutil';
-import { ALL_TILES, DOUBLE_SIX_ID } from './tiles';
+import { ALL_TILES, DOUBLE_SIX_ID, tileById, tileSetOf } from './tiles';
 
 const R = DEFAULT_RULES_INDIVIDUAL;
 const solo = (players: 2 | 3 | 4, rules: RuleSettings = {}, seed = 1) => createMatch({ ...R, ...rules }, seed, { mode: 'individual', players });
@@ -26,15 +26,17 @@ interface SoloScenario {
 /** an arbitrary individual mid-hand state */
 function soloScenario(s: SoloScenario): MatchState {
   const m = solo(s.players, s.rules);
+  const set = tileSetOf(s.rules ?? m.rules);
+  const at = (id: number) => tileById(set, id);
   const chain: PlacedTile[] = (s.chain ?? []).map((id, i) => ({
-    tile: ALL_TILES[id],
+    tile: at(id),
     seat: s.chainSeats?.[i] ?? s.starter ?? 0,
     side: 'right',
-    outer: ALL_TILES[id].b,
+    outer: at(id).b,
   }));
   const hand: EngineHand = {
     handNo: s.handNo ?? 2,
-    hands: s.hands.map((h) => h.map((id) => ALL_TILES[id])),
+    hands: s.hands.map((h) => h.map(at)),
     chain,
     ends: s.ends === undefined ? null : s.ends,
     turn: s.turn,
@@ -44,12 +46,13 @@ function soloScenario(s: SoloScenario): MatchState {
     over: false,
     pendingBonuses: [],
     openTile: null,
-    ...(s.boneyard ? { boneyard: s.boneyard.map((id) => ALL_TILES[id]) } : {}),
+    ...(s.boneyard ? { boneyard: s.boneyard.map(at) } : {}),
   };
   return { ...m, hand, seatScores: s.seatScores ?? [0, 0, 0, 0] };
 }
 
-const play = (m: MatchState, a: number, b: number, side: 'left' | 'right' = 'right') => applyMove(m, { kind: 'play', seat: m.hand!.turn, tileId: tid(a, b), side });
+const play = (m: MatchState, a: number, b: number, side: 'left' | 'right' = 'right') =>
+  applyMove(m, { kind: 'play', seat: m.hand!.turn, tileId: tid(a, b, tileSetOf(m.rules)), side });
 const handEnd = (evs: GameEvent[]) => evs.find((e) => e.type === 'handEnd') as Extract<GameEvent, { type: 'handEnd' }> | undefined;
 
 describe('individual: setup and deal', () => {
@@ -86,6 +89,22 @@ describe('individual: setup and deal', () => {
     expect(ev.seats).toEqual([0, 1, 3]);
     expect(ev.boneyard).toHaveLength(7);
   });
+
+  it.each([
+    [2, [0, 2], 35],
+    [3, [0, 1, 3], 25],
+    [4, [0, 1, 2, 3], 15],
+  ] as const)('double-nine: %i players deal 10 each, boneyard of %i', (n, seats, pile) => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const m = startHand(solo(n, { tileSet: 'double9' }, seed)).match;
+      const h = m.hand!;
+      for (let s = 0; s < 4; s++) expect(h.hands[s]).toHaveLength((seats as readonly number[]).includes(s) ? 10 : 0);
+      expect(h.boneyard?.length ?? 0).toBe(pile);
+      const ids = [...h.hands.flat(), ...(h.boneyard ?? [])].map((t) => t.id);
+      expect(new Set(ids).size).toBe(55);
+      expect(ids.every((id) => id >= 28)).toBe(true);
+    }
+  });
 });
 
 describe('individual: opener', () => {
@@ -96,6 +115,23 @@ describe('individual: opener', () => {
       expect(h.hands[h.starter].some((t) => t.id === DOUBLE_SIX_ID)).toBe(true);
       expect(legalMoves(m)).toEqual([{ kind: 'play', seat: h.starter, tileId: DOUBLE_SIX_ID, side: 'right' }]);
     }
+  });
+
+  it('double-nine: the highest double actually dealt opens (9-9 when present)', () => {
+    let sawNoNine = 0;
+    for (let seed = 1; seed <= 80; seed++) {
+      const m = startHand(solo(2, { tileSet: 'double9' }, seed)).match;
+      const h = m.hand!;
+      const dealt = h.hands.flat();
+      const doubles = dealt.filter((t) => t.a === t.b).sort((x, y) => y.a - x.a);
+      const best = doubles[0] ?? dealt.slice().sort((x, y) => y.a + y.b - (x.a + x.b) || y.b - x.b)[0];
+      const legal = legalMoves(m);
+      expect(legal).toHaveLength(1);
+      expect((legal[0] as Extract<Move, { kind: 'play' }>).tileId).toBe(best.id);
+      expect(h.hands[h.starter].some((t) => t.id === best.id)).toBe(true);
+      if (!dealt.some((t) => t.a === 9 && t.b === 9)) sawNoNine++;
+    }
+    expect(sawNoNine).toBeGreaterThan(0);
   });
 
   it('2–3 players without the double six dealt: the highest double opens; no doubles: the highest tile', () => {
@@ -126,6 +162,25 @@ describe('individual: opener', () => {
     m = startHand(r.match).match;
     expect(m.hand!.starter).toBe(0);
     expect(legalMoves(m)).toHaveLength(7);
+  });
+
+  it('double-nine later hands: the previous winner opens with any of its 10 tiles', () => {
+    const d9 = (a: number, b: number) => tid(a, b, 'double9');
+    let m = soloScenario({
+      players: 3,
+      rules: { tileSet: 'double9' },
+      hands: [[d9(1, 2)], [d9(5, 5), d9(4, 4)], [], [d9(6, 6), d9(3, 3)]],
+      boneyard: [d9(0, 0)],
+      ends: { left: 2, right: 2 },
+      chain: [d9(2, 2)],
+      turn: 0,
+    });
+    const r = play(m, 1, 2);
+    expect(handEnd(r.events)?.winnerSeat).toBe(0);
+    m = startHand(r.match).match;
+    expect(m.hand!.starter).toBe(0);
+    expect(m.hand!.hands[0]).toHaveLength(10);
+    expect(legalMoves(m)).toHaveLength(10);
   });
 });
 

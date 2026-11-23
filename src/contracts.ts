@@ -11,9 +11,15 @@ import type { FaceSpec } from 'kuavatars/faces';
 
 // ───────────────────────── Tiles & seats ─────────────────────────
 
-export type Pip = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type Pip = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
-/** Double-six set: 28 tiles. Invariant a <= b. id = stable index 0..27 (ordered 0-0,0-1,…,6-6). */
+/**
+ * The physical domino set. Ids are globally stable so a saved move can never be misread: double-six uses
+ * 0..27 and double-nine uses 28..82 (both ordered a<=b). MatchState rules decide which set is active.
+ */
+export type TileSet = 'double6' | 'double9';
+
+/** A domino. Invariant a <= b. `id` is globally stable across tile sets (see `TileSet`). */
 export interface Tile {
   id: number;
   a: Pip;
@@ -492,6 +498,8 @@ export interface TableView {
   setTableStyle?(style: TableStyle): void;
   /** optional: switch the tile-back look live */
   setTileBack?(back: TileBack): void;
+  /** optional: choose the physical tile set for the next hand (missing = double-six) */
+  setTileSet?(set: TileSet): void;
   /**
    * optional: put a saved hand on the table instantly — chain laid out normally, every seat's remaining
    * tiles in hand (human face-up sorted, CPUs face-down), plates/counts final; no sounds, no event
@@ -506,6 +514,20 @@ export interface TableView {
 }
 
 // ───────────────────────── App settings (non-rule) ─────────────────────────
+
+/**
+ * A locally saved game mode: a named, iconed rule set on top of one of the two base modes.
+ * Built-ins (Parejas / Individual) are the two base rules; player-made ones are stored in
+ * `kudominoes.modes.v1` (saved rule profiles are migrated into these on first run).
+ */
+export interface DominoMode {
+  v: 1;
+  id: string;
+  name: { es: string; en: string };
+  icon: string;
+  base: GameMode;
+  rules: RuleSettings;
+}
 
 export interface AppSettings {
   language: 'es' | 'en';
@@ -542,6 +564,8 @@ export interface AppSettings {
   tileBack?: TileBack;
   /** the mode of the last new game (missing = 'pairs') */
   mode?: GameMode;
+  /** a player-made mode selected for the next match; missing = the built-in `mode` */
+  customMode?: string;
   /** individual-mode rules (missing = the individual defaults) */
   rulesIndividual?: RuleSettings;
   /** individual mode: how many CPU opponents (1–3; missing = 2) */

@@ -5952,3 +5952,380 @@ button.ng-seat:hover {
   font-weight: 800;
   text-align: right;
 }
+
+/* responsive buttons (fitButton, same as KuCards): never overflow; the label ellipsizes, then the icon alone */
+.btn {
+  min-width: 0;
+  max-width: 100%;
+}
+.btn .btn-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn .btn-icon {
+  flex: none;
+}
+.btn.icon-only .btn-label {
+  display: none;
+}
+.btn.icon-only {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+/* icon-only always shows the icon, even where a narrow-screen rule hides button icons beside labels */
+.btn.icon-only .btn-icon {
+  display: inline-flex !important;
+}
+
+/* ── KuCards-style finishing touches ─────────────────────────────────────── */
+
+/* main menu: only the last icon row gets the in-game Pause button's dark-glass look;
+   the Jugar en línea / Jugar con amigos row above keeps its own styles */
+.menu-actions .row.menu-row:not(.menu-net) > .btn {
+  height: 46px;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(10, 21, 28, 0.72);
+  color: var(--cream);
+  box-shadow:
+    0 3px 0 rgba(0, 0, 0, 0.45),
+    inset 0 0 0 2px rgba(255, 246, 230, 0.14);
+}
+.menu-actions .row.menu-row:not(.menu-net) > .btn:hover {
+  filter: none;
+}
+.menu-actions .row.menu-row:not(.menu-net) > .btn:active {
+  transform: translateY(2px) scale(0.94);
+  box-shadow:
+    0 3px 0 rgba(0, 0, 0, 0.45),
+    inset 0 0 0 2px rgba(255, 246, 230, 0.14);
+}
+
+/* compact plates: the fichas-left count sits in the name pill, beside the name (KuCards),
+   not as a badge stuck on the avatar */
+.plate.stack .plate-info {
+  gap: 4px;
+  height: calc(var(--d) * 0.34);
+  justify-content: space-between;
+  padding: 0 8px;
+}
+.plate.stack .plate-count,
+:root[data-quality='low'] .plate.stack .plate-count,
+.plate.stack .plate-count.pips {
+  position: static;
+  right: auto;
+  left: auto;
+  top: auto;
+  height: auto;
+  padding: 0;
+  margin-left: auto;
+  min-width: 2.2em;
+  justify-content: flex-end;
+  background: none;
+  box-shadow: none;
+  font-size: calc(var(--d) * 0.24);
+  flex: 0 0 auto;
+}
+.plate.stack .plate-name,
+.plate.stack.long-name .plate-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--d) * 0.25);
+  letter-spacing: 0;
+}
+.plate.stack.long-name .plate-info {
+  overflow: hidden;
+}
+
+/* chat button: the Pause button's dark-glass square, 24px icon, beside your own avatar (KuCards) */
+.layer-hud > .qp-btn.icon-btn {
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  background: rgba(10, 21, 28, 0.72);
+  box-shadow:
+    0 3px 0 rgba(0, 0, 0, 0.45),
+    inset 0 0 0 2px rgba(255, 246, 230, 0.14);
+}
+.layer-hud > .qp-btn.icon-btn svg {
+  width: 24px;
+  height: 24px;
+}
+.layer-hud > .qp-btn.icon-btn[aria-expanded='true'] {
+  background: var(--mango);
+}
+.layer-hud > .qp-btn.icon-btn[aria-expanded='true'] svg {
+  fill: var(--ink);
+}
+
+/* Imagen y sonido: quiet quality dropdown with the fullscreen button beside it (KuCards) */
+.quality-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.quality-row > .quality-ctl { flex: 1 1 auto; min-width: 0; }
+.quality-row > .fs-btn { flex: none; width: 48px; height: 48px; min-height: 48px; padding: 0; }
+.quality-row > .fs-btn svg { width: 22px; height: 22px; }
+
+/* ── local game modes: KuCards-style Reglas (mode dropdown + read-only view + editor) ── */
+.rsel-ico {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+.rsel-ico svg {
+  width: 100%;
+  height: 100%;
+}
+.mode-select .rsel-btn {
+  min-height: 60px;
+}
+.mode-select .rsel-v {
+  font-size: 18px;
+}
+.rsel-line .rsel-slot {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rsel-line .rsel-slot > .rsel {
+  margin-top: 0;
+}
+.mode-row {
+  gap: 8px;
+}
+.preset-card {
+  padding: 12px;
+}
+
+/* Nueva partida: the mode dropdown replaces the Parejas | Individual segmented control */
+.ng-mode-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+}
+.ng-mode-select .rsel {
+  margin-top: 0;
+}
+.ng-mode-select .rsel-btn {
+  min-height: 44px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  gap: 8px;
+}
+.ng-mode-select .rsel-v {
+  font-size: 15px;
+}
+.ng-mode-select .rsel-ico {
+  width: 20px;
+  height: 20px;
+}
+.ng-mode-select .rsel-act {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+.ng-mode-select .rsel-act svg {
+  width: 20px;
+  height: 20px;
+}
+@media (max-width: 400px) {
+  .ng-mode-select .rsel-label {
+    display: none;
+  }
+}
+
+/* the read-only mode summary */
+.mode-view {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.mode-view .mv-card {
+  padding: 14px;
+}
+.mode-view .mv-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  color: var(--cream);
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.mv-mode-icon {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  color: var(--mango);
+}
+.mv-mode-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.mv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.mv-item {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 246, 230, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 246, 230, 0.08);
+}
+.mv-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.mv-name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mv-name {
+  color: var(--cream-2);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.mv-value {
+  color: var(--cream);
+  font-size: 15px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+/* the read-only sheet (reused by the online rules sheet later) */
+.mv-sheet-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.mv-sheet {
+  display: flex;
+  width: min(560px, 100%);
+  max-height: min(80vh, 720px);
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--wood-600), var(--wood-900));
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+.mv-sheet-title {
+  margin: 0;
+  color: var(--cream);
+  font-size: 20px;
+}
+.mv-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+.mv-close {
+  flex: none;
+}
+
+/* the separate rules editor */
+.mode-editor {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mode-ed-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.mode-ed-body {
+  display: grid;
+  gap: 12px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.mode-ed-card .me-h {
+  margin: 6px 0 8px;
+  color: var(--cream-2);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mode-ed-card .me-h:first-child {
+  margin-top: 0;
+}
+.mode-ed-name {
+  width: 100%;
+}
+.mode-ed-err {
+  min-height: 1em;
+  margin: 4px 0;
+  color: #ff8a80;
+  font-size: 13px;
+  font-weight: 700;
+}
+.mode-ed-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mode-ed-icon {
+  display: inline-flex;
+  width: 48px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 246, 230, 0.1);
+  color: var(--cream);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 2px rgba(255, 246, 230, 0.14);
+}
+.mode-ed-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.mode-ed-icon[aria-checked='true'] {
+  background: var(--mango);
+  color: var(--ink);
+  box-shadow: 0 0 0 3px rgba(255, 182, 39, 0.35);
+}
+.mode-ed-card .rule-group-card {
+  margin-top: 10px;
+}
+.mode-ed-card .rule-group-head {
+  cursor: default;
+}
+.mode-ed-card .rule-group-card.open .rg-body {
+  display: grid;
+  gap: 6px;
+}
+.mode-ed-foot {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(255, 246, 230, 0.1);
+}
+.mode-ed-delete {
+  margin-right: auto;
+}

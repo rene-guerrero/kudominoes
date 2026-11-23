@@ -18,10 +18,27 @@ export {
   scoreUnit,
   descriptorsFor,
   defaultRulesFor,
+  double9Preset,
 } from './rules';
 export { roundPoints, CAPICUA_DOUBLE_BEFORE_ROUNDING } from './scoring';
-export { ALL_TILES } from './tiles';
-export { createMatch, startHand, legalMoves, applyMove, chooseStarter, starterPreference, cpuStarter, modeOf, seatsOf, isSolo } from './game';
+export {
+  ALL_TILES,
+  DOUBLE6_TILES,
+  DOUBLE9_TILES,
+  TILE_SETS,
+  TILE_BY_ID,
+  MAX_PIP,
+  MAX_TILES,
+  MAX_TILE_ID,
+  tileSetOf,
+  tilesFor,
+  tileIdsFor,
+  tileById,
+  tilesPerPip,
+  highestDoubleId,
+  handSizeFor,
+} from './tiles';
+export { createMatch, startHand, legalMoves, applyMove, chooseStarter, starterPreference, cpuStarter, modeOf, seatsOf, isSolo, matchTileSet, matchTiles } from './game';
 export { chooseMove, styleWeights, MASTER_MS } from './ai';
 export type { AiOptions } from './ai';
 

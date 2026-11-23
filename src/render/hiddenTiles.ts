@@ -1,35 +1,53 @@
 /**
  * Online play: tiles the player may not see (other hands, the boneyard) arrive as placeholders
- * (id < 0). The view still animates 28 real tile objects, so each placeholder borrows the id of a
- * tile whose whereabouts are unknown (shown face down, so which one it is never shows). When a real
- * tile is revealed somewhere it is not (an opponent plays it, the player draws it, a hand end shows
+ * (id < 0). The view still animates the tiles of the active set, so each placeholder borrows the id
+ * of a tile whose whereabouts are unknown (shown face down, so which one it is never shows). When a
+ * real tile is revealed somewhere it is not (an opponent plays it, the player draws it, a hand end shows
  * it), it trades places with one of the hidden tiles there: both are face down, so nothing visible
  * moves. Local games never have placeholders; then none of this does anything.
  *
- * Pure helpers on the view's id arrays (index = tile id), unit-tested in hiddenTiles.test.ts.
+ * Pure helpers on the view's id arrays (index = global tile id), unit-tested in hiddenTiles.test.ts.
  */
 
 /**
  * Replace every placeholder in `lists` with an id that appears nowhere else (in `lists` or `known`).
  * Marks the borrowed ids in `unknown` (and clears it for every real id). Mutates the lists in place.
+ *
+ * `idsOrTotal` is either the number of ids in the classic 0..N-1 space (old behaviour, used by the
+ * unit tests) or the explicit list of global ids in the active set, e.g. `TILE_SETS.double9.ids`
+ * (28..82). In both cases `unknown` is indexed by the global id, so ids borrowed for double-nine
+ * are marked at their real index.
  */
-export function resolvePlaceholders(lists: number[][], known: readonly number[], unknown: boolean[], total = 28): void {
-  const used = new Array<boolean>(total).fill(false);
-  for (const id of known) if (id >= 0 && id < total) used[id] = true;
-  for (const l of lists) for (const id of l) if (id >= 0 && id < total) used[id] = true;
-  for (let i = 0; i < total; i++) unknown[i] = false;
+export function resolvePlaceholders(
+  lists: number[][],
+  known: readonly number[],
+  unknown: boolean[],
+  idsOrTotal: readonly number[] | number = 28,
+): void {
+  const ids: readonly number[] =
+    typeof idsOrTotal === 'number' ? Array.from({ length: idsOrTotal }, (_, i) => i) : idsOrTotal;
+  const used = new Set<number>();
+  for (const id of known) if (id >= 0) used.add(id);
+  for (const l of lists) for (const id of l) if (id >= 0) used.add(id);
+  for (let i = 0; i < unknown.length; i++) unknown[i] = false;
   let next = 0;
+  const borrow = (): number => {
+    while (next < ids.length && used.has(ids[next])) next++;
+    if (next >= ids.length) return -1;
+    const id = ids[next++];
+    used.add(id);
+    unknown[id] = true;
+    return id;
+  };
   for (const l of lists)
     for (let i = 0; i < l.length; i++) {
       if (l[i] >= 0) continue;
-      while (next < total && used[next]) next++;
-      if (next >= total) {
+      const id = borrow();
+      if (id < 0) {
         l.splice(i--, 1); // more placeholders than tiles: drop (never happens with a consistent server)
         continue;
       }
-      used[next] = true;
-      unknown[next] = true;
-      l[i] = next++;
+      l[i] = id;
     }
 }
 

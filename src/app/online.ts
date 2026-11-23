@@ -31,12 +31,13 @@ import type { ChatButton } from '../ui/chat';
 import { buildHandSummary, buildMatchEnd, buildStarterChooser } from '../ui/summary';
 import { confirmDialog } from '../ui/overlay';
 import { h } from '../ui/dom';
-import { t } from '../ui/i18n';
+import { loc, t } from '../ui/i18n';
 import { hapticTick } from '../audio/sfx';
 import { findTarget, rulesFor } from './settings';
 import { presetName } from '../ui/settings';
-import { allPresets, loadProfiles } from './ruleProfiles';
+import { allPresets, loadCustomModes } from './modes';
 import { sameRules } from '../engine/rules';
+import { tileSetOf } from '../engine/tiles';
 
 type Names = [string, string, string, string];
 type HandEnd = Extract<GameEvent, { type: 'handEnd' }>;
@@ -506,8 +507,8 @@ export class OnlineController {
     const mine = rulesFor(this.host.settings(), room.mode);
     const opts: { label: string; rules: RuleSettings }[] = [];
     if (preset) opts.push({ label: presetName([preset], preset.rules, room.mode), rules: preset.rules });
-    // the host's saved profiles of this mode, then their current rules (when not already listed)
-    for (const p of loadProfiles(this.host.engine)) {
+    // the host's own modes of this base mode, then their current rules (when not already listed)
+    for (const p of loadCustomModes().map((m) => ({ mode: m.base, name: loc(m.name), rules: m.rules }))) {
       if (p.mode !== room.mode || opts.some((x) => sameRules(x.rules, p.rules, room.mode))) continue;
       opts.push({ label: p.name, rules: p.rules });
     }
@@ -1214,6 +1215,8 @@ export class OnlineController {
       this.buildGameChrome();
     } else this.refreshNames();
     const tv = this.host.view();
+    // a snapshot can replace a table whose rules changed (rematch / resync): keep the renderer's set in step
+    tv.setTileSet?.(tileSetOf(room.rules));
     const h = this.mirror.hand;
     if (h) {
       this.host.setSfxMuted(true);

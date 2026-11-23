@@ -72,4 +72,24 @@ describe('hidden tiles (online renderer path)', () => {
     unknown[4] = false; // already claimed
     expect(pickSwap(12, hand, unknown, false, [4, 12])).toBe(11);
   });
+
+  it('explicit global ids (double-nine): placeholders borrow only active ids and mark their global index', () => {
+    const ids = Array.from({ length: 55 }, (_, i) => 28 + i);
+    const mine = [28, 40, 82];
+    const other = [-1, -1, -1];
+    const pile = [-1, -1];
+    const unknown = new Array<boolean>(83).fill(false);
+    resolvePlaceholders([mine, other, pile], [0, 1], unknown, ids);
+    const all = [...mine, ...other, ...pile];
+    expect(new Set(all).size).toBe(all.length);
+    for (const id of [...other, ...pile]) {
+      expect(id).toBeGreaterThanOrEqual(28);
+      expect(id).toBeLessThanOrEqual(82);
+      expect(unknown[id]).toBe(true);
+    }
+    for (const id of mine) expect(unknown[id]).toBe(false);
+    // ids outside the active set are never borrowed, even when known elsewhere
+    expect(unknown[0]).toBe(false);
+    expect(pile).not.toContain(0);
+  });
 });

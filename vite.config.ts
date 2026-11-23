@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
@@ -8,6 +8,8 @@ export default defineConfig({
   base: './',
   // the app version shown in Acerca de (src/ui/about.ts)
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+  // Vitest otherwise discovers test copies inside .claude worktrees and runs stale code.
+  test: { exclude: ['**/.claude/worktrees/**', '**/node_modules/**', '**/dist/**'] },
   server: { port: 5173, host: true },
   // kunet may be linked from a sibling folder (with its own dev copy of @capacitor/core): use the game's
   resolve: { dedupe: ['@capacitor/core'] },

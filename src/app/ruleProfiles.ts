@@ -76,3 +76,12 @@ export function profilesAsPresets(list: RuleProfile[]): RulePreset[] {
 export function allPresets(engine: EngineApi): RulePreset[] {
   return [...(engine.RULE_PRESETS ?? []), ...profilesAsPresets(loadProfiles(engine))];
 }
+
+/** forget the old profiles (they were migrated into local game modes) */
+export function clearProfiles(): void {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* ignore */
+  }
+}

@@ -1,9 +1,12 @@
 /** Dev harness: mounts the TableView and replays fake GameEvents from a tiny local rules sim. */
 import { createTableView } from './index';
-import type { GameEvent, Move, PlacedTile, Pip, Quality, Seat, Tile } from '../contracts';
+import type { GameEvent, Move, PlacedTile, Pip, Quality, Seat, Tile, TileSet } from '../contracts';
+import { TILE_SETS } from '../engine/tiles';
 
-const ALL: Tile[] = [];
-for (let a = 0; a <= 6; a++) for (let b = a; b <= 6; b++) ALL.push({ id: ALL.length, a: a as Pip, b: b as Pip });
+/** ?set=double9 exercises the renderer's global-id path; the default stays double-six. */
+const set: TileSet = new URLSearchParams(location.search).get('set') === 'double9' ? 'double9' : 'double6';
+const def = TILE_SETS[set];
+const ALL: Tile[] = def.tiles.slice();
 
 const app = document.getElementById('app')!;
 const logEl = document.getElementById('log')!;
@@ -18,6 +21,7 @@ const view = createTableView({
   onSfx: (n) => console.debug('[sfx]', n),
 });
 (window as unknown as { view: unknown }).view = view;
+view.setTileSet?.(set);
 
 const shuffle = <T>(a: T[]): T[] => {
   for (let i = a.length - 1; i > 0; i--) {
@@ -39,8 +43,8 @@ class Sim {
   scores: [number, number] = [0, 0];
   constructor() {
     const deck = shuffle(ALL.slice());
-    this.hands = [0, 1, 2, 3].map((s) => deck.slice(s * 7, s * 7 + 7));
-    this.starter = this.hands.findIndex((h) => h.some((t) => t.id === 27)) as Seat;
+    this.hands = [0, 1, 2, 3].map((s) => deck.slice(s * def.handSize, s * def.handSize + def.handSize));
+    this.starter = this.hands.findIndex((h) => h.some((t) => t.id === def.highDoubleId)) as Seat;
     this.turn = this.starter;
   }
   startEvent(): GameEvent {
@@ -51,7 +55,7 @@ class Sim {
     const out: Move[] = [];
     for (const t of this.hands[s]) {
       if (!this.ends) {
-        if (this.chain.length === 0 && (t.id === 27 || !this.hands.some((h) => h.some((x) => x.id === 27))))
+        if (this.chain.length === 0 && (t.id === def.highDoubleId || !this.hands.some((h) => h.some((x) => x.id === def.highDoubleId))))
           out.push({ kind: 'play', seat: s, tileId: t.id, side: 'right' });
         continue;
       }
@@ -167,7 +171,7 @@ async function tranque() {
 function eulerLine(): { tiles: Tile[]; verts: number[] } {
   for (;;) {
     const used = new Set<number>();
-    const stack: { v: number; t: number }[] = [{ v: Math.floor(Math.random() * 7), t: -1 }];
+    const stack: { v: number; t: number }[] = [{ v: Math.floor(Math.random() * (def.maxPip + 1)), t: -1 }];
     const path: { v: number; t: number }[] = [];
     while (stack.length) {
       const top = stack[stack.length - 1];
@@ -179,7 +183,7 @@ function eulerLine(): { tiles: Tile[]; verts: number[] } {
       } else path.push(stack.pop()!);
     }
     path.reverse();
-    if (path.length === 29) return { verts: path.map((p) => p.v), tiles: path.slice(1).map((p) => ALL[p.t]) };
+    if (path.length === def.count + 1) return { verts: path.map((p) => p.v), tiles: path.slice(1).map((p) => ALL[p.t]) };
   }
 }
 
@@ -187,16 +191,16 @@ async function chain28() {
   const my = ++run;
   view.reset();
   let { tiles, verts } = eulerLine();
-  let k = Math.floor(Math.random() * 28);
+  let k = Math.floor(Math.random() * def.count);
   if (tiles[k].a !== verts[k]) {
     tiles = tiles.slice().reverse();
     verts = verts.slice().reverse();
-    k = 27 - k;
+    k = def.count - 1 - k;
   }
   const order: PlacedTile[] = [{ tile: tiles[k], seat: 0, side: 'right', outer: tiles[k].b }];
   const R: PlacedTile[] = [];
   const L: PlacedTile[] = [];
-  for (let j = k + 1; j < 28; j++) R.push({ tile: tiles[j], seat: 0, side: 'right', outer: verts[j + 1] as Pip });
+  for (let j = k + 1; j < def.count; j++) R.push({ tile: tiles[j], seat: 0, side: 'right', outer: verts[j + 1] as Pip });
   for (let j = k - 1; j >= 0; j--) L.push({ tile: tiles[j], seat: 0, side: 'left', outer: verts[j] as Pip });
   while (R.length || L.length) order.push((L.length === 0 || (R.length && Math.random() < 0.5) ? R : L).shift()!);
   const hands: Tile[][] = [[], [], [], []];
@@ -205,9 +209,9 @@ async function chain28() {
     hands[i % 4].push(p.tile);
   });
   await view.handle({ type: 'handStart', handNo: 1, hands, starter: 0, scores: [0, 0] });
-  const left = [7, 7, 7, 7];
+  const left = new Array<number>(4).fill(def.handSize);
   let ends = { left: order[0].tile.a, right: order[0].tile.b };
-  for (let i = 0; i < 28 && my === run; i++) {
+  for (let i = 0; i < def.count && my === run; i++) {
     const p = order[i];
     left[p.seat]--;
     if (i > 0) ends = { ...ends, [p.side]: p.outer };
@@ -215,7 +219,7 @@ async function chain28() {
     await view.handle({ type: 'play', seat: p.seat, tile: p.tile, side: p.side, placed: p, ends: { ...ends }, tilesLeft: left[p.seat], isFirst: i === 0 });
   }
   view.setTurn(null);
-  log('28-tile chain done');
+  log(`${def.count}-tile chain done`);
 }
 
 async function passDemo() {
@@ -223,7 +227,7 @@ async function passDemo() {
   view.reset();
   const sim = new Sim();
   await view.handle(sim.startEvent());
-  const first = sim.hands[sim.starter].find((t) => t.id === 27)!;
+  const first = sim.hands[sim.starter].find((t) => t.id === def.highDoubleId)!;
   sim.turn = sim.starter;
   for (const e of sim.apply({ kind: 'play', seat: sim.starter, tileId: first.id, side: 'right' })) await view.handle(e);
   for (const s of [1, 2, 3] as Seat[]) {

@@ -1,19 +1,22 @@
 # Kudominoes
 
-Cuban-rules double-six partner dominoes (you + CPU partner vs two CPUs). Vite + TypeScript + three.js,
-packaged for Android with Capacitor. Spanish (neutral) by default, English in Ajustes.
+Cuban-rules dominoes (you + CPU partner vs two CPUs, or individual play). Vite + TypeScript + three.js,
+packaged for Android with Capacitor. Spanish (neutral) by default, English in Ajustes. Both the classic
+double-six set and the Cuban double-nine set are available in every mode.
 
 ## Rules ("Cubano clásico" preset = `DEFAULT_RULES`)
 
 Rule settings are data-driven (`src/engine/rules.ts`, `RULE_SETTINGS`); the settings UI renders them generically.
 
 - `rounding: 'up'` — a hand's pips are rounded to the ten and divided by ten (31 → 4, 65 → 7, 0 → 0); also `nearest`, `down`, `none` (raw pips).
-- `target: 20` (10/15/20/30) on that scale; with `rounding: 'none'` every tens-scale value (target, bonuses) is ×10 (20 → 200).
+- `tileSet: 'double6'` — 28 tiles, 7 per player. `double9` uses 55 tiles (0–9), deals 10 per player and leaves 15/25/35 in the pozo for 4/3/2 individual players; the "Cubano doble 9" preset plays to 100.
+- `target: 20` (10/15/20/30/50/100/150/200) on that scale; with `rounding: 'none'` every tens-scale value (target, bonuses) is ×10 (20 → 200).
 - `capicua: 'double'` — round first, then double (65 → 7, ×2 = 14); the order lives in `CAPICUA_DOUBLE_BEFORE_ROUNDING` (`src/engine/scoring.ts`). Fixed +1/+2/+3 also available.
 - `paseSalida: 2` + `paseSalidaNoWin: true` — the opening team scores 2 the moment the next player passes on the first ficha (shown at once on the scoreboard); never added if it would reach the target. The match is only ever decided at a hand end.
 - `nextStarter: 'winnerTeam'` — from hand 2 the winning pair chooses its opener after the deal (`pendingStarterChoice`, `chooseStarter`); after a void hand the same player opens again.
 - `paseCorrido` (triple pass), `chuchazo`, `pollona` are off by default. Cerrado points are rounded like a domino.
-- Stored settings carry `rulesVersion`; older rules are migrated (structural choices kept, points scale reset). Old raw-pip saved matches are discarded.
+- Stored settings carry `rulesVersion` (5); older rules are migrated (structural choices kept, points scale reset, missing tile set = double-six). Old raw-pip saved matches are discarded.
+- `firstStarter`/`nextStarter = 'double6'` means "highest double opens": 6-6 in the classic set, 9-9 in double-nine (falling back to the highest double that was actually dealt).
 
 ## Characters (CPU players)
 

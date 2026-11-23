@@ -7,7 +7,9 @@
 
 import { t } from '../ui/i18n';
 
-const doc = document as Document & { webkitFullscreenEnabled?: boolean; webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => Promise<void> };
+type FsDoc = Document & { webkitFullscreenEnabled?: boolean; webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => Promise<void> };
+/** resolved on use (not at import): UI modules are imported by Node-side tests without a DOM */
+const fsDoc = (): FsDoc => document as FsDoc;
 type FsEl = HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
 
 const native = (): boolean => !!(window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
@@ -20,10 +22,12 @@ const iosHomeScreen = (): boolean => (navigator as Navigator & { standalone?: bo
  * a reload in fullscreen, reports `display-mode: fullscreen` too, which used to hide the button.)
  */
 export function canFullscreen(): boolean {
+  const doc = fsDoc();
   return !native() && !iosHomeScreen() && !!(doc.fullscreenEnabled || doc.webkitFullscreenEnabled);
 }
 
 export function isFullscreen(): boolean {
+  const doc = fsDoc();
   return !!(doc.fullscreenElement || doc.webkitFullscreenElement);
 }
 
@@ -60,6 +64,7 @@ export async function toggleFullscreen(): Promise<void> {
   if (browserFullscreen()) return toast(t('menu.fullscreenF11'));
   if (!isFullscreen()) return enterFullscreen();
   try {
+    const doc = fsDoc();
     if (doc.exitFullscreen) await doc.exitFullscreen();
     else await doc.webkitExitFullscreen?.();
   } catch {

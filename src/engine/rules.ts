@@ -1,4 +1,4 @@
-import type { GameMode, RulePreset, RuleSettings, SettingDescriptor, SettingValue } from '../contracts';
+import type { GameMode, RulePreset, RuleSettings, SettingDescriptor, SettingValue, TileSet } from '../contracts';
 
 const L = (es: string, en: string) => ({ es, en });
 const off = { value: 0, label: L('No', 'Off') };
@@ -8,9 +8,10 @@ const pts = (v: number) => ({ value: v, label: L('{n} puntos', '{n} points'), sh
 
 /**
  * Version of the rule schema. 3 = points on the tens scale with rounding + the winning pair chooses its
- * opener. 4 = points held "abajo" + a tied cerrado goes to the opening team (new Cubano clásico defaults).
+ * opener. 4 = points held "abajo" + a tied cerrado goes to the opening team. 5 = the physical tile set
+ * is a rule (`tileSet`), defaulting to double-six so every older save keeps playing the same tiles.
  */
-export const RULES_VERSION = 4;
+export const RULES_VERSION = 5;
 
 /**
  * Data-driven rule variants for Cuban double-six partners ("dominó en parejas").
@@ -22,20 +23,36 @@ export const RULES_VERSION = 4;
 export const RULE_SETTINGS: SettingDescriptor[] = [
   // ── Salida ──
   {
+    key: 'tileSet',
+    group: 'salida',
+    type: 'select',
+    default: 'double6',
+    options: [
+      { value: 'double6', label: L('Doble seis (28 fichas)', 'Double six (28 tiles)'), short: L('Doble 6', 'Double 6') },
+      { value: 'double9', label: L('Doble nueve (55 fichas)', 'Double nine (55 tiles)'), short: L('Doble 9', 'Double 9') },
+    ],
+    label: L('Juego de fichas', 'Tile set'),
+    short: L('Fichas', 'Tiles'),
+    help: L(
+      'Doble seis: 28 fichas y 7 por jugador. Doble nueve: 55 fichas y 10 por jugador; las sobrantes quedan apartadas o forman el pozo en Individual.',
+      'Double six: 28 tiles and 7 per player. Double nine: 55 tiles and 10 per player; leftovers are set aside or form the boneyard in Individual.',
+    ),
+  },
+  {
     key: 'firstStarter',
     group: 'salida',
     type: 'select',
     default: 'double6',
     options: [
-      { value: 'double6', label: L('Sale el doble seis', 'Double six opens'), short: L('Doble seis', 'Double six') },
-      { value: 'double6Free', label: L('El del doble seis sale con cualquiera', 'Double-six holder opens with any tile'), short: L('Doble seis, cualquiera', 'Double six, any') },
+      { value: 'double6', label: L('Sale el doble más alto', 'Highest double opens'), short: L('Doble más alto', 'Highest double') },
+      { value: 'double6Free', label: L('El del doble más alto sale con cualquiera', 'Highest-double holder opens with any tile'), short: L('Doble más alto, cualquiera', 'Highest double, any') },
       { value: 'random', label: L('Jugador al azar', 'Random player'), short: L('Al azar', 'Random') },
     ],
     label: L('Salida de la primera mano', 'Opening of the first hand'),
     short: L('1.ª mano', '1st hand'),
     help: L(
-      'Quién abre la primera mano y si está obligado a salir con el doble seis.',
-      'Who opens the first hand and whether they must lead the double six.',
+      'Quién abre la primera mano y si está obligado a salir con el doble más alto (6-6 en doble seis, 9-9 en doble nueve).',
+      'Who opens the first hand and whether they must lead the highest double (6-6 in double-six, 9-9 in double-nine).',
     ),
   },
   {
@@ -47,7 +64,7 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
       { value: 'rotate', label: L('Rota a la derecha', 'Rotates to the right'), short: L('rota', 'rotates') },
       { value: 'winner', label: L('Sale el que ganó', 'Hand winner opens'), short: L('sale el ganador', 'winner opens') },
       { value: 'winnerTeam', label: L('Sale la pareja ganadora: elige quién', 'Winning pair opens: they choose who'), short: L('sale la pareja ganadora', 'winning pair opens') },
-      { value: 'double6', label: L('Siempre el doble seis', 'Always the double six'), short: L('siempre doble seis', 'always double six') },
+      { value: 'double6', label: L('Siempre el doble más alto', 'Always the highest double'), short: L('siempre doble más alto', 'always highest double') },
     ],
     label: L('Salida de las siguientes manos', 'Opening of later hands'),
     short: L('Después', 'Later'),
@@ -72,7 +89,7 @@ export const RULE_SETTINGS: SettingDescriptor[] = [
     type: 'select',
     default: 20,
     scale: TENS,
-    options: [10, 15, 20, 30].map(pts),
+    options: [10, 15, 20, 30, 50, 100, 150, 200].map(pts),
     label: L('Partida a', 'Play to'),
     short: L('A', 'To'),
     help: L(
@@ -289,10 +306,11 @@ export const RULE_SETTINGS_INDIVIDUAL: SettingDescriptor[] = [
     label: L('Robar del pozo', 'Draw from the boneyard'),
     short: L('se roba del pozo', 'draw from the boneyard'),
     help: L(
-      'Con 2 o 3 jugadores sobran fichas: el pozo. Si no puedes jugar, robas del pozo una a una hasta que salga una que sirva, y la juegas; si el pozo se acaba, pasas. Desactivado: las fichas que sobran quedan apartadas y el que no puede jugar pasa. Con 4 jugadores no hay pozo.',
-      'With 2 or 3 players some tiles are left over: the boneyard. If you cannot play, you draw one at a time until one fits, and you play it; when the boneyard runs out, you pass. Off: the leftover tiles are set aside and whoever cannot play passes. With 4 players there is no boneyard.',
+      'Con doble seis sobran fichas con 2 o 3 jugadores; con doble nueve sobran con cualquier número. Si no puedes jugar, robas del pozo una a una hasta que salga una que sirva, y la juegas; si el pozo se acaba, pasas. Desactivado: las fichas que sobran quedan apartadas y el que no puede jugar pasa.',
+      'With double-six there are leftovers with 2 or 3 players; with double-nine there are leftovers with any count. If you cannot play, you draw one at a time until one fits, and you play it; when the boneyard runs out, you pass. Off: the leftover tiles are set aside and whoever cannot play passes.',
     ),
   },
+  shared('tileSet', 'pozo'),
   shared('redealFiveDoubles', 'pozo'),
   // ── Puntuación ──
   shared(
@@ -358,11 +376,19 @@ export const descriptorsFor = (mode: GameMode = 'pairs'): SettingDescriptor[] =>
 /** the default rules of a mode */
 export const defaultRulesFor = (mode: GameMode = 'pairs'): RuleSettings => (mode === 'individual' ? DEFAULT_RULES_INDIVIDUAL : DEFAULT_RULES);
 
+/** A Cuban double-nine game: 55 tiles, 10 per player and a 100-point match. */
+const D9_OVERRIDES: RuleSettings = { tileSet: 'double9', target: 100 };
+
 /** Named rule sets. The first one is the classic default (pairs); then the individual classic. */
 export const RULE_PRESETS: RulePreset[] = [
   { id: 'cubano', mode: 'pairs', label: L('Cubano clásico', 'Classic Cuban'), rules: DEFAULT_RULES },
   { id: 'cubanoIndividual', mode: 'individual', label: L('Cubano clásico', 'Classic Cuban'), rules: DEFAULT_RULES_INDIVIDUAL },
+  { id: 'cubanoDoble9', mode: 'pairs', label: L('Cubano doble 9', 'Cuban double nine'), rules: { ...DEFAULT_RULES, ...D9_OVERRIDES } },
+  { id: 'cubanoIndividualDoble9', mode: 'individual', label: L('Cubano doble 9', 'Cuban double nine'), rules: { ...DEFAULT_RULES_INDIVIDUAL, ...D9_OVERRIDES } },
 ];
+
+/** The double-nine preset of a base mode, used by the "Aplicar reglas doble 9" editor action. */
+export const double9Preset = (mode: GameMode): RulePreset => RULE_PRESETS[mode === 'individual' ? 3 : 2];
 
 /** Fill missing keys with defaults and replace invalid values with defaults (the mode's rule list). */
 export function normalizeRules(rules: RuleSettings | undefined, mode: GameMode = 'pairs'): RuleSettings {
@@ -392,6 +418,8 @@ const OLD_DEFAULTS: RuleSettings = { firstStarter: 'double6', nextStarter: 'rota
 export function migrateRules(stored: RuleSettings | undefined, fromVersion: number | undefined): RuleSettings {
   const from = fromVersion ?? 1;
   if (from >= RULES_VERSION) return normalizeRules(stored);
+  // schema 4 → 5: every stored choice is kept; the new tile-set rule takes its double-six default.
+  if (from === 4) return normalizeRules(stored);
   // schema 3 → 4: a player still on the old "Cubano clásico" (never changed anything) moves to the new
   // one (abajo on, tied cerrado → la mano). A customised set ("Personalizado") keeps every stored choice,
   // including the tie rule; the new abajo key takes its default.
@@ -415,6 +443,8 @@ export type Rounding = 'up' | 'nearest' | 'down' | 'none';
 
 /** Typed view over normalized rules. Numeric bonuses and target are on the tens scale (see `unit`). */
 export interface Rules {
+  /** physical set: the "double6" opener rule means 6-6 here and 9-9 in double-nine */
+  tileSet: TileSet;
   target: number;
   rounding: Rounding;
   firstStarter: 'double6' | 'double6Free' | 'random';

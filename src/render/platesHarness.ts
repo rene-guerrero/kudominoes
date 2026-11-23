@@ -5,15 +5,19 @@
 import 'kuavatars/avatars.css';
 import '../ui/styles.css';
 import { createTableView } from './index';
-import type { GameEvent, Move, PlacedTile, Pip, Seat, Tile } from '../contracts';
+import type { GameEvent, Move, PlacedTile, Pip, Seat, Tile, TileSet } from '../contracts';
+import { TILE_SETS } from '../engine/tiles';
 import { Overlay } from '../ui/overlay';
 import { Hud } from '../ui/hud';
 import { SeatPlates } from '../ui/plates';
 import { AvatarController } from '../ui/avatars';
 import { t } from '../ui/i18n';
 
-const ALL: Tile[] = [];
-for (let a = 0; a <= 6; a++) for (let b = a; b <= 6; b++) ALL.push({ id: ALL.length, a: a as Pip, b: b as Pip });
+const qs = new URLSearchParams(location.search);
+/** ?set=double9 exercises the renderer's global-id path; the default stays double-six. */
+const set: TileSet = qs.get('set') === 'double9' ? 'double9' : 'double6';
+const def = TILE_SETS[set];
+const ALL: Tile[] = def.tiles.slice();
 
 const overlay = new Overlay(document.getElementById('ui')!);
 const avatars = new AvatarController();
@@ -37,6 +41,7 @@ const view = createTableView({
 });
 (window as unknown as Record<string, unknown>).view = view;
 (window as unknown as Record<string, unknown>).hud = hud;
+view.setTileSet?.(set);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const shuffle = <T>(a: T[]): T[] => {
@@ -63,7 +68,7 @@ async function deal(plays: number, animate = false) {
   view.reset();
   for (;;) {
     const deck = shuffle(ALL.slice());
-    const hands = [0, 1, 2, 3].map((s) => deck.slice(s * 7, s * 7 + 7));
+    const hands = [0, 1, 2, 3].map((s) => deck.slice(s * def.handSize, s * def.handSize + def.handSize));
     // simulate first
     const h = hands.map((x) => x.slice());
     const chain: PlacedTile[] = [];
@@ -139,11 +144,11 @@ async function replay() {
   await deal(0, true);
 }
 
-/** a random 28-tile line of play (Euler path over the double-six set) */
+/** a random line of play (Euler path over the active set) */
 function eulerLine(): { tiles: Tile[]; verts: number[] } {
   for (;;) {
     const used = new Set<number>();
-    const stack: { v: number; t: number }[] = [{ v: Math.floor(Math.random() * 7), t: -1 }];
+    const stack: { v: number; t: number }[] = [{ v: Math.floor(Math.random() * (def.maxPip + 1)), t: -1 }];
     const path: { v: number; t: number }[] = [];
     while (stack.length) {
       const top = stack[stack.length - 1];
@@ -155,21 +160,21 @@ function eulerLine(): { tiles: Tile[]; verts: number[] } {
       } else path.push(stack.pop()!);
     }
     path.reverse();
-    if (path.length === 29) return { verts: path.map((p) => p.v), tiles: path.slice(1).map((p) => ALL[p.t]) };
+    if (path.length === def.count + 1) return { verts: path.map((p) => p.v), tiles: path.slice(1).map((p) => ALL[p.t]) };
   }
 }
 
 /**
- * Restore straight into a chain of `n` tiles (1..28), both arms growing at random; the unplayed tiles
- * go back to the hands (the human's first, up to 7). `over` restores the hand-end reveal.
+ * Restore straight into a chain of `n` tiles (1..count), both arms growing at random; the unplayed tiles
+ * go back to the hands (the human's first, up to a full hand). `over` restores the hand-end reveal.
  */
 async function chainN(n: number, over = false) {
   ++run;
   view.reset();
-  n = Math.max(1, Math.min(28, n));
+  n = Math.max(1, Math.min(def.count, n));
   const { tiles, verts } = eulerLine();
   // a window of n consecutive tiles from the line, first tile somewhere inside it
-  const s0 = Math.floor(Math.random() * (28 - n + 1));
+  const s0 = Math.floor(Math.random() * (def.count - n + 1));
   const k = s0 + Math.floor(Math.random() * n);
   // the first tile's right end is verts[k + 1] (the right arm continues from it), its left end verts[k]
   const chain: PlacedTile[] = [{ tile: tiles[k], seat: 0, side: 'right', outer: verts[k + 1] as Pip }];
@@ -181,7 +186,7 @@ async function chainN(n: number, over = false) {
   chain.forEach((p, i) => (p.seat = (i % 4) as Seat));
   const used = new Set(chain.map((p) => p.tile.id));
   const rest = shuffle(ALL.filter((x) => !used.has(x.id)));
-  const hands: Tile[][] = [rest.splice(0, Math.min(7, rest.length)), [], [], []];
+  const hands: Tile[][] = [rest.splice(0, Math.min(def.handSize, rest.length)), [], [], []];
   for (let i = 0; rest.length; i++) hands[1 + (i % 3)].push(rest.shift()!);
   const first = chain[0];
   const ends = { left: verts[k] as Pip, right: first.outer };
@@ -231,7 +236,6 @@ on('bPass', () => void passes());
 on('bHand', () => void replay());
 (window as unknown as Record<string, unknown>).demo = { deal, passes, plates, sleep, chainN, measure };
 
-const qs = new URLSearchParams(location.search);
 const demo = qs.get('demo') ?? 'start';
 if (demo === 'mid') void deal(Number(qs.get('n') ?? 16));
 else if (demo === 'chain') void chainN(Number(qs.get('n') ?? 12), qs.get('over') === '1');

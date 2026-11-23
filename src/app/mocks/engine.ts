@@ -25,6 +25,22 @@ for (let a = 0; a <= 6; a++) for (let b = a; b <= 6; b++) ALL_TILES.push({ id: A
 
 const RULE_SETTINGS: SettingDescriptor[] = [
   {
+    // display-only here: this dev mock still deals the double-six set; the selector is for exercising the UI
+    key: 'tileSet',
+    group: 'salida',
+    type: 'select',
+    default: 'double6',
+    options: [
+      { value: 'double6', label: { es: 'Doble seis (28 fichas)', en: 'Double six (28 tiles)' } },
+      { value: 'double9', label: { es: 'Doble nueve (55 fichas)', en: 'Double nine (55 tiles)' } },
+    ],
+    label: { es: 'Juego de fichas', en: 'Tile set' },
+    help: {
+      es: 'Este mock solo reparte doble seis; el selector sirve para probar la interfaz.',
+      en: 'This mock only deals double six; the selector is for exercising the UI.',
+    },
+  },
+  {
     key: 'target',
     group: 'puntuacion',
     type: 'select',

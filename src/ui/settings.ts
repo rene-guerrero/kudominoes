@@ -1,6 +1,8 @@
-import type { AppSettings, GameMode, RulePreset, RuleSettings, SettingDescriptor, SettingValue, TableStyle, TileBack, TileTheme } from '../contracts';
+import type { AppSettings, DominoMode, GameMode, RulePreset, RuleSettings, SettingDescriptor, SettingValue, TableStyle, TileBack, TileTheme } from '../contracts';
 import { TABLE_STYLES, TILE_BACKS } from '../contracts';
 import { tableThumb, tileBackThumb } from '../render';
+import { deleteCustomMode, draftFrom, isBuiltInMode, modeDef } from '../app/modes';
+import { defaultRulesFor } from '../engine/rules';
 import { h } from './dom';
 import { loc, t, tMaybe, type Key } from './i18n';
 import { ICONS, segmented, toggle } from './overlay';
@@ -11,16 +13,12 @@ import { enhanceHScroll } from './hscroll';
 import { gestureLabel, MAX_GESTURES, sanitizeGestures } from './chat';
 import { staticFace } from './avatars';
 import { CHAT_GESTURES, type ChatGesture } from '../net/protocol';
+import { canFullscreen, toggleFullscreen } from '../app/fullscreen';
+import { modeSelect } from './modeSelect';
+import { modeView } from './modeView';
 
 export type SettingsTab = 'game' | 'rules' | 'av';
-const ALL_TABS: SettingsTab[] = ['game', 'rules', 'av'];
-
-export interface RuleProfileItem {
-  id: string;
-  name: string;
-  mode: GameMode;
-  rules: RuleSettings;
-}
+const ALL_TABS: SettingsTab[] = ['game', 'av', 'rules'];
 
 export interface SettingsOpts {
   settings: AppSettings;
@@ -31,10 +29,8 @@ export interface SettingsOpts {
   defaultRulesIndividual?: RuleSettings;
   /** named rule sets; the first of each mode is its classic one ("Cubano clásico") */
   presets: RulePreset[];
-  /** the player's saved rule profiles (all modes) and how to change them; each returns the new list */
-  profiles?: RuleProfileItem[];
-  onSaveProfile?(name: string, mode: GameMode, rules: RuleSettings): RuleProfileItem[];
-  onDeleteProfile?(id: string): RuleProfileItem[];
+  /** opens the separate editor for a new mode (plus) or an existing custom one (pencil) */
+  editMode?(draft: DominoMode, isNew: boolean): void;
   /** opened from inside a game: the name and avatar can't change (a note replaces them), and no Reglas tab */
   profileLocked?: boolean;
   confirm(o: { title: string; body: string; ok: string; cancel: string; danger?: boolean }): Promise<boolean>;
@@ -51,13 +47,16 @@ export interface SettingsOpts {
 
 let rowSeq = 0;
 
+/** the little ⓘ button used by rows and the read-only mode view */
+export function infoButton(label: string, help: string): HTMLButtonElement {
+  const b = h('button.info-btn', { type: 'button', 'aria-expanded': 'false', 'aria-label': `${t('settings.info')}: ${label}`, title: t('settings.info') }, 'i');
+  b.addEventListener('click', () => toggleTip(b, help));
+  return b;
+}
+
 /** a settings row; `help` sits behind a small ⓘ button (shown on demand) */
-function row(label: string, control: Node, help?: string, stack = false): HTMLElement {
-  let info: HTMLButtonElement | null = null;
-  if (help) {
-    info = h('button.info-btn', { type: 'button', 'aria-expanded': 'false', 'aria-label': `${t('settings.info')}: ${label}`, title: t('settings.info') }, 'i');
-    info.addEventListener('click', () => toggleTip(info!, help));
-  }
+export function row(label: string, control: Node, help?: string, stack = false): HTMLElement {
+  const info = help ? infoButton(label, help) : null;
   return h(
     'div.set-row',
     { class: stack ? 'stack' : '' },
@@ -193,7 +192,7 @@ const TAB_ICONS: Record<SettingsTab, string> = {
   av: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6.5h16M4 12h16M4 17.5h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".55"/><circle cx="9" cy="6.5" r="2.4" fill="currentColor"/><circle cx="15.5" cy="12" r="2.4" fill="currentColor"/><circle cx="7.5" cy="17.5" r="2.4" fill="currentColor"/></svg>',
 };
 
-function prettyGroup(g: string): string {
+export function prettyGroup(g: string): string {
   return tMaybe(`rulesGroup.${g}`) ?? g.replace(/[-_]/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 }
 
@@ -205,7 +204,7 @@ function shownValue(d: SettingDescriptor, v: SettingValue, rules: RuleSettings):
   return v;
 }
 
-function optionLabel(d: SettingDescriptor, o: NonNullable<SettingDescriptor['options']>[number], rules: RuleSettings, short = false): string {
+export function optionLabel(d: SettingDescriptor, o: NonNullable<SettingDescriptor['options']>[number], rules: RuleSettings, short = false): string {
   const raw = loc(short ? (o.short ?? o.label) : o.label);
   // singular after a 1 ("+1 punto", "1 point")
   return raw
@@ -215,10 +214,10 @@ function optionLabel(d: SettingDescriptor, o: NonNullable<SettingDescriptor['opt
     .replace(/(^|[^\d.,])1 points(?!\w)/g, '$11 point');
 }
 
-const isOff = (v: SettingValue) => v === 0 || v === 'off' || v === false;
+export const isOff = (v: SettingValue) => v === 0 || v === 'off' || v === false;
 
 /** one-line summary of a rule group's current values */
-function groupSummary(list: SettingDescriptor[], rules: RuleSettings): string {
+export function groupSummary(list: SettingDescriptor[], rules: RuleSettings): string {
   const parts: string[] = [];
   for (const d of list) {
     const v = rules[d.key] ?? d.default;
@@ -253,11 +252,16 @@ export interface RuleSelectItem {
   on: boolean;
   /** "Personalizado": shown as the current value, not pickable */
   custom?: boolean;
+  /** pick() runs even when this item is already selected (e.g. Automática re-detects) */
+  repick?: boolean;
+  /** an inline SVG shown before the label (game-mode icons) */
+  icon?: string;
   pick?: () => void;
 }
 
 /** the rule-set dropdown: a wood-and-cream button that opens a list (game-styled, not the native select) */
 const PLUS_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
+const PENCIL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.8 2.8 0 0 0-4-4L4 16z M13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const TRASH_SVG =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.2h8.6L17.2 7M10.2 10.5v5.5M13.8 10.5v5.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -267,16 +271,17 @@ export function ruleSelect(items: RuleSelectItem[], label: string, variant?: 'so
   const btnEl = h(
     'button.rsel-btn',
     { type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-controls': listId, 'aria-label': `${label}: ${cur.label}` },
+    cur.icon ? h('span.rsel-ico', { 'aria-hidden': 'true', html: cur.icon }) : null,
     h('span.rsel-v', { class: cur.custom ? 'custom' : '' }, cur.label),
     h('span.rsel-chev', { 'aria-hidden': 'true' }),
   );
   const opts = items
     .filter((i) => !i.custom)
     .map((i) => {
-      const o = h('li.rsel-opt', { role: 'option', tabindex: -1, 'aria-selected': String(i.on) }, h('span.rsel-check', { 'aria-hidden': 'true' }), h('span', i.label));
+      const o = h('li.rsel-opt', { role: 'option', tabindex: -1, 'aria-selected': String(i.on) }, h('span.rsel-check', { 'aria-hidden': 'true' }), i.icon ? h('span.rsel-ico', { 'aria-hidden': 'true', html: i.icon }) : null, h('span', i.label));
       o.addEventListener('click', () => {
         close();
-        if (!i.on) i.pick?.();
+        if (!i.on || i.repick) i.pick?.();
       });
       return o;
     });
@@ -321,6 +326,7 @@ export function ruleSelect(items: RuleSelectItem[], label: string, variant?: 'so
       (document.activeElement as HTMLElement)?.click();
     } else if (e.key === 'Escape' || e.key === 'Tab') {
       e.preventDefault();
+      if (e.key === 'Escape') e.stopPropagation();
       close(true);
     }
   });
@@ -404,7 +410,6 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
   const tabGame = () =>
     h(
       'div.set-tab-body',
-      o.profileLocked ? h('section.card.set-card.profile-locked', h('p.set-help.lead', t('settings.profileLocked'))) : null,
       h(
         'section.card.set-card',
         o.profileLocked ? null : row(t('settings.name'), name),
@@ -434,28 +439,37 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
   // graphics quality: Automática (per device, lowered when frames are slow) or a fixed level
   type QChoice = 'auto' | AppSettings['quality'];
   const qualityCtl = () => {
-    const now = h('div.set-sub', { 'aria-live': 'polite' });
-    const showNow = () => {
-      const auto = s.qualityMode !== 'manual';
-      now.hidden = !auto;
-      if (auto) now.textContent = t('settings.quality.now', { q: t(`settings.quality.${o.resolvedQuality?.() ?? s.quality}` as Key) });
+    // one quiet dropdown on the label's line (Automática picks the level itself)
+    const box = h('div.set-ctl.quality-ctl');
+    const render = () => {
+      const cur: QChoice = s.qualityMode === 'manual' ? s.quality : 'auto';
+      box.replaceChildren(
+        ruleSelect(
+          (['auto', 'low', 'medium', 'high'] as QChoice[]).map((v) => ({
+            label: t(`settings.quality.${v}` as Key),
+            on: v === cur,
+            repick: v === 'auto',
+            pick: () => {
+              if (v === 'auto') {
+                s = { ...s, autoQuality: undefined };
+                set('qualityMode', 'auto');
+                // keep this panel's copy in step with the fresh detection (later changes save it)
+                const q = o.resolvedQuality?.();
+                if (q) s = { ...s, quality: q, autoQuality: q };
+              } else {
+                s = { ...s, qualityMode: 'manual', quality: v };
+                o.onChange(s, 'quality');
+              }
+              render();
+            },
+          })),
+          t('settings.quality'),
+          'soft',
+        ),
+      );
     };
-    const ctl = segmented<QChoice>(
-      (['auto', 'low', 'medium', 'high'] as QChoice[]).map((v) => ({ value: v, label: t(`settings.quality.${v}` as Key) })),
-      s.qualityMode === 'manual' ? s.quality : 'auto',
-      (v) => {
-        if (v === 'auto') set('qualityMode', 'auto');
-        else {
-          s = { ...s, qualityMode: 'manual', quality: v };
-          o.onChange(s, 'quality');
-        }
-        showNow();
-      },
-      t('settings.quality'),
-    );
-    ctl.classList.add('seg-quality');
-    showNow();
-    return h('div.set-ctl-col', ctl, now);
+    render();
+    return box;
   };
 
   // ── Imagen y sonido ──
@@ -464,7 +478,16 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
       'div.set-tab-body',
       h(
         'section.card.set-card',
-        row(t('settings.quality'), qualityCtl(), undefined, true),
+        row(
+          t('settings.quality'),
+          canFullscreen()
+            ? h(
+                'div.quality-row',
+                qualityCtl(),
+                h('button.btn.sq.fs-btn', { type: 'button', 'aria-label': t('menu.fullscreen'), title: t('menu.fullscreen'), html: ICONS.fullscreen, onclick: () => void toggleFullscreen() }),
+              )
+            : qualityCtl(),
+        ),
         row(t('settings.reducedMotion'), toggle(!!s.reducedMotion, (v) => set('reducedMotion', v), t('settings.reducedMotion'))),
         row(t('settings.avatars'), toggle(s.avatars !== false, (v) => set('avatars', v), t('settings.avatars'))),
         row(t('settings.animationSpeed'), seg('animationSpeed', ['normal', 'fast'], (v) => t(`settings.animationSpeed.${v}` as Key))),
@@ -477,187 +500,60 @@ export function buildSettings(o: SettingsOpts): HTMLElement {
       ),
     );
 
-  // ── Reglas: presets + collapsible groups, rendered generically from engine descriptors ──
-  // Parejas | Individual: each mode has its own rule list, values and "Cubano clásico"
-  let openGroup: string | null = null;
-  let profiles: RuleProfileItem[] = o.profiles ?? [];
-  let naming = false;
-  const hasSolo = !!o.ruleDescriptorsIndividual?.length;
-  let rmode: GameMode = hasSolo && s.rulesTabMode === 'individual' ? 'individual' : 'pairs';
+  // ── Reglas: the shared mode dropdown + a read-only summary; editing lives in the mode editor ──
+  // Parejas and Individual are the two built-ins; old saved profiles are now local modes.
+  let rid: string = s.customMode && modeDef(s.customMode) ? s.customMode : (s.rulesTabMode ?? s.mode ?? 'pairs');
   const rulesWrap = h('div.set-tab-body');
-  const groupsOf = (list: SettingDescriptor[]) => {
-    const groups = new Map<string, SettingDescriptor[]>();
-    for (const d of list) {
-      if (!groups.has(d.group)) groups.set(d.group, []);
-      groups.get(d.group)!.push(d);
-    }
-    return groups;
-  };
-  const renderRules = () => {
-    const solo = rmode === 'individual';
-    const descriptors = solo ? o.ruleDescriptorsIndividual! : o.ruleDescriptors;
-    const groups = groupsOf(descriptors);
-    const key: 'rules' | 'rulesIndividual' = solo ? 'rulesIndividual' : 'rules';
-    const cur: RuleSettings = solo ? (s.rulesIndividual ?? o.defaultRulesIndividual ?? {}) : s.rules;
-    const classic =
-      o.presets.find((p) => (p.mode ?? 'pairs') === rmode) ??
-      ({ id: 'default', label: { es: 'Cubano clásico', en: 'Classic Cuban' }, rules: solo ? (o.defaultRulesIndividual ?? {}) : o.defaultRules } as RulePreset);
-    const isClassic = sameAs(cur, classic.rules, descriptors);
-    const setRule = (k: string, v: SettingValue) => {
-      set(key, { ...cur, [k]: v });
-      renderRules();
-    };
-    const mine = profiles.filter((p) => p.mode === rmode);
-    const active = isClassic ? null : (mine.find((p) => sameAs(cur, p.rules, descriptors)) ?? null);
-    const apply = (rules: RuleSettings) => {
-      set(key, { ...rules });
-      renderRules();
-    };
-    const restore = () => {
-      if (isClassic) return;
-      set(key, { ...classic.rules });
-      renderRules();
-    };
-    // which rule set: a dropdown (Cubano clásico, the saved profiles, and "Personalizado" while nothing matches)
-    const presets = ruleSelect(
-      [
-        { label: loc(classic.label), on: isClassic, pick: restore },
-        ...mine.map((p) => ({ label: p.name, on: p === active, pick: () => apply(p.rules) })),
-        ...(!isClassic && !active ? [{ label: t('settings.preset.custom'), on: true, custom: true }] : []),
-      ],
-      t('settings.preset'),
-    );
-    // save the current rules as a profile / delete the selected one
-    let profileCtl: HTMLElement | null = null;
-    let profileAct: HTMLElement | null = null;
-    if (o.onSaveProfile && o.onDeleteProfile) {
-      const save = o.onSaveProfile;
-      const del = o.onDeleteProfile;
-      if (naming) {
-        const input = h('input.text-input', {
-          type: 'text',
-          maxlength: 24,
-          placeholder: t('settings.profileName'),
-          autocomplete: 'off',
-          enterkeyhint: 'done',
-          'aria-label': t('settings.profileName'),
-        }) as HTMLInputElement;
-        const ok = h('button.btn.primary.profile-ok', { type: 'button' }, t('settings.profileSaveOk'));
-        const cancel = h('button.btn.secondary.profile-cancel', { type: 'button' }, t('common.cancel'));
-        const commit = () => {
-          const n = input.value.trim();
-          if (!n) return input.focus();
-          profiles = save(n, rmode, cur);
-          naming = false;
-          renderRules();
-        };
-        ok.addEventListener('click', commit);
-        cancel.addEventListener('click', () => {
-          naming = false;
-          renderRules();
-        });
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') commit();
-          if (e.key === 'Escape') cancel.click();
-        });
-        profileCtl = h('div.profile-form', input, h('div.profile-form-btns', cancel, ok));
-        setTimeout(() => input.focus(), 50);
-      } else {
-        if (active) {
-          const label = t('settings.profileDelete', { name: active.name });
-          profileAct = h('button.icon-btn.rsel-act.danger', { type: 'button', 'aria-label': label, title: label, html: TRASH_SVG });
-          profileAct.addEventListener('click', async () => {
-            const ok = await o.confirm({
-              title: t('settings.profileDeleteTitle', { name: active.name }),
-              body: t('settings.profileDeleteBody'),
-              ok: t('settings.profileDeleteOk'),
-              cancel: t('common.cancel'),
-              danger: true,
-            });
-            if (!ok) return;
-            profiles = del(active.id);
-            renderRules();
-          });
-        } else {
-          // + saves the current rules (nothing to save while they are Cubano clásico or the list is full)
-          const label = t('settings.profileSave');
-          const canSave = !isClassic && profiles.length < 20;
-          profileAct = h('button.icon-btn.rsel-act', { type: 'button', 'aria-label': label, title: label, html: PLUS_SVG, disabled: canSave ? undefined : true });
-          profileAct.addEventListener('click', () => {
-            naming = true;
-            renderRules();
-          });
-        }
-      }
-    }
-    // which mode's rules are shown: a segmented switch at the very top, the line under it says which
-    const modeSwitch = hasSolo
-      ? segmented<GameMode>(
-          (['pairs', 'individual'] as GameMode[]).map((m) => ({ value: m, label: t(`mode.${m}` as Key) })),
-          rmode,
-          (v) => {
-            rmode = v;
-            openGroup = null;
-            s = { ...s, rulesTabMode: v };
-            o.onChange(s, 'rulesTabMode');
-            renderRules();
-          },
-          t('mode.label'),
-        )
-      : null;
-    modeSwitch?.classList.add('seg-rules-mode');
 
-    const groupEls = [...groups].map(([g, list]) => {
-      const open = openGroup === g;
-      const bodyId = `rg-${g}`;
-      const head = h(
-        'button.rg-head',
-        { type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId },
-        h('span.rg-text', h('span.rg-title', prettyGroup(g)), h('span.rg-sum', groupSummary(list, cur))),
-        h('span.rg-chev', { 'aria-hidden': 'true' }),
-      );
-      head.addEventListener('click', () => {
-        openGroup = open ? null : g;
-        renderRules();
-        if (openGroup) requestAnimationFrame(() => rulesWrap.querySelector(`#${bodyId}`)?.parentElement?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
-      });
-      const body = h('div.rg-body', { id: bodyId, hidden: !open });
-      if (open) {
-        for (const d of list) {
-          const val = cur[d.key] ?? d.default;
-          let ctl: Node;
-          const many = d.type === 'select' && (d.options?.length ?? 0) > 2;
-          if (d.type === 'toggle') ctl = toggle(Boolean(val), (v) => setRule(d.key, v), loc(d.label));
-          // three or more options: a quiet dropdown (the teal one is for the rule set)
-          else if (many)
-            ctl = ruleSelect(
-              (d.options ?? []).map((op) => ({ label: optionLabel(d, op, cur), on: op.value === val, pick: () => setRule(d.key, op.value) })),
-              loc(d.label),
-              'soft',
-            );
-          else
-            ctl = segmented(
-              (d.options ?? []).map((op) => ({ value: op.value, label: optionLabel(d, op, cur) })),
-              val,
-              (v) => setRule(d.key, v),
-              loc(d.label),
-            );
-          const longOpts = d.type === 'select' && !many && ((d.options ?? []).some((op) => optionLabel(d, op, cur).length > 9));
-          body.append(row(loc(d.label), ctl, d.help ? loc(d.help) : undefined, longOpts));
-        }
+  /** picking a mode here also selects it for the next match (its rules become the base's stored rules) */
+  const selectMode = (id: string) => {
+    const def = modeDef(id);
+    if (!def) return;
+    rid = id;
+    const base = def.base;
+    s = {
+      ...s,
+      mode: base,
+      rulesTabMode: base,
+      customMode: isBuiltInMode(id) ? undefined : id,
+      rules: base === 'pairs' ? { ...def.rules } : s.rules,
+      rulesIndividual: base === 'individual' ? { ...def.rules } : s.rulesIndividual,
+    };
+    o.onChange(s, 'mode');
+    renderRules();
+  };
+
+  const renderRules = () => {
+    const def = modeDef(rid) ?? (s.mode === 'individual' ? modeDef('individual') : modeDef('pairs'))!;
+    rid = def.id;
+    const base: GameMode = def.base;
+    const descriptors = base === 'individual' ? o.ruleDescriptorsIndividual ?? [] : o.ruleDescriptors;
+
+    // [mode dropdown] [+: new mode from this one | pencil: edit this custom mode] [trash: custom only]
+    const sel = modeSelect({ current: def.id, onPick: selectMode });
+    const custom = !isBuiltInMode(def.id);
+    const editLabel = t(custom ? 'modes.edit' : 'modes.new');
+    const edit = h('button.icon-btn.rsel-act', { type: 'button', 'aria-label': editLabel, title: editLabel, html: custom ? PENCIL_SVG : PLUS_SVG, disabled: o.editMode ? undefined : true });
+    edit.addEventListener('click', () => {
+      if (custom) o.editMode?.(def, false);
+      else o.editMode?.(draftFrom(def, { ...def.rules }), true);
+    });
+    const delLabel = t('modes.delete');
+    const del = h('button.icon-btn.rsel-act.danger', { type: 'button', 'aria-label': delLabel, title: delLabel, html: TRASH_SVG, disabled: custom ? undefined : true });
+    del.addEventListener('click', async () => {
+      if (!custom) return;
+      const ok = await o.confirm({ title: t('modes.deleteTitle', { name: loc(def.name) }), body: t('modes.deleteBody'), ok: t('modes.delete'), cancel: t('common.cancel'), danger: true });
+      if (!ok) return;
+      deleteCustomMode(def.id);
+      if (s.customMode === def.id) {
+        s = { ...s, customMode: undefined, rules: base === 'pairs' ? { ...defaultRulesFor('pairs') } : s.rules, rulesIndividual: base === 'individual' ? { ...defaultRulesFor('individual') } : s.rulesIndividual };
+        o.onChange(s, 'mode');
       }
-      return h('section.card.rule-group-card', { class: open ? 'open' : '' }, head, body);
+      rid = base;
+      renderRules();
     });
 
-    rulesWrap.replaceChildren(
-      h(
-        'section.card.set-card.preset-card',
-        modeSwitch,
-        h('div.rsel-line', presets, profileAct),
-        profileCtl,
-      ),
-      ...groupEls,
-    );
+    rulesWrap.replaceChildren(h('section.card.set-card.preset-card', h('div.rsel-line.mode-row', h('div.rsel-slot', sel), edit, del)), modeView(def, descriptors));
   };
   renderRules();
 

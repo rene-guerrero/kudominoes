@@ -37,7 +37,10 @@ export function redactMatch(match: MatchState, seat: Seat): { match: MatchState;
   if (!h) return { match: { ...match }, handCounts, pozoCount };
   // a finished hand is public (the remaining tiles were revealed)
   const hands = h.over ? h.hands.map((x) => x.slice()) : h.hands.map((x, s) => (s === seat ? x.slice() : []));
-  return { match: { ...match, hand: { ...h, hands, boneyard: h.boneyard ? [] : undefined } }, handCounts, pozoCount };
+  const safeHand = { ...h, hands, boneyard: h.boneyard ? [] : undefined } as Record<string, unknown>;
+  // the engine uses this to detect blocks, but a client must not learn which tiles were never dealt
+  delete safeHand.setAsideIds;
+  return { match: { ...match, hand: safeHand as unknown as typeof h }, handCounts, pozoCount };
 }
 
 /** client: a SeatView's match with every unknown tile as a placeholder (other hands, the boneyard) */

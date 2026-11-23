@@ -7,6 +7,7 @@ import { installErrorLog } from './app/errorLog';
 import { loadSave, saveSummary } from './app/save';
 import { loadEngine, loadTableView } from './app/modules';
 import { loadSettings, saveSettings } from './app/settings';
+import { migrateProfilesToModes } from './app/modes';
 import { h, setReducedMotionPref } from './ui/dom';
 import { setLang, t } from './ui/i18n';
 import { buildMenu } from './ui/menu';
@@ -104,7 +105,9 @@ async function boot() {
   };
   try {
     const { engine, mock } = await loadEngine();
-    const settings = loadSettings(engine);
+    let settings = loadSettings(engine);
+    // one-time: saved rule profiles (and the active rule set) become local game modes
+    settings = migrateProfilesToModes(engine, settings);
     saveSettings(settings);
     setLang(settings.language);
     setTileTheme(settings.tileTheme ?? 'dark');

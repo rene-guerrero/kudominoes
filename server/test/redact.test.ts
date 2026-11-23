@@ -128,6 +128,15 @@ describe('seatView', () => {
     }
   });
 
+  it('hides the engine’s double-nine set-aside ids from every seat', () => {
+    const m = startHand(createMatch({ ...DEFAULT_RULES, tileSet: 'double9' }, 42)).match;
+    expect((m.hand as { setAsideIds?: number[] } | null)?.setAsideIds).toHaveLength(15);
+    for (const seat of [0, 1, 2, 3] as Seat[]) {
+      const vm = seatView(m, seat, [], null).match as MatchState;
+      expect(vm.hand).not.toHaveProperty('setAsideIds');
+    }
+  });
+
   it('does not mutate the server state', () => {
     const m = startHand(createMatch(DEFAULT_RULES, 5)).match;
     const copy = JSON.stringify(m);

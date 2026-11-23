@@ -17,7 +17,7 @@ import { SEATS_FOR } from '../contracts';
 import { Rng } from './rng';
 import { normalizeRules, readRules, scoreUnit, type Rules } from './rules';
 import { ABAJO_MAX, capicuaDoubleTotal, PASS_BONUS_CLAIMS_ABAJO, resolveHandCore, resolveSoloCore, roundCode, toScoreRules } from './scoring';
-import { ALL_TILES, DOUBLE_BLANK_ID, DOUBLE_SIX_ID, handPips } from './tiles';
+import { handPips, handSizeFor, tileById, tilesFor, tilesPerPip, tileSetOf } from './tiles';
 
 const teamOf = (s: number): Team => (s & 1) as Team;
 const nextSeat = (s: number): Seat => ((s + 1) & 3) as Seat;
@@ -30,6 +30,8 @@ export interface EngineHand extends HandState {
   earlyBonuses?: Bonus[];
   /** individual: the seat to move has already drawn this turn */
   drewThisTurn?: boolean;
+  /** pairs: global ids of tiles left out of the deal (double-nine leftovers); they are never drawn */
+  setAsideIds?: number[];
 }
 
 // ───────────────────────── modes / seats ─────────────────────────
@@ -46,6 +48,10 @@ export function nextIn(seats: readonly Seat[], s: number): Seat {
 }
 /** the typed rules of a match (per its mode) */
 export const matchRules = (m: MatchState): Rules => readRules(m.rules, modeOf(m));
+/** the physical tile set of a match (double-six unless its rules say otherwise) */
+export const matchTileSet = (m: MatchState) => tileSetOf(m.rules);
+/** the tiles in play for this match */
+export const matchTiles = (m: MatchState) => tilesFor(m.rules);
 /** individual mode: the human-centric "team" of a seat (0 = the human, 1 = anyone else) */
 export const humanSide = (s: Seat): Team => (s === 0 ? 0 : 1);
 
@@ -80,9 +86,21 @@ export function createMatch(rules: RuleSettings, seed?: number, setup?: MatchSet
   return { ...base, mode, seats: SEATS_FOR[n].slice(), seatScores: [0, 0, 0, 0], seatHandsWon: [0, 0, 0, 0], winnerSeat: null };
 }
 
-/** Does this hand require the opener to lead the double six? */
+/** Does this hand require the opener to lead the highest double (6-6 or 9-9)? */
 export function mustOpenDoubleSix(r: Rules, handNo: number): boolean {
   return handNo === 1 ? r.firstStarter === 'double6' : r.nextStarter === 'double6';
+}
+
+/**
+ * The tile the opener must lead when that rule is on. In double-six every tile is dealt, so this is always
+ * 6-6. In double-nine some tiles stay in the pozo / are set aside, so fall back to the highest double that
+ * was actually dealt, then to the highest tile; the same fallback exists in individual mode's `soloOpener`.
+ */
+export function forcedOpener(hands: readonly Tile[][]): Tile {
+  const dealt = hands.flat();
+  const doubles = dealt.filter((t) => t.a === t.b).sort((x, y) => y.a - x.a);
+  if (doubles.length) return doubles[0];
+  return dealt.reduce((best, t) => (openRank(t) > openRank(best) ? t : best));
 }
 
 function countDoubles(h: readonly Tile[]): number {
@@ -96,9 +114,11 @@ function holderOf(hands: Tile[][], id: number): Seat {
   throw new Error('tile not dealt');
 }
 
-export function deal(rng: Rng, redealFiveDoubles: boolean): Tile[][] {
+export function deal(rng: Rng, redealFiveDoubles: boolean, set: unknown = 'double6'): Tile[][] {
+  const tiles = tilesFor(set);
+  const handSize = handSizeFor(set, 'pairs');
   for (;;) {
-    const ids = ALL_TILES.map((t) => t.id);
+    const ids = tiles.map((t) => t.id);
     for (let i = ids.length - 1; i > 0; i--) {
       const j = rng.int(i + 1);
       const tmp = ids[i];
@@ -107,9 +127,9 @@ export function deal(rng: Rng, redealFiveDoubles: boolean): Tile[][] {
     }
     const hands: Tile[][] = [0, 1, 2, 3].map((s) =>
       ids
-        .slice(s * 7, s * 7 + 7)
+        .slice(s * handSize, (s + 1) * handSize)
         .sort((x, y) => x - y)
-        .map((id) => ALL_TILES[id]),
+        .map((id) => tileById(set, id)),
     );
     if (!redealFiveDoubles || hands.every((h) => countDoubles(h) < 5)) return hands;
   }
@@ -118,13 +138,13 @@ export function deal(rng: Rng, redealFiveDoubles: boolean): Tile[][] {
 function pickStarter(match: MatchState, r: Rules, handNo: number, hands: Tile[][], rng: Rng): Seat {
   if (handNo === 1) {
     if (r.firstStarter === 'random') return rng.int(4) as Seat;
-    return holderOf(hands, DOUBLE_SIX_ID);
+    return holderOf(hands, forcedOpener(hands).id);
   }
   const prev = match.hand ? match.hand.starter : (0 as Seat);
   const w = match.lastHandWinner;
   switch (r.nextStarter) {
     case 'double6':
-      return holderOf(hands, DOUBLE_SIX_ID);
+      return holderOf(hands, forcedOpener(hands).id);
     case 'rotate':
       return nextSeat(prev);
     case 'winner':
@@ -154,7 +174,7 @@ export function chooseStarter(match: MatchState, seat: Seat): MatchState {
  * (4+ tiles of one number) or a 3-suit backed by doubles. This is the one bit a player says aloud.
  */
 export function starterStrength(tiles: readonly Tile[]): number {
-  const suit = [0, 0, 0, 0, 0, 0, 0];
+  const suit = new Array<number>(10).fill(0);
   for (const t of tiles) {
     suit[t.a]++;
     if (t.b !== t.a) suit[t.b]++;
@@ -179,10 +199,17 @@ export function cpuStarter(match: MatchState): Seat {
   return pw && !ww ? p : w;
 }
 
-/** Individual deal: 7 tiles to each seat in play; the rest (shuffled) is the boneyard. */
-export function dealSolo(rng: Rng, redealFiveDoubles: boolean, seats: readonly Seat[]): { hands: Tile[][]; boneyard: Tile[] } {
+/** Individual deal: `handSize` tiles to each seat in play; the rest (shuffled) is the boneyard. */
+export function dealSolo(
+  rng: Rng,
+  redealFiveDoubles: boolean,
+  seats: readonly Seat[],
+  set: unknown = 'double6',
+): { hands: Tile[][]; boneyard: Tile[] } {
+  const tiles = tilesFor(set);
+  const handSize = handSizeFor(set, 'individual');
   for (;;) {
-    const ids = ALL_TILES.map((t) => t.id);
+    const ids = tiles.map((t) => t.id);
     for (let i = ids.length - 1; i > 0; i--) {
       const j = rng.int(i + 1);
       const tmp = ids[i];
@@ -192,11 +219,11 @@ export function dealSolo(rng: Rng, redealFiveDoubles: boolean, seats: readonly S
     const hands: Tile[][] = [[], [], [], []];
     seats.forEach((s, i) => {
       hands[s] = ids
-        .slice(i * 7, i * 7 + 7)
+        .slice(i * handSize, (i + 1) * handSize)
         .sort((x, y) => x - y)
-        .map((id) => ALL_TILES[id]);
+        .map((id) => tileById(set, id));
     });
-    const boneyard = ids.slice(seats.length * 7).map((id) => ALL_TILES[id]);
+    const boneyard = ids.slice(seats.length * handSize).map((id) => tileById(set, id));
     if (!redealFiveDoubles || seats.every((s) => countDoubles(hands[s]) < 5)) return { hands, boneyard };
   }
 }
@@ -205,9 +232,9 @@ export function dealSolo(rng: Rng, redealFiveDoubles: boolean, seats: readonly S
 const openRank = (t: Tile): number => (t.a === t.b ? 1000 + t.a : (t.a + t.b) * 10 + t.b);
 
 /**
- * Individual opener. First hand: the double six (with 2–3 players, if nobody holds it: the highest
- * double, else the highest tile), which must be led. Later hands: the previous hand's winner, with any
- * tile (after a void hand the same player opens again).
+ * Individual opener. First hand: the highest double (6-6 or 9-9), which must be led (with 2–3 players,
+ * if nobody holds it: the next highest double, else the highest tile). Later hands: the previous hand’s
+ * winner, with any tile (after a void hand the same player opens again).
  */
 function soloOpener(match: MatchState, handNo: number, hands: Tile[][], seats: readonly Seat[]): { seat: Seat; tile: number | null } {
   if (handNo > 1) {
@@ -227,8 +254,13 @@ export function startHand(match: MatchState): { match: MatchState; events: GameE
   const r = readRules(match.rules);
   const rng = new Rng(match.rng);
   const handNo = (match.hand?.handNo ?? 0) + 1;
-  const hands = deal(rng, r.redealFiveDoubles);
+  const hands = deal(rng, r.redealFiveDoubles, r.tileSet);
   const starter = pickStarter(match, r, handNo, hands, rng);
+  const openTile = mustOpenDoubleSix(r, handNo) ? forcedOpener(hands).id : undefined;
+  // double-nine pairs deal 40 of 55 tiles: the rest are set aside, so a block can happen before every
+  // matching tile of the full set is on the table. Remember exactly which ids are unavailable.
+  const dealt = new Set(hands.flat().map((t) => t.id));
+  const setAsideIds = tilesFor(r.tileSet).filter((t) => !dealt.has(t.id)).map((t) => t.id);
   const hand: EngineHand = {
     handNo,
     hands,
@@ -241,6 +273,8 @@ export function startHand(match: MatchState): { match: MatchState; events: GameE
     over: false,
     pendingBonuses: [],
     pendingStarterChoice: needsStarterChoice(match, r, handNo) ? teamOf(starter) : null,
+    ...(openTile !== undefined ? { openTile } : {}),
+    ...(setAsideIds.length ? { setAsideIds } : {}),
   };
   const next: MatchState = { ...match, hand, rng: rng.s };
   return {
@@ -259,10 +293,12 @@ export function movesFor(hand: HandState, seat: Seat, rules: Rules): Move[] {
   const out: Move[] = [];
   if (!hand.ends) {
     if (hand.openTile !== undefined) {
-      // individual: a forced opening tile (first hand) or any tile
+      // a forced opening tile (first hand / "highest double" rule) or any tile (`null`, individual later hands)
       for (const t of tiles) if (hand.openTile === null || t.id === hand.openTile) out.push({ kind: 'play', seat, tileId: t.id, side: 'right' });
     } else if (mustOpenDoubleSix(rules, hand.handNo)) {
-      if (tiles.some((t) => t.id === DOUBLE_SIX_ID)) out.push({ kind: 'play', seat, tileId: DOUBLE_SIX_ID, side: 'right' });
+      // old saved hands (before `openTile` was stored for pairs): fall back to the active set's double
+      const id = forcedOpener(hand.hands).id;
+      if (tiles.some((t) => t.id === id)) out.push({ kind: 'play', seat, tileId: id, side: 'right' });
     } else {
       for (const t of tiles) out.push({ kind: 'play', seat, tileId: t.id, side: 'right' });
     }
@@ -293,15 +329,29 @@ export function noOneCanPlay(hands: readonly Tile[][], seats: readonly Seat[], e
   return true;
 }
 
-/** True when nobody can play: every tile carrying either end pip is already on the table. */
-export function isBlocked(chain: readonly PlacedTile[], ends: { left: Pip; right: Pip }): boolean {
+/**
+ * True when nobody can play: every tile carrying either end pip is either on the table or was set aside
+ * at the deal (double-nine pairs). `setAsideIds` is empty for double-six and for individual play.
+ */
+export function isBlocked(
+  chain: readonly PlacedTile[],
+  ends: { left: Pip; right: Pip },
+  set: unknown = 'double6',
+  setAsideIds: readonly number[] = [],
+): boolean {
   let nl = 0;
   let nr = 0;
   for (const p of chain) {
     if (p.tile.a === ends.left || p.tile.b === ends.left) nl++;
     if (p.tile.a === ends.right || p.tile.b === ends.right) nr++;
   }
-  return nl === 7 && nr === 7;
+  for (const id of setAsideIds) {
+    const t = tileById(set, id);
+    if (t.a === ends.left || t.b === ends.left) nl++;
+    if (t.a === ends.right || t.b === ends.right) nr++;
+  }
+  const perPip = tilesPerPip(set);
+  return nl >= perPip && nr >= perPip;
 }
 
 // ───────────────────────── transitions ─────────────────────────
@@ -377,7 +427,7 @@ export function applyMove(match: MatchState, move: Move): { match: MatchState; e
     return { match: nm, events };
   }
 
-  const tile = ALL_TILES[move.tileId];
+  const tile = tileById(r.tileSet, move.tileId);
   const first = hand.ends === null;
   let placed: PlacedTile;
   let ends: { left: Pip; right: Pip };
@@ -413,10 +463,10 @@ export function applyMove(match: MatchState, move: Move): { match: MatchState; e
       !!prev && prev.left !== prev.right && ((tile.a === prev.left && tile.b === prev.right) || (tile.a === prev.right && tile.b === prev.left));
     // capicúa ×2 is computed in finishHand (it depends on the rounded hand points)
     if (capicua && typeof r.capicua === 'number' && r.capicua > 0) extra.push(bonus('capicua', r.capicua * scoreUnit(r), teamOf(seat)));
-    if (r.chuchazo > 0 && tile.id === DOUBLE_BLANK_ID) extra.push(bonus('chuchazo', r.chuchazo * scoreUnit(r), teamOf(seat)));
+    if (r.chuchazo > 0 && tile.a === 0 && tile.b === 0) extra.push(bonus('chuchazo', r.chuchazo * scoreUnit(r), teamOf(seat)));
     return finishHand(nm, nh, r, false, seat, extra, events, capicua && r.capicua === 'double');
   }
-  if (isBlocked(chain, ends)) return finishHand(nm, nh, r, true, seat, [], events);
+  if (isBlocked(chain, ends, r.tileSet, hand.setAsideIds)) return finishHand(nm, nh, r, true, seat, [], events);
   return { match: nm, events };
 }
 
@@ -532,7 +582,7 @@ function startSoloHand(match: MatchState): { match: MatchState; events: GameEven
   const seats = seatsOf(match);
   const rng = new Rng(match.rng);
   const handNo = (match.hand?.handNo ?? 0) + 1;
-  const { hands, boneyard } = dealSolo(rng, r.redealFiveDoubles, seats);
+  const { hands, boneyard } = dealSolo(rng, r.redealFiveDoubles, seats, r.tileSet);
   const op = soloOpener(match, handNo, hands, seats);
   const hand: EngineHand = {
     handNo,
@@ -637,7 +687,7 @@ function applySoloMove(match: MatchState, hand: EngineHand, r: Rules, move: Move
     return { match: nm, events };
   }
 
-  const tile = ALL_TILES[move.tileId];
+  const tile = tileById(r.tileSet, move.tileId);
   const first = hand.ends === null;
   let placed: PlacedTile;
   let ends: { left: Pip; right: Pip };
@@ -671,13 +721,13 @@ function applySoloMove(match: MatchState, hand: EngineHand, r: Rules, move: Move
     const capicua =
       !!prev && prev.left !== prev.right && ((tile.a === prev.left && tile.b === prev.right) || (tile.a === prev.right && tile.b === prev.left));
     if (capicua && typeof r.capicua === 'number' && r.capicua > 0) extra.push(soloBonus('capicua', r.capicua * scoreUnit(r), seat));
-    if (r.chuchazo > 0 && tile.id === DOUBLE_BLANK_ID) extra.push(soloBonus('chuchazo', r.chuchazo * scoreUnit(r), seat));
+    if (r.chuchazo > 0 && tile.a === 0 && tile.b === 0) extra.push(soloBonus('chuchazo', r.chuchazo * scoreUnit(r), seat));
     return finishSoloHand(nm, nh, r, false, seat, extra, events, capicua && r.capicua === 'double');
   }
   // cerrado: nobody can ever play again (every tile of both end pips is out), or nobody holds a fitting
   // tile and there is nothing to draw (boneyard empty or the rule off)
   const canDraw = r.boneyardDraw && (nh.boneyard?.length ?? 0) > 0;
-  if (isBlocked(chain, ends) || (!canDraw && noOneCanPlay(hands, seats, ends))) return finishSoloHand(nm, nh, r, true, seat, [], events);
+  if (isBlocked(chain, ends, r.tileSet) || (!canDraw && noOneCanPlay(hands, seats, ends))) return finishSoloHand(nm, nh, r, true, seat, [], events);
   return { match: nm, events };
 }
 

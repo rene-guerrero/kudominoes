@@ -1,9 +1,9 @@
-import type { Difficulty, MatchState, Move, Pip, PlayStyle, Seat, Tile } from '../contracts';
+import type { Difficulty, MatchState, Move, Pip, PlayStyle, Seat, Tile, TileSet } from '../contracts';
 import { isSolo, matchRules, movesFor, nextIn, seatsOf } from './game';
 import { hashSeed, Rng } from './rng';
 import { scoreUnit, type Rules } from './rules';
 import { ABAJO_MAX, capicuaDoubleTotal, PASS_BONUS_CLAIMS_ABAJO, resolveHandCore, resolveSoloCore, roundCode, toScoreRules, type ScoreRules } from './scoring';
-import { ALL_TILES, TILE_A, TILE_B } from './tiles';
+import { MAX_PIP, MAX_TILE_ID, MAX_TILES, TILE_A, TILE_B, TILE_BY_ID, TILE_SETS, tilesFor, tileSetOf } from './tiles';
 
 /**
  * CPU players. Every decision is built from a SeatView that only contains what the seat legitimately
@@ -23,6 +23,16 @@ interface SeatView {
   seat: Seat;
   partner: Seat;
   hand: Tile[];
+  /** physical set in play; ids are global, so every loop must use the active subset below */
+  tileSet: TileSet;
+  /** globally stable ids of the active tiles (0..27 or 28..82) */
+  tileIds: readonly number[];
+  /** distinct pips in the set (7 for double-six, 10 for double-nine) */
+  pipCount: number;
+  /** tiles carrying a given pip (7 for double-six, 10 for double-nine): the tranque test */
+  tilesPerPip: number;
+  /** tiles in the physical set (28 or 55) */
+  tileCount: number;
   ends: { left: Pip; right: Pip } | null;
   /** bitmask per seat of pips the seat passed on (public) */
   passBits: number[];
@@ -64,12 +74,21 @@ function buildView(match: MatchState): SeatView {
   const seats = seatsOf(match);
   const partner = (solo ? -1 : (seat + 2) & 3) as Seat;
   const rules = matchRules(match);
+  // The active physical set decides every 28-vs-55 / 7-vs-10 bound below. `pipCount` is also the
+  // number of tiles carrying any pip (0..maxPip, one double included), i.e. the old literal 7.
+  const tileSet = tileSetOf(match.rules);
+  const def = TILE_SETS[tileSet];
+  const tileIds = def.ids;
+  const pipCount = def.maxPip + 1;
+  const tilesPerPip = pipCount;
+  const tileCount = def.count;
   const next = [0, 1, 2, 3].map((s) => (seats.includes(s as Seat) ? nextIn(seats, s) : (s + 1) & 3));
   const prev = [0, 1, 2, 3].map((s) => seats[(seats.indexOf(s as Seat) + seats.length - 1) % seats.length] ?? ((s + 3) & 3));
-  const tableCount = [0, 0, 0, 0, 0, 0, 0];
-  const onTable = new Array<boolean>(28).fill(false);
-  const partnerW = [0, 0, 0, 0, 0, 0, 0];
-  const oppW = [0, 0, 0, 0, 0, 0, 0];
+  const tableCount = new Array<number>(pipCount).fill(0);
+  // indexed by global tile id (both sets share the id space)
+  const onTable = new Array<boolean>(MAX_TILE_ID + 1).fill(false);
+  const partnerW = new Array<number>(pipCount).fill(0);
+  const oppW = new Array<number>(pipCount).fill(0);
   hand.chain.forEach((p, i) => {
     const t = p.tile;
     onTable[t.id] = true;
@@ -86,7 +105,7 @@ function buildView(match: MatchState): SeatView {
     }
   });
   const passBits = hand.passedOn.map((ps) => ps.reduce<number>((m, v) => m | (1 << v), 0));
-  for (let v = 0; v < 7; v++) {
+  for (let v = 0; v < pipCount; v++) {
     if (solo) {
       // every opponent passed on v (or drew on it)
       if (seats.every((s) => s === seat || passBits[s] & (1 << v))) oppW[v] = -3;
@@ -100,7 +119,7 @@ function buildView(match: MatchState): SeatView {
   const moves: Move[] = [];
   for (const m of movesFor(hand, seat, rules)) {
     if (m.kind === 'play' && hand.ends) {
-      const ne = endsAfter(hand.ends, ALL_TILES[m.tileId], m.side);
+      const ne = endsAfter(hand.ends, TILE_BY_ID[m.tileId], m.side);
       const key = `${m.tileId}:${Math.min(ne.left, ne.right)}${Math.max(ne.left, ne.right)}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -111,6 +130,11 @@ function buildView(match: MatchState): SeatView {
     seat,
     partner,
     hand: hand.hands[seat],
+    tileSet,
+    tileIds,
+    pipCount,
+    tilesPerPip,
+    tileCount,
     ends: hand.ends,
     passBits,
     counts: hand.hands.map((h) => h.length),
@@ -202,7 +226,7 @@ export function styleWeights(style?: PlayStyle): StyleWeights {
 
 export function heuristicScore(v: SeatView, m: Move, w: StyleWeights = BASE_WEIGHTS): number {
   if (m.kind !== 'play') return 0;
-  const t = ALL_TILES[m.tileId];
+  const t = TILE_BY_ID[m.tileId];
   const ne = endsAfter(v.ends, t, m.side);
   const rem = v.hand.filter((x) => x.id !== t.id);
   if (rem.length === 0) return 1000 + t.a + t.b;
@@ -219,7 +243,7 @@ export function heuristicScore(v: SeatView, m: Move, w: StyleWeights = BASE_WEIG
   const distinctEnds = ne.left === ne.right ? [ne.left] : [ne.left, ne.right];
   for (const e of [ne.left, ne.right]) s += w.suit * Math.min(mine(e), 3);
   let suits = 0;
-  for (let p = 0; p < 7; p++) if (mine(p) > 0) suits++;
+  for (let p = 0; p < v.pipCount; p++) if (mine(p) > 0) suits++;
   s += w.diversity * suits;
 
   // individual: the partner-aware terms are simply off (partnerW stays 0)
@@ -246,10 +270,10 @@ export function heuristicScore(v: SeatView, m: Move, w: StyleWeights = BASE_WEIG
   const tc = v.tableCount.slice();
   tc[t.a]++;
   if (t.b !== t.a) tc[t.b]++;
-  if (tc[ne.left] === 7 && tc[ne.right] === 7) {
+  if (tc[ne.left] === v.tilesPerPip && tc[ne.right] === v.tilesPerPip) {
     let unkPips = 0;
     let unkN = 0;
-    for (const x of ALL_TILES) {
+    for (const x of tilesFor(v.tileSet)) {
       if (v.onTable[x.id] || v.hand.some((h) => h.id === x.id)) continue;
       unkPips += x.a + x.b;
       unkN++;
@@ -273,23 +297,26 @@ export function heuristicScore(v: SeatView, m: Move, w: StyleWeights = BASE_WEIG
 // ───────────────────────── fast simulation (hard) ─────────────────────────
 
 /**
- * Hands in the simulation arrays: S slots per seat (individual play with a boneyard can grow a hand past
- * 7 tiles). Slot 4 (PILE) is the boneyard / the set-aside tiles: unknown, never constrained by passes.
+ * Hands in the simulation arrays: S slots per seat (the largest set deals 10 and individual play with a
+ * boneyard can grow a hand further). Slot 4 (PILE) is the boneyard / the set-aside tiles: unknown, never
+ * constrained by passes. Arrays are sized to the maxima of both sets and reused for performance.
  */
-const S = 28;
+const S = MAX_TILES;
 const PILE = 4;
 const BH = new Int8Array(5 * S); // base hands
 const BC = new Int8Array(5);
 const WH = new Int8Array(5 * S); // work copy
 const WC = new Int8Array(5);
-const BT = new Int8Array(7); // tiles on table per pip
-const WT = new Int8Array(7);
+const BT = new Int8Array(MAX_PIP + 1); // tiles on table per pip
+const WT = new Int8Array(MAX_PIP + 1);
 const BP = new Int16Array(5); // pass bitmasks (PILE: always 0)
 const WP = new Int16Array(5);
 const PIPS = new Int32Array(4);
-const UNK = new Int8Array(28);
-const ORD = new Int8Array(28);
+const UNK = new Int8Array(MAX_TILES);
+const ORD = new Int8Array(MAX_TILES);
 const CAP = new Int8Array(5);
+/** global-id stride for the per-tile likelihood table (ids 0..MAX_TILE_ID) */
+const TWS = MAX_TILE_ID + 1;
 let rs = 1; // xorshift state for rollouts
 
 function rnd(): number {
@@ -331,6 +358,8 @@ interface SimCtx {
   draw: boolean;
   /** individual: a tied cerrado is void */
   tieVoid: boolean;
+  /** tiles carrying a single pip in the active set (7 for double-six, 10 for double-nine) */
+  tilesPerPip: number;
 }
 
 /** the abajo pot during one playout (starts at the public pot; an opening pass on 0 adds to it) */
@@ -468,17 +497,17 @@ function rollout(ctx: SimCtx, turn: number, L: number, R: number, passes: number
     lastSeat = seat;
     if (n === 1) {
       const cap = isCapicua(a, b, pl, pr);
-      const extra = (ctx.capicua && cap ? ctx.capicua : 0) + (ctx.chuchazo && id === 0 ? ctx.chuchazo : 0);
+      const extra = (ctx.capicua && cap ? ctx.capicua : 0) + (ctx.chuchazo && a === 0 && b === 0 ? ctx.chuchazo : 0);
       return finishSim(ctx, false, seat, bonus, cap, extra);
     }
-    if (WT[L] === 7 && WT[R] === 7) return finishSim(ctx, true, seat, bonus);
+    if (WT[L] === ctx.tilesPerPip && WT[R] === ctx.tilesPerPip) return finishSim(ctx, true, seat, bonus);
     turn = nextOpp;
   }
   return finishSim(ctx, true, lastSeat, bonus);
 }
 
-/** per seat × tile likelihood weights for the deal sampler (master's inference); 1 = neutral */
-const TWT = new Float64Array(5 * 28).fill(1);
+/** per seat × global tile id likelihood weights for the deal sampler (master's inference); 1 = neutral */
+const TWT = new Float64Array(5 * TWS).fill(1);
 let useTwt = false;
 
 /**
@@ -513,7 +542,7 @@ function sampleHidden(me: number, unkN: number, rng: Rng): void {
       const id = ORD[i];
       const mask = (1 << TILE_A[id]) | (1 << TILE_B[id]);
       let tot = 0;
-      for (let s = 0; s < slots; s++) if (CAP[s] > 0 && (attempt === 39 || (BP[s] & mask) === 0)) tot += useTwt ? CAP[s] * TWT[s * 28 + id] : CAP[s];
+      for (let s = 0; s < slots; s++) if (CAP[s] > 0 && (attempt === 39 || (BP[s] & mask) === 0)) tot += useTwt ? CAP[s] * TWT[s * TWS + id] : CAP[s];
       if (tot <= 0) {
         ok = false;
         break;
@@ -523,7 +552,7 @@ function sampleHidden(me: number, unkN: number, rng: Rng): void {
       for (let s = 0; s < slots; s++) {
         if (CAP[s] > 0 && (attempt === 39 || (BP[s] & mask) === 0)) {
           pick = s; // float rounding: the last eligible seat takes it if r never goes below 0
-          r -= useTwt ? CAP[s] * TWT[s * 28 + id] : CAP[s];
+          r -= useTwt ? CAP[s] * TWT[s * TWS + id] : CAP[s];
           if (r < 0) break;
         }
       }
@@ -546,31 +575,33 @@ const now = (): number => (typeof performance !== 'undefined' ? performance.now(
  *    not hold that double (doubles are played early: they only fit one suit);
  *  - a seat that covered (killed) an end it could have kept is a little less likely to hold that suit.
  */
-function inferWeights(match: MatchState, me: Seat): void {
+function inferWeights(v: SeatView, match: MatchState): void {
   const hand = match.hand!;
-  const aff = new Float64Array(28); // seat*7 + pip
-  const dbl = new Float64Array(28).fill(1); // seat*7 + pip → factor for the X-X double
+  const me = v.seat;
+  const P = v.pipCount; // stride of the per-seat pip arrays
+  const aff = new Float64Array(4 * P); // seat*P + pip
+  const dbl = new Float64Array(4 * P).fill(1); // seat*P + pip → factor for the X-X double
   let L = -1;
   let R = -1;
-  const seenDouble = new Array<boolean>(7).fill(false);
+  const seenDouble = new Array<boolean>(P).fill(false);
   hand.chain.forEach((p, i) => {
     const t = p.tile;
     const s = p.seat;
     if (i === 0) {
       if (s !== me) {
-        aff[s * 7 + t.a] += 0.9;
-        if (t.b !== t.a) aff[s * 7 + t.b] += 0.9;
+        aff[s * P + t.a] += 0.9;
+        if (t.b !== t.a) aff[s * P + t.b] += 0.9;
       }
       L = t.a;
       R = p.outer;
     } else {
       const end = p.side === 'left' ? L : R;
       if (s !== me) {
-        aff[s * 7 + p.outer] += 0.45;
+        aff[s * P + p.outer] += 0.45;
         if (t.a !== t.b && end >= 0) {
-          if (!seenDouble[end]) dbl[s * 7 + end] *= 0.45;
+          if (!seenDouble[end]) dbl[s * P + end] *= 0.45;
           // killed an end: covered pip `end` (unless the tile shows the same pip again)
-          if (p.outer !== end) aff[s * 7 + end] -= 0.18;
+          if (p.outer !== end) aff[s * P + end] -= 0.18;
         }
       }
       if (p.side === 'left') L = p.outer;
@@ -579,12 +610,12 @@ function inferWeights(match: MatchState, me: Seat): void {
     if (t.a === t.b) seenDouble[t.a] = true;
   });
   for (let s = 0; s < 4; s++) {
-    for (let id = 0; id < 28; id++) {
+    for (const id of v.tileIds) {
       const a = TILE_A[id];
       const b = TILE_B[id];
-      let w = Math.exp(aff[s * 7 + a] + (a !== b ? aff[s * 7 + b] : 0));
-      if (a === b) w *= dbl[s * 7 + a];
-      TWT[s * 28 + id] = Math.max(0.05, Math.min(8, w));
+      let w = Math.exp(aff[s * P + a] + (a !== b ? aff[s * P + b] : 0));
+      if (a === b) w *= dbl[s * P + a];
+      TWT[s * TWS + id] = Math.max(0.05, Math.min(8, w));
     }
   }
 }
@@ -627,9 +658,9 @@ function solve(ctx: SimCtx, turn: number, L: number, R: number, passes: number, 
       let val: number;
       if (n === 1) {
         const cap = isCapicua(a, b, L, R);
-        const extra = (ctx.capicua && cap ? ctx.capicua : 0) + (ctx.chuchazo && id === 0 ? ctx.chuchazo : 0);
+        const extra = (ctx.capicua && cap ? ctx.capicua : 0) + (ctx.chuchazo && a === 0 && b === 0 ? ctx.chuchazo : 0);
         val = finishSim(ctx, false, seat, bonus, cap, extra);
-      } else if (WT[nL] === 7 && WT[nR] === 7) val = finishSim(ctx, true, seat, bonus);
+      } else if (WT[nL] === ctx.tilesPerPip && WT[nR] === ctx.tilesPerPip) val = finishSim(ctx, true, seat, bonus);
       else val = solve(ctx, ctx.next[seat], nL, nR, 0, seat, bonus, alpha, beta);
       // unmake
       WT[a]--;
@@ -683,18 +714,23 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
   // base state
   let unkN = 0;
   const mineSet = new Set(v.hand.map((t) => t.id));
-  for (let id = 0; id < 28; id++) if (!v.onTable[id] && !mineSet.has(id)) UNK[unkN++] = id;
+  for (const id of v.tileIds) if (!v.onTable[id] && !mineSet.has(id)) UNK[unkN++] = id;
   for (let s = 0; s < 4; s++) {
     BC[s] = v.counts[s];
     BP[s] = v.passBits[s];
   }
-  // individual: the boneyard / set-aside tiles are unknown too (count public, contents hidden)
-  BC[PILE] = v.pile;
+  // Boneyard / set-aside tiles are unknown too (count public, contents hidden). In pairs with the
+  // double-nine set part of the set is not dealt at all: those leftovers belong to the same slot.
+  let dealt = v.pile;
+  for (let s = 0; s < 4; s++) dealt += v.counts[s];
+  const setAside = Math.max(0, v.tileCount - dealt - v.chainLen);
+  BC[PILE] = v.pile + setAside;
   BP[PILE] = 0;
   for (let i = 0; i < v.hand.length; i++) BH[me * S + i] = v.hand[i].id;
-  for (let p = 0; p < 7; p++) BT[p] = v.tableCount[p];
+  BT.fill(0);
+  for (let p = 0; p < v.pipCount; p++) BT[p] = v.tableCount[p];
   useTwt = master;
-  if (master) inferWeights(match, me);
+  if (master) inferWeights(v, match);
 
   const unit = scoreUnit(v.rules);
   const target = v.rules.target * unit;
@@ -726,6 +762,7 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
     next: Int8Array.from([0, 1, 2, 3, 0].map((s) => v.next[s] ?? 0)),
     draw: v.solo && v.rules.boneyardDraw && v.pile > 0,
     tieVoid: v.rules.soloTie === 'void',
+    tilesPerPip: v.tilesPerPip,
   };
   // master: the match situation matters — points beyond what wins the match are worth little, and
   // reaching the target (or letting them reach it) is worth more than its face value
@@ -790,9 +827,9 @@ function chooseSim(v: SeatView, match: MatchState, seed: number, opts: AiOptions
       let val: number;
       if (n === 1) {
         const cap = isCapicua(a, b, pl, pr);
-        const extra = (ctx.capicua && cap ? ctx.capicua : 0) + (ctx.chuchazo && m.tileId === 0 ? ctx.chuchazo : 0);
+        const extra = (ctx.capicua && cap ? ctx.capicua : 0) + (ctx.chuchazo && a === 0 && b === 0 ? ctx.chuchazo : 0);
         val = finishSim(ctx, false, me, 0, cap, extra);
-      } else if (WT[L] === 7 && WT[R] === 7) {
+      } else if (WT[L] === ctx.tilesPerPip && WT[R] === ctx.tilesPerPip) {
         val = finishSim(ctx, true, me, 0);
       } else if (endgame) {
         nodes = 0;
@@ -860,7 +897,7 @@ export function chooseMove(match: MatchState, difficulty: Difficulty, opts: AiOp
     }
     const w = moves.map((m) => {
       if (m.kind !== 'play') return 1;
-      const t = ALL_TILES[m.tileId];
+      const t = TILE_BY_ID[m.tileId];
       const pips = t.a + t.b;
       if (style === 'carefree') return 1 + (v.hand.length === 1 ? 4 : 0); // whatever fits
       if (style === 'impulsive') return (1 + pips) * (1 + pips) + (v.hand.length === 1 ? 40 : 0); // heavy first

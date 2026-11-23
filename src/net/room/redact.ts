@@ -46,6 +46,8 @@ export function seatView(match: MatchState, seat: Seat, legal: Move[], turnDeadl
     const hands = hand.hands.map((h, s) => (s === seat ? h.map((t) => ({ ...t })) : []));
     const h: Record<string, unknown> = { ...hand, hands };
     if (hand.boneyard) h.boneyard = [];
+    // the engine uses this to detect blocks, but a client must not learn which tiles were never dealt
+    delete h.setAsideIds;
     redHand = JSON.parse(JSON.stringify(h));
   }
   const m = JSON.parse(JSON.stringify({ ...match, hand: null })) as Record<string, unknown>;

@@ -250,10 +250,11 @@ KuCards:
 | `src/net/mock/backend.ts`, `config.ts`, `src/app/online.ts`, `src/ui/online.ts`, `i18n.ts`, `src/main.ts` | Same changes as Kudominoes |
 | KuCards-specific check | Out-of-turn moves and the response window (`WINDOW_MS`) are "first come, first served". On a LAN that is fine; over BLE (slow) the window may need to be longer |
 
-Protocol: **no changes** to `ClientMsg` / `ServerMsg` and no `PROTOCOL_VERSION` bump. One new
-situation: two app installs of different versions can meet. `version_mismatch` already handles it;
-the message should say to update both devices. Browser joiners always match, because the host
-serves them its own build.
+Protocol: **no new message fields** for local play. `PROTOCOL_VERSION` is 2 because double-nine added a
+`tileSet` rule (older clients cannot render pips 7–9 or understand the new tile ids), carried inside
+the existing `rules` record. Two app installs of different versions can meet; `version_mismatch`
+handles it and asks both devices to update. Browser joiners always match, because the host serves
+them its own build.
 
 ### 6.7 Behaviour differences from online rooms
 

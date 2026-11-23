@@ -92,7 +92,48 @@ function focusFirst(el: HTMLElement) {
 export function btn(label: string, onClick: () => void, cls = '', extra?: Node): HTMLButtonElement {
   const b = h('button.btn', { type: 'button', class: cls }, h('span.btn-label', label), extra ?? null);
   b.addEventListener('click', onClick);
+  fitButton(b);
   return b;
+}
+
+/**
+ * Responsive button (any button with a `.btn-label`, optionally a `.btn-icon`): a label that doesn't fit is
+ * cut with an ellipsis (CSS); when even that would leave only a few letters and there is an icon, the button
+ * shows just the icon (`.icon-only`) and the label moves to aria-label / title. One shared ResizeObserver.
+ * (Same component as KuCards.)
+ */
+export function fitButton(b: HTMLElement): void {
+  const label = b.querySelector<HTMLElement>('.btn-label');
+  if (!label || typeof ResizeObserver === 'undefined') return;
+  if (!b.getAttribute('aria-label')) b.setAttribute('aria-label', label.textContent ?? '');
+  fitObserver().observe(b);
+}
+
+let fitRO: ResizeObserver | null = null;
+const MIN_LABEL_PX = 46;
+function fitObserver(): ResizeObserver {
+  if (fitRO) return fitRO;
+  const check = (b: HTMLElement) => {
+    const label = b.querySelector<HTMLElement>('.btn-label');
+    const icon = b.querySelector<HTMLElement>('.btn-icon');
+    if (!label) return;
+    const cs = getComputedStyle(b);
+    const inner = b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const gap = parseFloat(cs.columnGap) || 0;
+    // the label's natural width, measured while it is shown (kept for when it is hidden)
+    if (!b.classList.contains('icon-only')) b.dataset.labelW = String(label.scrollWidth);
+    const need = Number(b.dataset.labelW || label.scrollWidth);
+    const room = inner - (icon ? icon.offsetWidth + gap : 0);
+    // a margin before switching back, so the padding change can't make it flip back and forth
+    const was = b.classList.contains('icon-only');
+    const iconOnly = !!icon && need > room && room < MIN_LABEL_PX + (was ? 20 : 0);
+    b.classList.toggle('icon-only', iconOnly);
+    b.title = iconOnly || need > room ? (label.textContent ?? '') : '';
+  };
+  fitRO = new ResizeObserver((entries) => {
+    for (const e of entries) check(e.target as HTMLElement);
+  });
+  return fitRO;
 }
 
 export function iconBtn(icon: string, label: string, onClick: () => void, cls = ''): HTMLButtonElement {

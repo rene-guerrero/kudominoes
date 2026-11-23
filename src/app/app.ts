@@ -1,18 +1,20 @@
-import type { AppSettings, Bonus, RuleSettings, EngineApi, FrameStats, GameEvent, GameMode, Lineup, MatchState, Seat, SfxName, TableView, TableViewOptions } from '../contracts';
-import { ALL_TILES } from '../engine/tiles';
+import type { AppSettings, Bonus, RuleSettings, DominoMode, EngineApi, FrameStats, GameEvent, GameMode, Lineup, MatchState, Seat, SfxName, TableView, TableViewOptions } from '../contracts';
+import { tileById, tileSetOf } from '../engine/tiles';
 import { staticFace, faceOfSeat } from '../ui/avatars';
 import { character, profileOf, randomLineup } from '../roster';
 import { hapticTick, playSfx, setAudioPrefs, setAudioSuspended } from '../audio/sfx';
 import { buildHowto } from '../ui/howto';
 import { Hud } from '../ui/hud';
 import { loc, setLang, t, type Key } from '../ui/i18n';
-import { sameRules } from '../engine/rules';
 import { buildMenu } from '../ui/menu';
 import { buildAbout } from '../ui/about';
 import { confirmDialog, Overlay } from '../ui/overlay';
 import { buildSettings, presetName, type SettingsTab } from '../ui/settings';
+import { buildModeEditor } from '../ui/modeEditor';
 import { ChatButton, phraseText, sanitizeGestures } from '../ui/chat';
-import { allPresets, deleteProfile, loadProfiles, saveProfile } from './ruleProfiles';
+import { allPresets } from './modes';
+import { defaultRulesFor } from '../engine/rules';
+import { customMode, deleteCustomMode, modeNameFree, rulesForMode, saveCustomMode } from './modes';
 import { buildNewGame } from '../ui/newgame';
 import { setTileTheme } from '../ui/tiles';
 import { buildHandSummary, buildMatchEnd, buildPause, buildStarterChooser } from '../ui/summary';
@@ -56,6 +58,8 @@ export class App {
   private screen: ScreenName = 'menu';
   private closePause: (() => void) | null = null;
   private returnToPause = false;
+  /** where Ajustes was opened from, so the mode editor can come back to the same place */
+  private settingsFrom: ScreenName = 'menu';
   private sfxMuted = false;
   private names: Names;
   private rulesNoticePending = false;
@@ -250,6 +254,7 @@ export class App {
         this.applyOnlineFaces(o.faces);
         this.ensureView();
         this.view.reset();
+        this.view.setTileSet?.(tileSetOf(o.match.rules));
         this.overlay.closeAllModals();
         this.overlay.showScreen(null);
         this.hud.reset();
@@ -304,8 +309,9 @@ export class App {
     window.addEventListener('keydown', onKey);
   }
 
-  private showSettings(tab?: SettingsTab, rulesMode?: GameMode): void {
-    const from = this.screen;
+  private showSettings(tab?: SettingsTab, rulesMode?: GameMode, fromOverride?: ScreenName): void {
+    const from = fromOverride ?? this.screen;
+    this.settingsFrom = from;
     this.screen = 'settings';
     const back = () => {
       if (from === 'game') this.backToPause();
@@ -324,9 +330,7 @@ export class App {
         ruleDescriptorsIndividual: this.engine.RULE_SETTINGS_INDIVIDUAL,
         defaultRulesIndividual: this.engine.DEFAULT_RULES_INDIVIDUAL,
         presets: this.engine.RULE_PRESETS ?? [],
-        profiles: loadProfiles(this.engine),
-        onSaveProfile: (name, mode, rules) => saveProfile(this.engine, name, mode, rules),
-        onDeleteProfile: (id) => deleteProfile(this.engine, id),
+        editMode: (draft, isNew) => this.editMode(draft, isNew),
         profileLocked: from === 'game' || !!this.onlineNames,
         confirm: (o) => confirmDialog(this.overlay, o),
         resolvedQuality: () => this.settings.quality,
@@ -346,6 +350,44 @@ export class App {
     this.overlay.showScreen(build());
   }
 
+  /** the separate rules editor over Ajustes › Reglas (plus / pencil) */
+  private editMode(draft: DominoMode, isNew: boolean): void {
+    const back = () => this.showSettings('rules', undefined, this.settingsFrom);
+    const apply = (def: DominoMode | null) => {
+      // a deleted mode (def null) falls back to its base mode's default rules, the rules the Reglas view shows
+      const base = def?.base ?? draft.base;
+      const rules = def ? { ...def.rules } : { ...defaultRulesFor(base) };
+      this.settings = {
+        ...this.settings,
+        settingsTab: 'rules',
+        customMode: def?.id,
+        mode: base,
+        rulesTabMode: base,
+        rules: base === 'pairs' ? rules : this.settings.rules,
+        rulesIndividual: base === 'individual' ? rules : this.settings.rulesIndividual,
+      };
+      saveSettings(this.settings);
+      back();
+    };
+    this.overlay.showScreen(
+      buildModeEditor({
+        draft,
+        isNew,
+        nameFree: (n) => modeNameFree(n, isNew ? undefined : draft.id),
+        onSave: (def) => apply(saveCustomMode(def).find((m) => m.id === def.id) ?? null),
+        onDelete: isNew
+          ? undefined
+          : async () => {
+              const ok = await confirmDialog(this.overlay, { title: t('modes.deleteTitle', { name: loc(draft.name) }), body: t('modes.deleteBody'), ok: t('modes.delete'), cancel: t('common.cancel'), danger: true });
+              if (!ok) return;
+              deleteCustomMode(draft.id);
+              apply(null);
+            },
+        onBack: back,
+      }),
+    );
+  }
+
   private showHowto(): void {
     const from = this.screen;
     this.screen = 'howto';
@@ -359,6 +401,7 @@ export class App {
     this.overlay.showScreen(
       buildNewGame({
         mode: this.settings.mode ?? 'pairs',
+        customMode: this.settings.customMode,
         lineup: sanitizeLineupSetting(this.settings.lineup),
         soloOpponents: this.settings.soloOpponents ?? 2,
         soloLineup: this.settings.soloLineup ?? [],
@@ -366,7 +409,10 @@ export class App {
         humanFace: this.settings.avatarFace ?? 0,
         humanName: this.settings.playerName || t('seat.you'),
         tableStyle: this.settings.tableStyle ?? 'green',
-        presetName: (mode) => presetName(allPresets(this.engine), rulesFor(this.settings, mode), mode),
+        presetName: (mode) => {
+          const c = customMode(this.settings.customMode);
+          return c && c.base === mode ? loc(c.name) : presetName(allPresets(this.engine), rulesFor(this.settings, mode), mode);
+        },
         onChange: (lineup) => {
           this.settings = { ...this.settings, lineup };
           saveSettings(this.settings);
@@ -375,35 +421,11 @@ export class App {
           this.settings = { ...this.settings, soloLineup, soloOpponents };
           saveSettings(this.settings);
         },
-        onMode: (mode) => {
-          this.settings = { ...this.settings, mode };
+        onMode: (mode, customMode) => {
+          this.settings = { ...this.settings, mode, customMode };
           saveSettings(this.settings);
         },
         onRules: (mode) => this.showSettings('rules', mode),
-        ruleChoices: (mode) => {
-          const key = mode === 'individual' ? 'rulesIndividual' : 'rules';
-          const cur = rulesFor(this.settings, mode);
-          const classic = (this.engine.RULE_PRESETS ?? []).find((p) => (p.mode ?? 'pairs') === mode);
-          const sets = [
-            ...(classic ? [{ label: loc(classic.label), rules: classic.rules }] : []),
-            ...loadProfiles(this.engine)
-              .filter((p) => p.mode === mode)
-              .map((p) => ({ label: p.name, rules: p.rules })),
-          ];
-          const pickSet = (rules: RuleSettings) => {
-            this.settings = { ...this.settings, [key]: { ...rules } };
-            saveSettings(this.settings);
-          };
-          const items = sets.map((x) => ({ label: x.label, on: sameRules(x.rules, cur, mode), pick: () => pickSet(x.rules) }));
-          // first match only (a profile equal to Cubano clásico shows as Cubano clásico)
-          let seen = false;
-          for (const i of items) {
-            if (i.on && seen) i.on = false;
-            if (i.on) seen = true;
-          }
-          if (!seen) items.push({ label: t('settings.preset.custom'), on: true, custom: true } as never);
-          return items;
-        },
         onStart: (o) => {
           clearSave();
           this.settings = { ...this.settings, mode: o.mode };
@@ -416,9 +438,9 @@ export class App {
     );
   }
 
-  /** a fresh match of a mode with the stored rules of that mode */
+  /** a fresh match of a mode with the selected mode's rules (a custom mode plays its own rule set) */
   private newMatch(mode: GameMode, players: 2 | 3 | 4): MatchState {
-    const rules = { ...rulesFor(this.settings, mode) };
+    const rules = rulesForMode(this.settings, mode);
     return mode === 'individual' ? this.engine.createMatch(rules, undefined, { mode, players }) : this.engine.createMatch(rules);
   }
 
@@ -511,6 +533,7 @@ export class App {
     this.applyLineupFaces();
     this.ensureView();
     this.view.reset();
+    this.view.setTileSet?.(tileSetOf(match.rules));
     this.overlay.closeAllModals();
     this.overlay.showScreen(null);
     this.screen = 'game';
@@ -837,12 +860,24 @@ export class App {
           // individual, first hand: the double six (or the highest double / tile) must open
           const id = h && h.chain.length === 0 ? h.openTile : null;
           if (id !== null && id !== undefined) {
-            const tl = ALL_TILES[id];
-            this.hud.notice(id === 27 ? t('notice.openDouble6') : t('notice.openTile', { tile: tl.a === tl.b ? t(`tile.double.${tl.a}` as Key) : `${tl.b}-${tl.a}` }));
+            const tl = tileById(m.rules, id);
+            const d6 = tileSetOf(m.rules) === 'double6';
+            this.hud.notice(
+              d6 && id === 27
+                ? t('notice.openDouble6')
+                : t('notice.openTile', { tile: d6 && tl.a === tl.b ? t(`tile.double.${tl.a}` as Key) : `${tl.b}-${tl.a}` }),
+            );
           }
           return;
         }
-        if (!mustPass && h && h.chain.length === 0 && h.handNo === 1 && m.rules.firstStarter === 'double6') this.hud.notice(t('notice.openDouble6'));
+        // pairs: the forced opener (6-6, or in double-nine the highest double dealt) is stored as openTile
+        const forced = !mustPass && h && h.chain.length === 0 ? h.openTile : null;
+        if (forced !== null && forced !== undefined) {
+          const tl = tileById(m.rules, forced);
+          const d6 = tileSetOf(m.rules) === 'double6';
+          this.hud.notice(d6 && forced === 27 ? t('notice.openDouble6') : t('notice.openTile', { tile: d6 && tl.a === tl.b ? t(`tile.double.${tl.a}` as Key) : `${tl.b}-${tl.a}` }));
+        } else if (!mustPass && h && h.chain.length === 0 && h.handNo === 1 && m.rules.firstStarter === 'double6' && tileSetOf(m.rules) === 'double6')
+          this.hud.notice(t('notice.openDouble6'));
       },
       showHandSummary: (ev, match, prevScores) =>
         new Promise<void>((resolve) => {
