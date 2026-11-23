@@ -57,6 +57,16 @@ function hideBootSplash() {
   setTimeout(() => boot.remove(), 350);
 }
 
+/** resolves once the screen's one-shot intro animations have finished (the endless ones are ignored); capped */
+function introPlayed(root: HTMLElement, cap = 1800): Promise<void> {
+  const finite = (root.getAnimations?.({ subtree: true }) ?? []).filter((a) => {
+    const end = a.effect?.getComputedTiming().endTime;
+    return typeof end === 'number' && Number.isFinite(end);
+  });
+  const done = Promise.all(finite.map((a) => a.finished.catch(() => undefined))).then(() => undefined);
+  return Promise.race([done, new Promise<void>((r) => setTimeout(r, cap))]);
+}
+
 type AnimKey = string;
 
 /** running CSS animations under `root`, keyed by element path + animation name */
@@ -138,7 +148,14 @@ async function boot() {
     mark('menu');
 
     // ── 2. App + renderer behind the menu ──
+    // Loading them blocks the page for a moment (long on phones), which froze the menu's intro halfway
+    // and then let it jump on, so it looked like it played twice. They wait until the intro has played
+    // (or the first tap on the menu, which needs the App anyway).
+    let tapped: () => void = () => {};
+    const firstTap = new Promise<void>((r) => (tapped = r));
+    early.addEventListener('pointerdown', () => tapped(), { once: true, capture: true });
     const appReady: Promise<App> = afterPaint()
+      .then(() => Promise.race([introPlayed(early), firstTap]))
       .then(() => Promise.all([import('./app/app'), loadTableView()]))
       .then(([{ App }, createTableView]) => {
         const app = new App({ engine, createTableView, settings, overlay, tableEl });
