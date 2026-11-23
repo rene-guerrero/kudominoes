@@ -433,7 +433,7 @@ export function makeTileAtlas(cellW: number, theme: TileTheme = 'classic', back:
 
 // ───────────────────────── table styles ─────────────────────────
 
-/** Everything a table look defines: felt, frame wood, inlay/emblem tint and the matching ambient. */
+/** Everything a table look defines: felt, inlay/emblem tint and the matching light on the tiles. */
 export interface TableStyleDef {
   /** felt base + light pool stops (centre, mid, edge) */
   felt: [string, string, string, string];
@@ -442,18 +442,12 @@ export interface TableStyleDef {
   /** fine linen weave over the felt */
   weave?: boolean;
   fibre: number;
-  /** 'r,g,b' of the inlay lines / corner suns, and its strength (1 = the classic look) */
+  /** 'r,g,b' of the inlay line, and its strength (1 = the classic look) */
   inlay: string;
   inlayA: number;
   emblem: string;
   emblemA: number;
   vignette: number;
-  /** frame wood */
-  wood: GrainOpts;
-  roughness: number;
-  metalness: number;
-  /** canvas CSS background (the room behind the table) */
-  bg: string;
   hemiSky: number;
   hemiGround: number;
   hemi: number;
@@ -465,21 +459,15 @@ export interface TableStyleDef {
   feltTint: number;
 }
 
-const BG_GREEN = 'radial-gradient(120% 80% at 50% 0%, #4a2340 0%, #241330 45%, #0e0a18 100%)';
-
 export const TABLE_STYLE_DEFS: Record<TableStyle, TableStyleDef> = {
   green: {
-    felt: ['#0d4f45', '#1c7a63', '#136352', '#082f2c'],
+    felt: ['#0f5a4c', '#27a082', '#187862', '#0b473f'],
     fibre: 0.07,
     inlay: '226,181,90',
     inlayA: 1,
     emblem: '#f3d58c',
     emblemA: 0.07,
     vignette: 0.45,
-    wood: { base: ['#6b2f17', '#8a4320', '#5e2812'], dark: '40,12,4', light: '190,110,60', lines: 70, seed: 99 },
-    roughness: 0.42,
-    metalness: 0.05,
-    bg: BG_GREEN,
     hemiSky: 0xffe6c4,
     hemiGround: 0x1d2a44,
     hemi: 1.15,
@@ -490,17 +478,13 @@ export const TABLE_STYLE_DEFS: Record<TableStyle, TableStyleDef> = {
     feltTint: 1,
   },
   navy: {
-    felt: ['#0f2136', '#22436a', '#193454', '#0a1626'],
+    felt: ['#14294a', '#2d62a0', '#20487a', '#10264a'],
     fibre: 0.07,
     inlay: '214,182,116',
     inlayA: 0.9,
     emblem: '#e6d3a4',
     emblemA: 0.07,
     vignette: 0.48,
-    wood: { base: ['#3a2517', '#4d3320', '#2f1d10'], dark: '18,9,3', light: '150,105,70', lines: 70, seed: 311 },
-    roughness: 0.62,
-    metalness: 0.04,
-    bg: 'radial-gradient(120% 80% at 50% 0%, #22304c 0%, #121b2e 45%, #070a12 100%)',
     hemiSky: 0xf2e6d6,
     hemiGround: 0x1a2438,
     hemi: 1.1,
@@ -511,17 +495,13 @@ export const TABLE_STYLE_DEFS: Record<TableStyle, TableStyleDef> = {
     feltTint: 1,
   },
   burgundy: {
-    felt: ['#3a0e15', '#6a2331', '#531a26', '#26090e'],
+    felt: ['#4a121c', '#933145', '#702334', '#3c0e17'],
     fibre: 0.07,
     inlay: '222,186,118',
     inlayA: 0.9,
     emblem: '#f0d49a',
     emblemA: 0.07,
     vignette: 0.48,
-    wood: { base: ['#5a3d22', '#6a4a28', '#4c331b'], dark: '40,22,8', light: '190,150,100', lines: 64, seed: 517 },
-    roughness: 0.62,
-    metalness: 0.04,
-    bg: 'radial-gradient(120% 80% at 50% 0%, #3d2220 0%, #22120f 45%, #0d0706 100%)',
     hemiSky: 0xffe6cc,
     hemiGround: 0x2a1a1e,
     hemi: 1.1,
@@ -532,17 +512,13 @@ export const TABLE_STYLE_DEFS: Record<TableStyle, TableStyleDef> = {
     feltTint: 1,
   },
   charcoal: {
-    felt: ['#161514', '#363230', '#282523', '#0f0e0d'],
+    felt: ['#1e1d1c', '#4a4643', '#363331', '#1d1c1b'],
     fibre: 0.08,
     inlay: '205,165,88',
     inlayA: 1,
     emblem: '#d9b46a',
     emblemA: 0.08,
     vignette: 0.42,
-    wood: { base: ['#1d1a18', '#282421', '#151311'], dark: '0,0,0', light: '110,95,80', lines: 60, seed: 733 },
-    roughness: 0.55,
-    metalness: 0.06,
-    bg: 'radial-gradient(120% 80% at 50% 0%, #2a282d 0%, #17161a 45%, #08080a 100%)',
     hemiSky: 0xf4e8d8,
     hemiGround: 0x1c1c22,
     hemi: 1.12,
@@ -561,10 +537,6 @@ export const TABLE_STYLE_DEFS: Record<TableStyle, TableStyleDef> = {
     emblem: '#2a1608',
     emblemA: 0.16,
     vignette: 0.5,
-    wood: { base: ['#35200f', '#432914', '#2b190b'], dark: '15,7,2', light: '150,100,60', lines: 70, seed: 1201 },
-    roughness: 0.62,
-    metalness: 0.03,
-    bg: 'radial-gradient(120% 80% at 50% 0%, #3a2618 0%, #20140c 45%, #0c0805 100%)',
     hemiSky: 0xffe6c8,
     hemiGround: 0x2a1c14,
     hemi: 1.05,
@@ -575,7 +547,7 @@ export const TABLE_STYLE_DEFS: Record<TableStyle, TableStyleDef> = {
     feltTint: 0.92,
   },
   sand: {
-    felt: ['#5a5143', '#968a74', '#7e7360', '#4a4235'],
+    felt: ['#6a604f', '#aa9d84', '#8f836d', '#5c5345'],
     weave: true,
     fibre: 0.06,
     inlay: '110,82,46',
@@ -583,10 +555,6 @@ export const TABLE_STYLE_DEFS: Record<TableStyle, TableStyleDef> = {
     emblem: '#3e3020',
     emblemA: 0.09,
     vignette: 0.5,
-    wood: { base: ['#7c6a52', '#8a775c', '#6c5b45'], dark: '60,42,22', light: '200,178,140', lines: 64, seed: 1409 },
-    roughness: 0.68,
-    metalness: 0.02,
-    bg: 'radial-gradient(120% 80% at 50% 0%, #463c32 0%, #29221c 45%, #12100c 100%)',
     hemiSky: 0xf6ead8,
     hemiGround: 0x2a241e,
     hemi: 0.98,
@@ -620,40 +588,102 @@ function paintWoodTop(g: CanvasRenderingContext2D, w: number, h: number, o: Grai
   }
 }
 
-/** felt (or bare wood) with baked warm light pool, inlay and a faint emblem. aspect = width/height. */
-export function drawFelt(target: HTMLCanvasElement | null, aspect: number, maxSide: number, centerV = 0.5, style: TableStyle = 'green'): HTMLCanvasElement {
-  const S = tableStyleDef(style);
-  const w = aspect >= 1 ? maxSide : Math.round(maxSide * aspect);
-  const h = aspect >= 1 ? Math.round(maxSide / aspect) : maxSide;
-  const c = target ?? document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const g = c.getContext('2d')!;
+/** the room every table stands in: the main menu's night blue (also the canvas CSS background, so no seam) */
+export const ROOM = '#0a1c2e';
+/** the lit part of the room and the padded rail, both from the menu's night-blue buttons */
+const ROOM_LIT = '#1d5568';
+const RAIL: [string, string, string] = ['#2a6184', '#143753', '#0b2338'];
+
+/**
+ * Where the table sits on the arena plane, in world units from the plane's far-left corner (canvas
+ * top-left). The plane is the room; the felt rectangle is the play area; the rail goes round it.
+ */
+export interface ArenaGeo {
+  w: number;
+  h: number;
+  /** felt rectangle */
+  fx: number;
+  fy: number;
+  fw: number;
+  fh: number;
+  /** rail width round the felt, felt corner radius */
+  rail: number;
+  r: number;
+  /** centre of the light pool / emblem, from the plane's far edge */
+  cy: number;
+}
+
+function hexA(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+/** the centre medallion: two rings, an eight-point sun and a ring of beads */
+function paintEmblem(g: CanvasRenderingContext2D, cx: number, cy: number, R: number, color: string): void {
+  g.strokeStyle = color;
+  g.fillStyle = color;
+  g.lineWidth = Math.max(1, R * 0.018);
+  g.beginPath();
+  g.arc(cx, cy, R, 0, Math.PI * 2);
+  g.stroke();
+  g.beginPath();
+  g.arc(cx, cy, R * 0.84, 0, Math.PI * 2);
+  g.stroke();
+  star(g, cx, cy, R * 0.78, R * 0.17, 8);
+  g.fill();
+  for (let i = 0; i < 16; i++) {
+    const a = ((i + 0.5) / 16) * Math.PI * 2;
+    g.beginPath();
+    g.arc(cx + Math.cos(a) * R * 0.92, cy + Math.sin(a) * R * 0.92, R * 0.022, 0, Math.PI * 2);
+    g.fill();
+  }
+}
+
+/** the medallion alone on a clear square, full strength (the renderer turns it slowly on the felt) */
+export function makeEmblem(size: number, style: TableStyle = 'green'): THREE.CanvasTexture {
+  const [c, g] = canvas(size, size);
+  paintEmblem(g, size / 2, size / 2, size * 0.47, tableStyleDef(style).emblem);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** the play area: felt (or bare wood) lit from `cy`, its inlay line and the rail's shade, clipped to a rounded rectangle */
+function paintFelt(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, cy: number, S: TableStyleDef, emblem: boolean): void {
+  const cx = x + w / 2;
+  const far = Math.hypot(w / 2, Math.max(cy - y, y + h - cy));
+  const u = Math.min(w, h);
+  g.save();
+  roundRect(g, x, y, w, h, r);
+  g.clip();
   g.fillStyle = S.felt[0];
-  g.fillRect(0, 0, w, h);
+  g.fillRect(x, y, w, h);
   if (S.woodTop) {
+    g.save();
+    g.translate(x, y);
     paintWoodTop(g, w, h, S.woodTop);
+    g.restore();
     // soft light pool on the wood (no hot spot)
-    const pool = g.createRadialGradient(w / 2, h * centerV, 0, w / 2, h * centerV, Math.max(w, h) * 0.65);
-    pool.addColorStop(0, 'rgba(255,225,180,0.07)');
-    pool.addColorStop(0.55, 'rgba(0,0,0,0)');
-    pool.addColorStop(1, 'rgba(0,0,0,0.3)');
+    const pool = g.createRadialGradient(cx, cy, 0, cx, cy, far);
+    pool.addColorStop(0, 'rgba(255,225,180,0.1)');
+    pool.addColorStop(0.6, 'rgba(0,0,0,0)');
+    pool.addColorStop(1, 'rgba(0,0,0,0.22)');
     g.fillStyle = pool;
-    g.fillRect(0, 0, w, h);
+    g.fillRect(x, y, w, h);
   } else {
-    const pool = g.createRadialGradient(w / 2, h * centerV, 0, w / 2, h * centerV, Math.max(w, h) * 0.65);
+    const pool = g.createRadialGradient(cx, cy, 0, cx, cy, far);
     pool.addColorStop(0, S.felt[1]);
-    pool.addColorStop(0.5, S.felt[2]);
+    pool.addColorStop(0.55, S.felt[2]);
     pool.addColorStop(1, S.felt[3]);
     g.fillStyle = pool;
-    g.fillRect(0, 0, w, h);
+    g.fillRect(x, y, w, h);
     if (S.weave) {
       // fine linen weave: faint alternating threads both ways
-      const step = Math.max(2, Math.round(Math.min(w, h) / 260));
+      const step = Math.max(2, Math.round(u / 260));
       g.fillStyle = 'rgba(0,0,0,0.05)';
-      for (let x = 0; x < w; x += step * 2) g.fillRect(x, 0, step, h);
+      for (let i = 0; i < w; i += step * 2) g.fillRect(x + i, y, step, h);
       g.fillStyle = 'rgba(255,240,215,0.025)';
-      for (let y = 0; y < h; y += step * 2) g.fillRect(0, y, w, step);
+      for (let i = 0; i < h; i += step * 2) g.fillRect(x, y + i, w, step);
     }
   }
   // fibre noise
@@ -662,116 +692,164 @@ export function drawFelt(target: HTMLCanvasElement | null, aspect: number, maxSi
   const pat = g.createPattern(noiseTile(), 'repeat');
   if (pat) {
     g.fillStyle = pat;
-    g.fillRect(0, 0, w, h);
+    g.fillRect(x, y, w, h);
   }
   g.globalCompositeOperation = 'source-over';
   g.globalAlpha = 1;
-  const u = Math.min(w, h);
-  const ia = S.inlayA;
-  // inlay double line
-  g.strokeStyle = `rgba(${S.inlay},${0.55 * ia})`;
-  g.lineWidth = u * 0.006;
-  roundRect(g, u * 0.035, u * 0.035, w - u * 0.07, h - u * 0.07, u * 0.05);
+  // one thin inlay line, a little way in from the rail
+  const inset = u * 0.04;
+  g.strokeStyle = `rgba(${S.inlay},${0.42 * S.inlayA})`;
+  g.lineWidth = Math.max(1, u * 0.004);
+  roundRect(g, x + inset, y + inset, w - inset * 2, h - inset * 2, Math.max(1, r - inset * 0.5));
   g.stroke();
-  g.strokeStyle = `rgba(${S.inlay},${0.25 * ia})`;
-  g.lineWidth = u * 0.003;
-  roundRect(g, u * 0.05, u * 0.05, w - u * 0.1, h - u * 0.1, u * 0.04);
-  g.stroke();
-  // corner suns
-  g.fillStyle = `rgba(${S.inlay},${0.35 * ia})`;
-  for (const [cx, cy] of [
-    [u * 0.035, u * 0.035],
-    [w - u * 0.035, u * 0.035],
-    [u * 0.035, h - u * 0.035],
-    [w - u * 0.035, h - u * 0.035],
-  ]) {
-    star(g, cx, cy, u * 0.025, u * 0.01, 8);
+  if (emblem) {
+    g.globalAlpha = S.emblemA * 1.5;
+    paintEmblem(g, cx, cy, u * 0.22, S.emblem);
+    g.globalAlpha = 1;
+  }
+  // the rail's soft shade on the felt
+  for (let i = 1; i <= 6; i++) {
+    g.strokeStyle = `rgba(0,0,0,${0.1 * S.vignette})`;
+    g.lineWidth = u * 0.012 * i;
+    roundRect(g, x, y, w, h, r);
+    g.stroke();
+  }
+  g.restore();
+}
+
+/**
+ * The table and the room round it, one texture for one floor plane (KuCards' arena): a night-blue room
+ * lit from the table with faint light rays, a sunset glow beyond the far edge, and the table itself:
+ * a padded night-blue rail with a turquoise edge, a cream line and the felt. Everything fades to ROOM
+ * at the plane's far and side edges, which is also the canvas background, so the plane never shows.
+ */
+export function drawArena(target: HTMLCanvasElement | null, geo: ArenaGeo, maxSide: number, style: TableStyle = 'green', emblem = false): HTMLCanvasElement {
+  const S = tableStyleDef(style);
+  const k = maxSide / Math.max(geo.w, geo.h);
+  const W = Math.max(8, Math.round(geo.w * k));
+  const H = Math.max(8, Math.round(geo.h * k));
+  const c = target ?? document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const fx = geo.fx * k;
+  const fy = geo.fy * k;
+  const fw = geo.fw * k;
+  const fh = geo.fh * k;
+  const rail = geo.rail * k;
+  const r = geo.r * k;
+  const cx = fx + fw / 2;
+  const ty = fy + fh / 2;
+  // outer edge of the rail
+  const ox = fx - rail;
+  const oy = fy - rail;
+  const ow = fw + rail * 2;
+  const oh = fh + rail * 2;
+  const or = r + rail;
+  g.fillStyle = ROOM;
+  g.fillRect(0, 0, W, H);
+  // the room: lit from the table, out to the nearest side edge and the far edge (the near edge is off screen)
+  const ex = Math.min(cx, W - cx);
+  const ey = ty;
+  g.save();
+  g.translate(cx, ty);
+  g.scale(ex, ey);
+  const room = g.createRadialGradient(0, 0, 0.35, 0, 0, 1);
+  room.addColorStop(0, hexA(ROOM_LIT, 0.85));
+  room.addColorStop(0.6, hexA(ROOM_LIT, 0.4));
+  room.addColorStop(1, hexA(ROOM_LIT, 0));
+  g.fillStyle = room;
+  g.beginPath();
+  g.arc(0, 0, 1, 0, Math.PI * 2);
+  g.fill();
+  // light rays fanning out from the table
+  const rays = 20;
+  const ray = g.createRadialGradient(0, 0, 0.3, 0, 0, 1);
+  ray.addColorStop(0, 'rgba(255,255,255,0.07)');
+  ray.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = ray;
+  for (let i = 0; i < rays; i++) {
+    const a0 = ((i + 0.25) / rays) * Math.PI * 2;
+    const a1 = a0 + Math.PI / rays;
+    g.beginPath();
+    g.moveTo(0, 0);
+    g.arc(0, 0, 1, a0, a1);
+    g.closePath();
     g.fill();
   }
-  // faint central compass emblem
-  g.save();
-  g.globalAlpha = S.emblemA;
-  g.strokeStyle = S.emblem;
-  g.fillStyle = S.emblem;
-  g.lineWidth = u * 0.004;
-  const R = u * 0.22;
-  g.beginPath();
-  g.arc(w / 2, h * centerV, R, 0, Math.PI * 2);
-  g.stroke();
-  g.beginPath();
-  g.arc(w / 2, h * centerV, R * 0.86, 0, Math.PI * 2);
-  g.stroke();
-  star(g, w / 2, h * centerV, R * 0.8, R * 0.18, 8);
-  g.fill();
   g.restore();
-  // vignette
-  const vg = g.createRadialGradient(w / 2, h * centerV, Math.min(w, h) * 0.35, w / 2, h * centerV, Math.max(w, h) * 0.75);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, `rgba(0,0,0,${S.vignette})`);
-  g.fillStyle = vg;
-  g.fillRect(0, 0, w, h);
+  // the sunset beyond the far edge
+  if (oy > 4) {
+    // centred a little way out from the rail, so its heart is in view and not under the table
+    const sy = oy * 0.84;
+    const ry = sy * 0.96;
+    const rx = Math.min(ex * 0.96, ry * 3);
+    g.save();
+    g.translate(cx, sy);
+    g.scale(rx, ry);
+    // added to the room's light, so it glows instead of greying the blue
+    g.globalCompositeOperation = 'lighter';
+    const sun = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+    sun.addColorStop(0, 'rgba(255,140,60,0.7)');
+    sun.addColorStop(0.35, 'rgba(245,95,70,0.36)');
+    sun.addColorStop(0.7, 'rgba(190,60,90,0.1)');
+    sun.addColorStop(1, 'rgba(200,70,80,0)');
+    g.fillStyle = sun;
+    g.beginPath();
+    g.arc(0, 0, 1, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
+  }
+  // the table's shade on the floor, then a turquoise glow hugging the rail
+  for (let i = 1; i <= 8; i++) {
+    g.strokeStyle = 'rgba(2,8,16,0.04)';
+    g.lineWidth = rail * 0.6 * i;
+    roundRect(g, ox, oy, ow, oh, or);
+    g.stroke();
+  }
+  for (let i = 1; i <= 5; i++) {
+    g.strokeStyle = 'rgba(47,209,189,0.05)';
+    g.lineWidth = rail * 0.32 * i;
+    roundRect(g, ox, oy, ow, oh, or);
+    g.stroke();
+  }
+  // the rail: padded night blue, lit from the far side
+  const rg = g.createLinearGradient(0, oy, 0, oy + oh);
+  rg.addColorStop(0, RAIL[0]);
+  rg.addColorStop(0.5, RAIL[1]);
+  rg.addColorStop(1, RAIL[2]);
+  g.fillStyle = rg;
+  roundRect(g, ox, oy, ow, oh, or);
+  g.fill();
+  const line = Math.max(1.25, rail * 0.13);
+  g.strokeStyle = 'rgba(47,209,189,0.85)';
+  g.lineWidth = line;
+  roundRect(g, ox + line / 2, oy + line / 2, ow - line, oh - line, or - line / 2);
+  g.stroke();
+  paintFelt(g, fx, fy, fw, fh, r, geo.cy * k, S, emblem);
+  // cream line where the felt meets the rail
+  g.strokeStyle = 'rgba(255,241,214,0.8)';
+  g.lineWidth = line;
+  roundRect(g, fx, fy, fw, fh, r);
+  g.stroke();
   return c;
-}
-
-function woodCanvas(size: number, style: TableStyle): HTMLCanvasElement {
-  const [c, g] = canvas(size, size);
-  paintGrain(g, 0, 0, size, size, tableStyleDef(style).wood);
-  return c;
-}
-
-export function makeWood(size: number, style: TableStyle = 'green'): THREE.CanvasTexture {
-  const t = new THREE.CanvasTexture(woodCanvas(size, style));
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 4;
-  return t;
 }
 
 // ───────────────────────── settings thumbnails (2D canvas only, cached) ─────────────────────────
 
 const thumbCache = new Map<string, string>();
 
-/** top-down swatch: wood frame + felt (or wood top) with its inlay and emblem */
+/** top-down swatch: the table (rail + felt or wood top, inlay and emblem) on the night-blue room */
 export function tableThumb(style: TableStyle, w: number, h: number): string {
   w = Math.max(8, Math.round(w));
   h = Math.max(8, Math.round(h));
   const key = `t|${style}|${w}|${h}`;
   const hit = thumbCache.get(key);
   if (hit) return hit;
-  const S = tableStyleDef(style);
-  const [c, g] = canvas(w, h);
   const u = Math.min(w, h);
-  const fr = Math.max(3, Math.round(u * 0.1));
-  const r = u * 0.12;
-  // frame
-  g.save();
-  roundRect(g, 0, 0, w, h, r);
-  g.clip();
-  const wc = canvas(Math.max(w, h), Math.max(w, h));
-  paintGrain(wc[1], 0, 0, wc[0].width, wc[0].height, { ...S.wood, lines: Math.round(S.wood.lines * 0.5), scale: Math.max(0.35, u / 300) });
-  g.drawImage(wc[0], 0, 0, w, h);
-  // bevel: soft top light, bottom shade
-  const bv = g.createLinearGradient(0, 0, 0, h);
-  bv.addColorStop(0, 'rgba(255,235,200,0.12)');
-  bv.addColorStop(0.5, 'rgba(0,0,0,0)');
-  bv.addColorStop(1, 'rgba(0,0,0,0.25)');
-  g.fillStyle = bv;
-  g.fillRect(0, 0, w, h);
-  g.restore();
-  // felt
-  const iw = w - fr * 2;
-  const ih = h - fr * 2;
-  const felt = drawFelt(null, iw / ih, Math.max(iw, ih), 0.5, style);
-  g.save();
-  roundRect(g, fr, fr, iw, ih, r * 0.5);
-  g.clip();
-  g.drawImage(felt, fr, fr, iw, ih);
-  // inner rim shadow where the felt meets the frame
-  g.strokeStyle = 'rgba(0,0,0,0.35)';
-  g.lineWidth = Math.max(1, u * 0.02);
-  roundRect(g, fr, fr, iw, ih, r * 0.5);
-  g.stroke();
-  g.restore();
+  const rail = Math.max(2, u * 0.07);
+  const m = rail + Math.max(2, u * 0.06);
+  const c = drawArena(null, { w, h, fx: m, fy: m, fw: w - m * 2, fh: h - m * 2, rail, r: u * 0.1, cy: h / 2 }, Math.max(w, h), style, true);
   const url = c.toDataURL('image/png');
   thumbCache.set(key, url);
   return url;

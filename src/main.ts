@@ -7,7 +7,7 @@ import { installErrorLog } from './app/errorLog';
 import { loadSave, saveSummary } from './app/save';
 import { loadEngine, loadTableView } from './app/modules';
 import { loadSettings, saveSettings } from './app/settings';
-import { migrateProfilesToModes } from './app/modes';
+import { migrateProfilesToModes, setupLine } from './app/modes';
 import { h, setReducedMotionPref } from './ui/dom';
 import { setLang, t } from './ui/i18n';
 import { buildMenu } from './ui/menu';
@@ -120,7 +120,19 @@ async function boot() {
     const s = loadSave();
     const save = s ? saveSummary(s) : null;
     const noop = () => {};
-    const early = buildMenu({ save, onPlay: noop, onContinue: noop, onSettings: noop, onHowto: noop, onAbout: noop, onOnline: noop, onFriends: noop });
+    // the profile face is drawn by the App's menu (kuavatars loads with it); same buttons, same order
+    const early = buildMenu({
+      save,
+      onPlay: noop,
+      onSetup: noop,
+      setupLine: setupLine(engine, settings),
+      profile: { face: h('span'), name: settings.playerName || t('seat.you'), onOpen: noop },
+      onContinue: noop,
+      onSettings: noop,
+      onHowto: noop,
+      onOnline: noop,
+      onFriends: noop,
+    });
     overlay.showScreen(early);
     hideBootSplash();
     mark('menu');

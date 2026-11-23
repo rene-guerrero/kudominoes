@@ -5,9 +5,9 @@ const config: CapacitorConfig = {
   appName: 'Kudominoes',
   webDir: 'dist',
   // dark background behind the WebView while it boots (matches the game's boot screen)
-  backgroundColor: '#2a160d',
+  backgroundColor: '#0a1c2e',
   android: {
-    backgroundColor: '#2a160d',
+    backgroundColor: '#0a1c2e',
     allowMixedContent: false,
     webContentsDebuggingEnabled: false,
   },

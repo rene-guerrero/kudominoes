@@ -11,6 +11,7 @@ import type { AppSettings, DominoMode, GameMode, RuleSettings } from '../contrac
 import { defaultRulesFor, normalizeRules, sameRules } from '../engine/rules';
 import { clearProfiles, loadProfiles } from './ruleProfiles';
 import type { EngineApi, RulePreset } from '../contracts';
+import { loc, t } from '../ui/i18n';
 
 const KEY = 'kudominoes.modes.v1';
 const MIGRATED_KEY = 'kudominoes.modes.migrated.v1';
@@ -175,4 +176,16 @@ export function migrateProfilesToModes(engine: EngineApi, settings: AppSettings)
 /** the engine presets, then the player's modes as presets (for naming a rule set anywhere: lobby, new game) */
 export function allPresets(engine: EngineApi): RulePreset[] {
   return [...(engine.RULE_PRESETS ?? []), ...loadCustomModes().map((m) => ({ id: m.id, mode: m.base, label: { ...m.name }, rules: m.rules }))];
+}
+
+/** the menu's last-setup line: "Parejas · Cubano clásico", "Individual · 3 jugadores", or a custom mode's name */
+export function setupLine(engine: EngineApi, settings: AppSettings): string {
+  const mode: GameMode = settings.mode ?? 'pairs';
+  const c = customMode(settings.customMode);
+  const players = mode === 'individual' ? t('menu.players', { n: (settings.soloOpponents ?? 2) + 1 }) : '';
+  if (c && c.base === mode) return [loc(c.name), players].filter(Boolean).join(' · ');
+  if (players) return `${t('mode.individual')} · ${players}`;
+  const rules = rulesForMode(settings, mode);
+  const p = allPresets(engine).find((x) => (x.mode ?? 'pairs') === mode && Object.keys(x.rules).every((k) => x.rules[k] === rules[k]));
+  return `${t('mode.pairs')} · ${p ? loc(p.label) : t('settings.preset.custom')}`;
 }

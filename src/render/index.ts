@@ -6,7 +6,7 @@ export type { ChainBounds, ChainLayoutResult, TilePose } from './chainLayout';
 /**
  * Settings previews (2D canvas only, no WebGL; cached per arguments): PNG data URLs drawn with the
  * same procedural painters as the 3D table / tile atlas.
- *   tableThumb(style, w, h)    top-down felt + frame + emblem swatch
+ *   tableThumb(style, w, h)    top-down table swatch (rail + felt + emblem on the room colour)
  *   tileBackThumb(back, w, h)  one tile back seen from above, portrait
  */
 export { tableThumb, tileBackThumb } from './textures';

@@ -367,7 +367,7 @@ function aboutRow(onClick: () => void): HTMLElement {
   const b = h(
     'button.about-row',
     { type: 'button' },
-    h('span.about-row-icon', { html: ICONS.info }),
+    h('span.about-row-icon', { html: ICONS.about }),
     h('span.about-row-label', t('settings.about')),
     h('span.about-row-ver', __APP_VERSION__),
     h('span.rg-chev', { 'aria-hidden': 'true' }),

@@ -14,7 +14,7 @@ import { buildModeEditor } from '../ui/modeEditor';
 import { ChatButton, phraseText, sanitizeGestures } from '../ui/chat';
 import { allPresets } from './modes';
 import { defaultRulesFor } from '../engine/rules';
-import { customMode, deleteCustomMode, modeNameFree, rulesForMode, saveCustomMode } from './modes';
+import { customMode, deleteCustomMode, modeNameFree, rulesForMode, saveCustomMode, setupLine } from './modes';
 import { buildNewGame } from '../ui/newgame';
 import { setTileTheme } from '../ui/tiles';
 import { buildHandSummary, buildMatchEnd, buildPause, buildStarterChooser } from '../ui/summary';
@@ -204,11 +204,17 @@ export class App {
     this.overlay.showScreen(
       buildMenu({
         save,
-        onPlay: () => void this.onPlay(!!s),
+        onPlay: () => void this.quickPlay(!!s),
+        onSetup: () => void this.onPlay(!!s),
+        setupLine: setupLine(this.engine, this.settings),
+        profile: {
+          face: staticFace(this.settings.avatarFace ?? 0),
+          name: this.settings.playerName || t('seat.you'),
+          onOpen: () => this.showSettings('game'),
+        },
         onContinue: () => this.continueSaved(),
         onSettings: () => this.showSettings(),
         onHowto: () => this.showHowto(),
-        onAbout: () => this.showAbout(),
         onOnline: () => void this.openOnline(),
         onFriends: () => void this.openOnline(undefined, false, 'local'),
       }),
@@ -395,11 +401,20 @@ export class App {
     this.overlay.showScreen(buildHowto(() => (from === 'game' ? this.backToPause() : this.showMenu())));
   }
 
+  /** Partida rápida: the new-game screen's own Comenzar with the last setup, so the two never drift apart */
+  private async quickPlay(hasSave: boolean): Promise<void> {
+    if (hasSave && !(await this.confirmNew())) return;
+    (this.newGameScreen().querySelector('.ng-start') as HTMLButtonElement | null)?.click();
+  }
+
   /** the new-game sheet: the mode (Parejas | Individual), the characters, the rules preset, Comenzar */
   private showNewGame(): void {
     this.screen = 'newgame';
-    this.overlay.showScreen(
-      buildNewGame({
+    this.overlay.showScreen(this.newGameScreen());
+  }
+
+  private newGameScreen(): HTMLElement {
+    return buildNewGame({
         mode: this.settings.mode ?? 'pairs',
         customMode: this.settings.customMode,
         lineup: sanitizeLineupSetting(this.settings.lineup),
@@ -434,8 +449,7 @@ export class App {
           this.startMatch(this.newMatch(o.mode, o.players), false, lineup);
         },
         onBack: () => this.showMenu(),
-      }),
-    );
+      });
   }
 
   /** a fresh match of a mode with the selected mode's rules (a custom mode plays its own rule set) */
@@ -505,17 +519,19 @@ export class App {
   // ───────────────────────── match lifecycle ─────────────────────────
 
   private async onPlay(hasSave: boolean): Promise<void> {
-    if (hasSave) {
-      const ok = await confirmDialog(this.overlay, {
-        title: t('menu.newConfirmTitle'),
-        body: t('menu.newConfirmBody'),
-        ok: t('menu.newConfirmOk'),
-        cancel: t('common.cancel'),
-        danger: true,
-      });
-      if (!ok) return;
-    }
+    if (hasSave && !(await this.confirmNew())) return;
     this.showNewGame();
+  }
+
+  /** a saved match is lost when a new one starts: ask first */
+  private confirmNew(): Promise<boolean> {
+    return confirmDialog(this.overlay, {
+      title: t('menu.newConfirmTitle'),
+      body: t('menu.newConfirmBody'),
+      ok: t('menu.newConfirmOk'),
+      cancel: t('common.cancel'),
+      danger: true,
+    });
   }
 
   private continueSaved(): void {

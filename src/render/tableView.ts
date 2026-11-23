@@ -75,25 +75,24 @@ interface QualityCfg {
   fxLife: number;
   /** camera shake, zoom punch and full-screen flashes */
   shake: boolean;
-  /** cheap look: Lambert wood frame, no rim light, calmer slam ripple, idle ring without per-tile wobble */
+  /** cheap look: no rim light, a still medallion, calmer slam ripple, idle ring without per-tile wobble */
   lite: boolean;
-  /** procedural canvas sizes (longest felt side, wood tile) and texture anisotropy */
+  /** procedural canvas size (the arena texture's longest side is 1.5x this) and texture anisotropy */
   felt: number;
-  wood: number;
   aniso: number;
 }
 const QUALITY: Record<Quality, QualityCfg> = {
   low: {
     dpr: 0.75, dprScale: 0.75, dprMin: 0.6, aa: false, shadows: false, particles: 64, confetti: 70, atlas: 128, seg: 2,
-    frameMs: 28, ambientMs: 60, maxDt: 0.1, fx: 0.25, fxSize: 0.8, fxLife: 0.7, shake: false, lite: true, felt: 512, wood: 256, aniso: 1,
+    frameMs: 28, ambientMs: 60, maxDt: 0.1, fx: 0.25, fxSize: 0.8, fxLife: 0.7, shake: false, lite: true, felt: 512, aniso: 1,
   },
   medium: {
     dpr: 1.5, dprScale: 1, dprMin: 0, aa: true, shadows: false, particles: 200, confetti: 180, atlas: 256, seg: 2,
-    frameMs: 0, ambientMs: 30, maxDt: 0.1, fx: 1, fxSize: 1, fxLife: 1, shake: true, lite: false, felt: 1024, wood: 512, aniso: 4,
+    frameMs: 0, ambientMs: 30, maxDt: 0.1, fx: 1, fxSize: 1, fxLife: 1, shake: true, lite: false, felt: 1024, aniso: 4,
   },
   high: {
     dpr: 2, dprScale: 1, dprMin: 0, aa: true, shadows: true, particles: 360, confetti: 280, atlas: 256, seg: 3,
-    frameMs: 0, ambientMs: 30, maxDt: 0.05, fx: 1, fxSize: 1, fxLife: 1, shake: true, lite: false, felt: 1024, wood: 512, aniso: 4,
+    frameMs: 0, ambientMs: 30, maxDt: 0.05, fx: 1, fxSize: 1, fxLife: 1, shake: true, lite: false, felt: 1024, aniso: 4,
   },
 };
 
@@ -237,9 +236,17 @@ export class TableViewImpl implements TableView {
   private felt!: THREE.Mesh;
   private feltCanvas: HTMLCanvasElement | null = null;
   private feltTex: THREE.CanvasTexture | null = null;
-  private feltAspect = 0;
-  private frame: THREE.Mesh | null = null;
-  private woodTex!: THREE.CanvasTexture;
+  /** what the arena texture was drawn for (table geometry, style, size); '' = redraw */
+  private arenaKey = '';
+  /** the centre medallion: its own quad so it can turn slowly while a hand is on */
+  private emblem!: THREE.Mesh;
+  private emblemTex: THREE.CanvasTexture | null = null;
+  /** warm pool of light on the felt in front of whoever's turn it is; glides from seat to seat */
+  private turnLight!: THREE.Mesh;
+  private turnLightAmt = 0;
+  private turnLightGen = 0;
+  /** small ground ring under every tile that lands */
+  private ripple!: THREE.Mesh;
   private tileGeo!: THREE.BufferGeometry;
   private tileMat!: THREE.MeshLambertMaterial;
   private atlas!: THREE.CanvasTexture;
@@ -486,6 +493,12 @@ export class TableViewImpl implements TableView {
     return el;
   }
 
+  /** a visible menu that shows the scenes; a menu marked data-attract="off" covers the table, so they stay parked */
+  private scenesWanted(): boolean {
+    const m = this.menuOnScreen();
+    return m ? m.dataset.attract !== 'off' : !this.menuSeen;
+  }
+
   /**
    * Scenes play while the view is idle and the menu is visible. Once a menu has been seen, its absence
    * (Ajustes, Cómo jugar…) parks them: the loop sleeps and a slow poll wakes it when the menu returns.
@@ -493,10 +506,10 @@ export class TableViewImpl implements TableView {
    */
   private menuLive(): boolean {
     if (!this.idleActive) return false;
-    const on = !!this.menuOnScreen() || !this.menuSeen;
+    const on = this.scenesWanted();
     if (!on && !this.menuPoll) {
       this.menuPoll = window.setInterval(() => {
-        if (this.disposed || !this.idleActive || this.menuOnScreen()) {
+        if (this.disposed || !this.idleActive || this.scenesWanted()) {
           clearInterval(this.menuPoll);
           this.menuPoll = 0;
           this.lastT = 0;
@@ -651,7 +664,7 @@ export class TableViewImpl implements TableView {
     if (!this.idleActive || this.paused) return false;
     const tg = e.target as Element | null;
     if (!tg) return false;
-    return tg === this.canvas || (tg instanceof HTMLElement && tg.hasAttribute('data-attract') && !tg.classList.contains('leaving'));
+    return tg === this.canvas || (tg instanceof HTMLElement && tg.hasAttribute('data-attract') && tg.dataset.attract !== 'off' && !tg.classList.contains('leaving'));
   }
 
   private onMenuDown = (e: PointerEvent): void => {
@@ -689,7 +702,7 @@ export class TableViewImpl implements TableView {
    * on weak phones a program link can take 100+ ms.
    */
   private prewarm(): void {
-    const hidden: THREE.Object3D[] = [this.ring, this.dust.points, this.confetti.points, this.ghostMesh, this.glowMesh, this.flash, this.fader, this.turnGlow];
+    const hidden: THREE.Object3D[] = [this.ring, this.ripple, this.turnLight, this.dust.points, this.confetti.points, this.ghostMesh, this.glowMesh, this.flash, this.fader, this.turnGlow];
     for (const p of this.popups) hidden.push(p.sprite);
     const was = hidden.map((o) => o.visible);
     for (const o of hidden) o.visible = true;
@@ -718,7 +731,7 @@ export class TableViewImpl implements TableView {
     const c = r.domElement;
     c.style.cssText =
       'display:block;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;' +
-      `background:${tex.tableStyleDef(this.tableStyle).bg};`;
+      `background:${tex.ROOM};`;
     // diagnostics for the error screen ("Detalles"): a lost GPU context is a classic phone-only failure
     c.addEventListener('webglcontextlost', () => noteError('webgl', 'context lost'));
     c.addEventListener('webglcontextrestored', () => noteError('webgl', 'context restored'));
@@ -747,13 +760,6 @@ export class TableViewImpl implements TableView {
     return Math.min(q.dpr, Math.max(q.dprMin, (window.devicePixelRatio || 1) * q.dprScale));
   }
 
-  /** wood frame material: Standard (sheen) on medium/high, Lambert (diffuse only, never brighter) on low */
-  private makeFrameMat(): THREE.Material {
-    const S = tex.tableStyleDef(this.tableStyle);
-    if (this.q.lite) return new THREE.MeshLambertMaterial({ map: this.woodTex, color: new THREE.Color().setScalar(1 - S.metalness) });
-    return new THREE.MeshStandardMaterial({ map: this.woodTex, roughness: S.roughness, metalness: S.metalness, color: 0xffffff });
-  }
-
   /** quality knobs that live on existing objects (lights, particles, texture filtering) */
   private applyQualityKnobs(): void {
     const q = this.q;
@@ -765,7 +771,6 @@ export class TableViewImpl implements TableView {
     this.confetti.sizeMul = q.lite ? 0.85 : 1;
     this.confetti.lifeMul = q.lite ? 0.75 : 1;
     this.atlas.anisotropy = q.aniso;
-    this.woodTex.anisotropy = q.aniso;
     if (!q.shake) {
       this.shake = 0;
       this.punch = 0;
@@ -775,10 +780,11 @@ export class TableViewImpl implements TableView {
   }
 
   /**
-   * Felt material. With shadow maps (high) it's Lambert so it can receive them. Without, the felt is a
-   * flat plane under directional + hemisphere lights only, so its Lambert shading is one constant
-   * factor: it's drawn with MeshBasicMaterial and that factor baked into the colour (same pixels, no
-   * per-fragment lighting on the biggest surface on screen).
+   * Arena material (felt + rail + room, one texture). It is drawn as painted: not tone mapped, and with
+   * no lighting, so its edge is exactly the room colour behind the canvas. Without shadow maps that is
+   * a MeshBasicMaterial (no per-fragment lighting on the biggest surface on screen). With them (high)
+   * it is Lambert so it can receive the tiles' shadows, and its colour is divided by the light a flat
+   * upward plane gets, which leaves the same pixels wherever no shadow falls.
    */
   private syncFeltMat(): void {
     const S = tex.tableStyleDef(this.tableStyle);
@@ -787,12 +793,13 @@ export class TableViewImpl implements TableView {
     if (basic !== !!(m as THREE.MeshBasicMaterial).isMeshBasicMaterial) {
       const n = basic ? new THREE.MeshBasicMaterial() : new THREE.MeshLambertMaterial();
       n.map = m.map;
+      n.toneMapped = false;
       m.dispose();
       this.felt.material = n;
       m = n;
     }
     m.color.setScalar(S.feltTint);
-    if (!basic) return;
+    if (basic) return;
     // three's Lambert: (hemi sky (normal straight up) + sum(dir colour * max(N.L, 0))) * albedo / PI
     const hemi = this.hemiLight;
     tmpC.copy(hemi.color).multiplyScalar(hemi.intensity);
@@ -805,7 +812,9 @@ export class TableViewImpl implements TableView {
       tmpC.g += l.color.g * l.intensity * ndl;
       tmpC.b += l.color.b * l.intensity * ndl;
     }
-    m.color.multiply(tmpC).multiplyScalar(1 / Math.PI);
+    m.color.r *= Math.PI / Math.max(1e-3, tmpC.r);
+    m.color.g *= Math.PI / Math.max(1e-3, tmpC.g);
+    m.color.b *= Math.PI / Math.max(1e-3, tmpC.b);
   }
 
   private buildScene(): void {
@@ -835,15 +844,38 @@ export class TableViewImpl implements TableView {
     this.scene.add(rim);
     this.rimLight = rim;
 
-    // felt
+    // the arena: felt, rail and room on one plane (see syncFeltMat for the material)
     this.feltTex = null;
-    const feltMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(S.feltTint, S.feltTint, S.feltTint) });
+    const feltMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(S.feltTint, S.feltTint, S.feltTint), toneMapped: false });
     this.felt = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), feltMat);
     this.felt.receiveShadow = true;
     this.felt.renderOrder = 0;
     this.scene.add(this.felt);
-    this.woodTex = tex.makeWood(this.q.wood, this.tableStyle);
-    this.woodTex.repeat.set(0.09, 0.09);
+    // centre medallion (texture set by buildTable)
+    this.emblem = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, opacity: 0, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    );
+    this.emblem.renderOrder = 0.4;
+    this.scene.add(this.emblem);
+    // turn light: a soft warm pool, additive
+    this.turnLight = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({
+        map: tex.makeRadial('rgba(255,226,170,1)', 'rgba(255,226,170,0)'),
+        transparent: true,
+        depthWrite: false,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
+    );
+    this.turnLight.renderOrder = 0.6;
+    this.turnLight.visible = false;
+    this.scene.add(this.turnLight);
 
     // tiles
     this.atlas = tex.makeTileAtlas(this.q.atlas, this.theme, this.tileBack);
@@ -937,6 +969,10 @@ export class TableViewImpl implements TableView {
       this.ring.renderOrder = 2;
       this.ring.visible = false;
       this.scene.add(this.ring);
+      this.ripple = new THREE.Mesh(this.ring.geometry, new THREE.MeshBasicMaterial({ map: rt, transparent: true, depthWrite: false, opacity: 0, toneMapped: false }));
+      this.ripple.renderOrder = 2;
+      this.ripple.visible = false;
+      this.scene.add(this.ripple);
     }
     this.dust = new Particles(360, { atten: true, shape: 'soft' });
     this.dust.gravity = -7;
@@ -1045,7 +1081,7 @@ export class TableViewImpl implements TableView {
     const pr = this.pixelRatio();
     if (pr !== this.renderer.getPixelRatio()) {
       this.renderer.setPixelRatio(pr);
-      if (w === this.W && h === this.H && this.frame) {
+      if (w === this.W && h === this.H && this.arenaKey) {
         // same CSS size, new device pixel ratio (zoom / another screen): px-based sizes follow
         this.renderer.setSize(w, h, false);
         this.computeLayout();
@@ -1053,7 +1089,7 @@ export class TableViewImpl implements TableView {
         return;
       }
     }
-    if (w === this.W && h === this.H && this.frame) return;
+    if (w === this.W && h === this.H && this.arenaKey) return;
     this.W = w;
     this.H = h;
     this.renderer.setSize(w, h, false);
@@ -1784,15 +1820,34 @@ export class TableViewImpl implements TableView {
     const box = this.box;
     const FX = box.x + 0.9;
     const FZ0 = box.z0 - 0.5;
-    const FZ1 = box.z1 + 8;
+    // the felt runs on under the human's hand and off the bottom of the screen: no near edge in view
+    let FZ1 = box.z1 + 8;
+    if (this.pxToTable(this.W / 2, 0, tmpV) && Number.isFinite(tmpV.z)) FZ1 = Math.min(box.z1 + 40, Math.max(FZ1, tmpV.z + 2));
     const fw = FX * 2;
     const fh = FZ1 - FZ0;
-    this.felt.scale.set(fw + 0.4, 1, fh + 0.4);
-    this.felt.position.set(0, 0, (FZ0 + FZ1) / 2);
-    const aspect = fw / fh;
-    if (Math.abs(aspect - this.feltAspect) > 0.01) {
-      this.feltAspect = aspect;
-      this.feltCanvas = tex.drawFelt(this.feltCanvas, aspect, this.q.felt, (this.bounds.cz - FZ0) / fh, this.tableStyle);
+    // room shown round the table: beyond the far edge, and at the sides (little of it on a phone)
+    const rail = 0.6;
+    const mT = 9;
+    const mS = this.portrait ? 4 : 9;
+    const mB = 1;
+    const geo: tex.ArenaGeo = {
+      w: fw + (rail + mS) * 2,
+      h: fh + rail * 2 + mT + mB,
+      fx: rail + mS,
+      fy: rail + mT,
+      fw,
+      fh,
+      rail,
+      r: 0.9,
+      cy: rail + mT + (this.bounds.cz - FZ0),
+    };
+    this.felt.scale.set(geo.w, 1, geo.h);
+    this.felt.position.set(0, 0, FZ0 - rail - mT + geo.h / 2);
+    const px = Math.round(this.q.felt * 1.5);
+    const key = `${this.tableStyle}:${px}:${geo.w.toFixed(2)}:${geo.h.toFixed(2)}:${geo.cy.toFixed(2)}`;
+    if (key !== this.arenaKey) {
+      this.arenaKey = key;
+      this.feltCanvas = tex.drawArena(this.feltCanvas, geo, px, this.tableStyle);
       if (this.feltTex) this.feltTex.dispose();
       this.feltTex = new THREE.CanvasTexture(this.feltCanvas);
       this.feltTex.colorSpace = THREE.SRGBColorSpace;
@@ -1800,32 +1855,82 @@ export class TableViewImpl implements TableView {
       const m = this.felt.material as THREE.MeshBasicMaterial | THREE.MeshLambertMaterial;
       m.map = this.feltTex;
       m.needsUpdate = true;
+      const em = this.emblem.material as THREE.MeshBasicMaterial;
+      this.emblemTex?.dispose();
+      this.emblemTex = tex.makeEmblem(this.q.lite ? 256 : 512, this.tableStyle);
+      this.emblemTex.anisotropy = this.q.aniso;
+      em.map = this.emblemTex;
+      em.needsUpdate = true;
     }
-    // wooden frame (rebuilt on resize)
-    const rw = 1.5;
-    const shape = new THREE.Shape();
-    roundedRectPath(shape, -FX - rw, -(FZ1 + rw), (FX + rw) * 2, FZ1 - FZ0 + rw * 2, 1.2);
-    const hole = new THREE.Path();
-    roundedRectPath(hole, -FX, -FZ1, FX * 2, FZ1 - FZ0, 0.6);
-    shape.holes.push(hole);
-    const geo = new THREE.ExtrudeGeometry(shape, {
-      depth: 0.3,
-      bevelEnabled: true,
-      bevelThickness: 0.12,
-      bevelSize: 0.16,
-      bevelSegments: this.quality === 'low' ? 1 : 3,
-      curveSegments: this.quality === 'low' ? 3 : 6,
-    });
-    geo.rotateX(-Math.PI / 2);
-    geo.translate(0, -0.1, 0);
-    if (this.frame) {
-      this.frame.geometry.dispose();
-      this.frame.geometry = geo;
-    } else {
-      this.frame = new THREE.Mesh(geo, this.makeFrameMat());
-      this.frame.receiveShadow = true;
-      this.scene.add(this.frame);
+    // medallion: under the chain, at the centre of the light pool
+    const R = 0.22 * Math.min(fw, fh);
+    this.emblem.scale.set(R / 0.47, 1, R / 0.47);
+    this.emblem.position.set(0, 0.006, this.bounds.cz);
+    (this.emblem.material as THREE.MeshBasicMaterial).opacity = this.emblemAlpha();
+    this.placeTurnLight(this.turnSeat, true);
+  }
+
+  /** medallion strength for the current table style (painted faint; the turn adds a slow breath) */
+  private emblemAlpha(): number {
+    return Math.min(1, tex.tableStyleDef(this.tableStyle).emblemA * 1.6);
+  }
+
+  /** where the turn light rests for a seat: in front of that player's tiles, a third of the way to the centre */
+  private turnLightSpot(seat: number, out: V3): void {
+    const cz = this.bounds.cz;
+    if (seat === 0) out.set(0, 0, this.box.z1 + 1.2);
+    else if (seat === 2) out.set(this.topOffX, 0, this.topZ);
+    else out.set(seat === 1 ? this.sideX : -this.sideX, 0, this.sideZ);
+    out.x *= 0.72;
+    out.z = cz + (out.z - cz) * 0.8;
+  }
+
+  /** move the turn light to a seat (null = fade out); `snap` skips the glide (resize, restore, reduced motion) */
+  private placeTurnLight(seat: Seat | null, snap = false): void {
+    const l = this.turnLight;
+    const gen = ++this.turnLightGen;
+    const size = (this.portrait ? 1.15 : 0.95) * (this.box.x + 2);
+    l.scale.set(size, 1, size);
+    if (seat === null || this.idleActive) {
+      if (snap || this.reduced || !l.visible) {
+        this.turnLightAmt = 0;
+        l.visible = false;
+        return;
+      }
+      const a0 = this.turnLightAmt;
+      void this.anim.tween(0.3, (k) => {
+        if (gen !== this.turnLightGen) return;
+        this.turnLightAmt = a0 * (1 - k);
+        if (k >= 1) l.visible = false;
+      });
+      return;
     }
+    this.turnLightSpot(seat, tmpV);
+    if (snap || this.reduced || !l.visible) {
+      const a0 = snap || this.reduced ? 1 : this.turnLightAmt;
+      l.position.set(tmpV.x, 0.008, tmpV.z);
+      l.visible = true;
+      if (a0 >= 1) this.turnLightAmt = 1;
+      else
+        void this.anim.tween(0.35, (k) => {
+          if (gen === this.turnLightGen) this.turnLightAmt = a0 + (1 - a0) * k;
+        });
+      return;
+    }
+    const x0 = l.position.x;
+    const z0 = l.position.z;
+    const x1 = tmpV.x;
+    const z1 = tmpV.z;
+    const a0 = this.turnLightAmt;
+    void this.anim.tween(
+      0.45,
+      (k) => {
+        if (gen !== this.turnLightGen) return;
+        l.position.set(x0 + (x1 - x0) * k, 0.008, z0 + (z1 - z0) * k);
+        this.turnLightAmt = a0 + (1 - a0) * k;
+      },
+      ease.inOutCubic,
+    );
   }
 
   // ───────────────────────── poses ─────────────────────────
@@ -2188,7 +2293,10 @@ export class TableViewImpl implements TableView {
       // the quake: harder and a little longer than any other shake, with a quick zoom punch
       this.addShake(1.25 * power, 4 * power, 1.4, 4);
       if (!this.reduced && this.q.shake) this.shakeDecay = power >= 1 ? 4.5 : 6;
-    } else this.addShake(0.035, 0.25);
+    } else {
+      this.addShake(0.035, 0.25);
+      this.rippleAt(t);
+    }
     if (slam) {
       if (!this.reduced && this.q.shake) {
         this.flashAmt = 0.12 * power;
@@ -2236,6 +2344,26 @@ export class TableViewImpl implements TableView {
         0.35 + Math.random() * 0.3,
       );
     }
+  }
+
+  /** a small ring spreading on the felt from a tile that just landed (not with reduced motion) */
+  private rippleAt(t: TileObj): void {
+    if (this.reduced) return;
+    const rp = this.ripple;
+    const mat = rp.material as THREE.MeshBasicMaterial;
+    const cell = Math.max(0.5, t.s);
+    rp.position.set(t.pos.x, 0.02, t.pos.z);
+    rp.visible = true;
+    void this.anim.tween(
+      0.5,
+      (k) => {
+        const r = cell * (1.6 + 4.4 * k);
+        rp.scale.set(r, 1, r);
+        mat.opacity = 0.42 * (1 - k) * (1 - k);
+        if (k >= 1) rp.visible = false;
+      },
+      ease.outCubic,
+    );
   }
 
   // ───────────────────────── overlay helpers ─────────────────────────
@@ -3009,6 +3137,7 @@ export class TableViewImpl implements TableView {
   }
 
   setTurn(seat: Seat | null): void {
+    if (seat !== this.turnSeat || (seat !== null && !this.turnLight.visible)) this.placeTurnLight(seat);
     this.turnSeat = seat;
     for (let s = 0; s < 4; s++) {
       const a = seat === s;
@@ -3037,6 +3166,7 @@ export class TableViewImpl implements TableView {
     for (const p of this.popups) p.sprite.visible = false;
     this.flashAmt = 0;
     this.turnSeat = null;
+    this.placeTurnLight(null, true);
     for (let s = 0; s < 4; s++) {
       this.plateInfo[s].active = false;
       this.plateInfo[s].pips = null;
@@ -3058,6 +3188,7 @@ export class TableViewImpl implements TableView {
       t.wz = 0;
     }
     this.idleActive = true;
+    this.placeTurnLight(null, true);
     // whatever is still on the table shrinks away in place, then the attract scenes start
     this.menuDir.start(this.reduced);
     this.lastT = 0;
@@ -3085,17 +3216,6 @@ export class TableViewImpl implements TableView {
     this.blobMesh.visible = !this.q.shadows;
     this.tileMat.needsUpdate = true;
     (this.felt.material as THREE.Material).needsUpdate = true;
-    if (prev.wood !== this.q.wood) {
-      const oldWood = this.woodTex;
-      this.woodTex = tex.makeWood(this.q.wood, this.tableStyle);
-      this.woodTex.repeat.set(0.09, 0.09);
-      oldWood.dispose();
-    }
-    if (this.frame) {
-      const old = this.frame.material as THREE.Material;
-      this.frame.material = this.makeFrameMat();
-      old.dispose();
-    }
     if (prev.atlas !== this.q.atlas) {
       const old = this.atlas;
       this.atlas = tex.makeTileAtlas(this.q.atlas, this.theme, this.tileBack);
@@ -3110,7 +3230,7 @@ export class TableViewImpl implements TableView {
       old.dispose();
     }
     this.applyQualityKnobs();
-    this.feltAspect = 0;
+    this.arenaKey = '';
     this.computeLayout();
     this.prewarm();
     this.kick();
@@ -3178,7 +3298,7 @@ export class TableViewImpl implements TableView {
     this.kick();
   }
 
-  /** switch the table look live: felt, frame wood, lights and room background; old textures disposed */
+  /** switch the table look live: felt, medallion and the light on the tiles; old textures disposed */
   setTableStyle(style: TableStyle): void {
     if (style === this.tableStyle || !tex.TABLE_STYLE_DEFS[style]) return;
     this.tableStyle = style;
@@ -3190,21 +3310,10 @@ export class TableViewImpl implements TableView {
     this.keyLight.intensity = S.key;
     this.rimLight.color.set(S.rimColor);
     this.rimLight.intensity = S.rim;
-    const oldWood = this.woodTex;
-    this.woodTex = tex.makeWood(this.q.wood, style);
-    this.woodTex.repeat.set(0.09, 0.09);
-    this.woodTex.anisotropy = this.q.aniso;
-    if (this.frame) {
-      const old = this.frame.material as THREE.Material;
-      this.frame.material = this.makeFrameMat();
-      old.dispose();
-    }
-    oldWood.dispose();
     this.syncFeltMat();
-    // redraw the felt canvas (buildTable disposes the previous felt texture)
-    this.feltAspect = 0;
+    // redraw the arena and the medallion (buildTable disposes the previous textures)
+    this.arenaKey = '';
     this.buildTable();
-    this.canvas.style.background = S.bg;
     this.kick();
   }
 
@@ -3396,8 +3505,8 @@ export class TableViewImpl implements TableView {
     }
     for (const p of this.plates) p.tex.dispose();
     for (const p of this.popups) p.tex.dispose();
-    this.woodTex.dispose();
     this.feltTex?.dispose();
+    this.emblemTex?.dispose();
     this.atlas.dispose();
     this.renderer.dispose();
     this.canvas.remove();
@@ -3422,6 +3531,14 @@ export class TableViewImpl implements TableView {
     this.kick();
   };
 
+  /**
+   * The table's idle life (the medallion turns, the turn light breathes) runs while it is somebody's
+   * turn. Not with reduced motion, and not on low quality, where the loop sleeps between moves instead.
+   */
+  private tableAlive(): boolean {
+    return !this.reduced && !this.q.lite && !this.idleActive;
+  }
+
   /** one frame; returns true when another frame is wanted */
   private loopFrame(now: number): boolean {
     // attract scenes: full rate (low: its 30 fps cap) while the menu shows; the calm showcase is ambient
@@ -3429,7 +3546,7 @@ export class TableViewImpl implements TableView {
     const hard =
       (menuOn && this.menuDir.busy) || this.anim.active || this.dust.busy || this.confetti.busy || this.shake > 0.002 || this.punch > 0.002 || this.ptr.dragging || this.flashAmt > 0.002 || this.charge !== null || this.fadeAmt > 0;
     // the turn pulse is a 3D sprite only without HTML plates (the UI animates its own plates)
-    const ambient = menuOn || (this.turnSeat !== null && !this.htmlPlates) || (this.req !== null && !this.req.passOnly);
+    const ambient = menuOn || (this.turnSeat !== null && (!this.htmlPlates || this.tableAlive())) || (this.req !== null && !this.req.passOnly);
     const woke = this.lastT === 0;
     // frame cap: low skips rAF ticks (30 fps animating, 15 fps for gentle pulses); time stays real
     const minGap = hard ? this.q.frameMs : ambient ? this.q.ambientMs : 0;
@@ -3527,6 +3644,13 @@ export class TableViewImpl implements TableView {
         if (!r.sides.has(id)) continue;
         t.glow = r.selected === id ? 0.95 : 0.45 + 0.3 * pulse;
       }
+    }
+    // table life: the medallion turns slowly and breathes with the turn light
+    const breath = this.turnSeat !== null && this.tableAlive() ? Math.sin(this.uTime.value * 1.7) : 0;
+    if (breath !== 0 || this.turnLight.visible) {
+      if (this.turnSeat !== null && this.tableAlive()) this.emblem.rotation.y -= dt * 0.11;
+      (this.emblem.material as THREE.MeshBasicMaterial).opacity = this.emblemAlpha() * (1 + 0.22 * breath);
+      (this.turnLight.material as THREE.MeshBasicMaterial).opacity = this.turnLightAmt * (0.17 + 0.035 * breath);
     }
     this.dust.update(sdt);
     this.confetti.update(dt);

@@ -1,10 +1,11 @@
 /* ───────────────────────── Kudominoes overlay ─────────────────────────
-   Warm Havana palette: tobacco wood, mango, guava, turquoise, cream bone tiles. */
+   Havana night palette: night-blue panels (the --wood-* names are historical), sunset mango/guava,
+   turquoise, cream bone tiles. */
 :root {
-  --wood-900: #1d0f08;
-  --wood-800: #2a160d;
-  --wood-700: #3d2214;
-  --wood-600: #5a3420;
+  --wood-900: #0a1c2e;
+  --wood-800: #0f2a41;
+  --wood-700: #123049;
+  --wood-600: #1b425e;
   --cream: #fff6e6;
   --cream-2: #f3e3c6;
   --mango: #ffb627;
@@ -41,7 +42,7 @@ body {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  background: radial-gradient(ellipse at 50% 40%, #1a6e58, #0c3a30 65%, #08211b);
+  background: #0a1c2e;
   color: var(--text);
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
@@ -256,7 +257,7 @@ button {
   padding: 0;
   border: 0;
   border-radius: 16px;
-  background: rgba(29, 15, 8, 0.72);
+  background: rgba(8, 22, 38, 0.72);
   color: var(--cream);
   cursor: pointer;
   box-shadow:
@@ -301,8 +302,8 @@ button {
   justify-content: space-between;
   padding: calc(var(--sat) + 28px) calc(var(--sar) + 20px) calc(var(--sab) + 18px) calc(var(--sal) + 20px);
   background:
-    radial-gradient(ellipse 120% 60% at 50% 0%, rgba(29, 15, 8, 0.55), transparent 70%),
-    linear-gradient(to top, rgba(29, 15, 8, 0.94) 0%, rgba(29, 15, 8, 0.7) 32%, rgba(29, 15, 8, 0) 62%);
+    radial-gradient(ellipse 120% 60% at 50% 0%, rgba(8, 22, 38, 0.55), transparent 70%),
+    linear-gradient(to top, rgba(8, 22, 38, 0.94) 0%, rgba(8, 22, 38, 0.7) 32%, rgba(8, 22, 38, 0) 62%);
   align-items: center;
 }
 body[data-mock] .menu,
@@ -525,7 +526,7 @@ body[data-mock] .menu,
   padding: 18px 8px;
   border-radius: var(--radius);
   background: radial-gradient(ellipse at center, #1d7a5f, #0e4a3c);
-  box-shadow: inset 0 0 0 3px #5a3420, inset 0 0 30px rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 0 0 3px #1b425e, inset 0 0 30px rgba(0, 0, 0, 0.35);
 }
 .howto-demo .tile {
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.3));
@@ -856,7 +857,7 @@ body[data-mock] .menu,
   animation: fade-in 0.25s ease both;
 }
 .modal-wrap.dim {
-  background: rgba(14, 7, 3, 0.55);
+  background: rgba(4, 12, 22, 0.55);
 }
 .modal-wrap.leaving {
   animation: fade-out 0.2s ease both;
@@ -1381,7 +1382,7 @@ body[data-mock] .menu,
   max-width: 100%;
   padding: 8px 10px;
   border-radius: 16px;
-  background: rgba(29, 15, 8, 0.78);
+  background: rgba(8, 22, 38, 0.78);
   box-shadow:
     inset 0 0 0 1.5px rgba(255, 246, 230, 0.1),
     0 4px 0 rgba(0, 0, 0, 0.3);
@@ -1434,7 +1435,7 @@ body[data-mock] .menu,
   gap: 6px;
   padding: 5px 12px;
   border-radius: 99px;
-  background: rgba(29, 15, 8, 0.7);
+  background: rgba(8, 22, 38, 0.7);
   font-size: 13px;
   font-weight: 900;
   white-space: nowrap;
@@ -1454,7 +1455,7 @@ body[data-mock] .menu,
   gap: 6px;
   padding: 4px 8px;
   border-radius: 12px;
-  background: rgba(29, 15, 8, 0.6);
+  background: rgba(8, 22, 38, 0.6);
   transition: opacity 0.25s;
   contain: layout paint;
 }
@@ -1919,7 +1920,7 @@ body[data-mock] .menu,
     align-items: center;
     justify-content: space-around;
     padding-top: calc(var(--sat) + 12px);
-    background: linear-gradient(to right, rgba(29, 15, 8, 0.15), rgba(29, 15, 8, 0.85) 60%);
+    background: linear-gradient(to right, rgba(8, 22, 38, 0.15), rgba(8, 22, 38, 0.85) 60%);
   }
   .menu-hero {
     margin-top: 0;
@@ -2395,11 +2396,11 @@ body[data-mock] .menu,
 }
 .hscroll-wrap::before {
   left: 0;
-  background: linear-gradient(90deg, rgba(42, 24, 15, 0.95), rgba(42, 24, 15, 0));
+  background: linear-gradient(90deg, rgba(18, 48, 73, 0.95), rgba(18, 48, 73, 0));
 }
 .hscroll-wrap::after {
   right: 0;
-  background: linear-gradient(270deg, rgba(42, 24, 15, 0.95), rgba(42, 24, 15, 0));
+  background: linear-gradient(270deg, rgba(18, 48, 73, 0.95), rgba(18, 48, 73, 0));
 }
 .hscroll-wrap.more-left::before,
 .hscroll-wrap.more-right::after {
@@ -2662,7 +2663,7 @@ body[data-mock] .menu,
 .starter-pick {
   width: min(100%, 420px);
   padding: 14px 16px 16px;
-  background: linear-gradient(180deg, rgba(42, 24, 15, 0.94), rgba(29, 15, 8, 0.94));
+  background: linear-gradient(180deg, rgba(18, 48, 73, 0.94), rgba(8, 22, 38, 0.94));
   text-align: center;
 }
 .starter-pick .card-title {
@@ -2717,7 +2718,7 @@ body[data-mock] .menu,
   z-index: 2;
   margin: 0 -4px;
   padding: 10px 4px calc(var(--sab) + 6px);
-  background: linear-gradient(rgba(29, 15, 8, 0), rgba(29, 15, 8, 0.92) 30%);
+  background: linear-gradient(rgba(8, 22, 38, 0), rgba(8, 22, 38, 0.92) 30%);
 }
 .newgame-content {
   padding-bottom: 8px;
@@ -2774,7 +2775,7 @@ body[data-mock] .menu,
     padding: 0;
     border: 0;
     border-radius: 50%;
-    background: rgba(29, 15, 8, 0.88);
+    background: rgba(8, 22, 38, 0.88);
     color: var(--cream);
     box-shadow:
       inset 0 0 0 1.5px rgba(255, 246, 230, 0.22),
@@ -3285,7 +3286,7 @@ button.ng-seat:hover {
     gap: 8px;
     padding: 8px calc(var(--sar) + 14px) calc(var(--sab) + 16px) calc(var(--sal) + 14px);
     border-radius: 22px 22px 0 0;
-    background: linear-gradient(180deg, #4a2d1c, #2e1b10);
+    background: linear-gradient(180deg, #1b425e, #0f2a41);
     box-shadow:
       inset 0 1px 0 rgba(255, 246, 230, 0.12),
       0 -10px 30px rgba(0, 0, 0, 0.5);
@@ -3411,7 +3412,7 @@ button.ng-seat:hover {
     0 6px 0 var(--wood-900);
 }
 :root[data-quality='low'] .modal-wrap.dim {
-  background: rgba(14, 7, 3, 0.62);
+  background: rgba(4, 12, 22, 0.62);
 }
 :root[data-quality='low'] .plate-av {
   box-shadow:
@@ -3778,7 +3779,7 @@ button.ng-seat:hover {
 .score-tabs .abajo-chip {
   padding: 2px 9px 3px;
   border-radius: 0 0 10px 10px;
-  background: rgba(29, 15, 8, 0.78);
+  background: rgba(8, 22, 38, 0.78);
   box-shadow: inset 0 -1.5px 0 rgba(255, 182, 39, 0.55);
   font-size: 12px;
 }
@@ -3802,7 +3803,7 @@ button.ng-seat:hover {
   gap: 5px;
   padding: 5px 10px;
   border-radius: 99px;
-  background: rgba(29, 15, 8, 0.7);
+  background: rgba(8, 22, 38, 0.7);
   box-shadow: inset 0 0 0 1.5px rgba(255, 182, 39, 0.55);
   font-size: 13px;
   font-weight: 900;
@@ -5111,7 +5112,7 @@ button.ng-seat:hover {
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: rgba(29, 15, 8, 0.82);
+  background: rgba(8, 22, 38, 0.82);
   color: var(--cream);
   box-shadow:
     inset 0 0 0 1.5px rgba(255, 246, 230, 0.2),
@@ -5150,7 +5151,7 @@ button.ng-seat:hover {
   z-index: 6;
   padding: 8px;
   border-radius: 18px;
-  background: linear-gradient(180deg, #4a2d1c, #2e1b10);
+  background: linear-gradient(180deg, #1b425e, #0f2a41);
   box-shadow:
     inset 0 1px 0 rgba(255, 246, 230, 0.12),
     0 8px 22px rgba(0, 0, 0, 0.5);
@@ -5196,7 +5197,7 @@ button.ng-seat:hover {
   z-index: 4;
   padding: 5px 12px;
   border-radius: 99px;
-  background: rgba(29, 15, 8, 0.88);
+  background: rgba(8, 22, 38, 0.88);
   color: var(--mango);
   font-size: 12.5px;
   font-weight: 900;
@@ -5735,7 +5736,7 @@ button.ng-seat:hover {
   max-width: min(300px, calc(100vw - 24px));
   padding: 11px 14px;
   border-radius: 14px;
-  background: linear-gradient(180deg, #1c120c, #120a06);
+  background: linear-gradient(180deg, #0f2236, #081624);
   color: #fff;
   font: 700 13.5px/1.45 var(--font);
   box-shadow:
@@ -5750,7 +5751,7 @@ button.ng-seat:hover {
   width: 12px;
   height: 12px;
   margin-left: -6px;
-  background: #160d08;
+  background: #081624;
   transform: rotate(45deg);
 }
 .tip.above .tip-arrow {
@@ -5759,7 +5760,7 @@ button.ng-seat:hover {
 }
 .tip.below .tip-arrow {
   top: -6px;
-  background: #1c120c;
+  background: #0f2236;
   box-shadow: inset 1.5px 1.5px 0 rgba(255, 182, 39, 0.45);
 }
 .tip.above {
@@ -6328,4 +6329,617 @@ button.ng-seat:hover {
 }
 .mode-ed-delete {
   margin-right: auto;
+}
+
+/* ───────────────────────── main menu: "Fichas a la deriva" ─────────────────────────
+   Ivory fichas drifting up a night-blue ground (ui/menu.ts driftLayer), a warm sunset glow behind the logo,
+   sunset/night-blue pill buttons, and the KuCards layout: profile chip + icons on top, Continuar,
+   ▶ Partida rápida (last setup), [Crear mesa | Multijugador] (a sheet with Por internet / Wi-Fi o Bluetooth). */
+.screen.menu {
+  isolation: isolate;
+  overflow: hidden;
+  padding-top: calc(var(--sat) + 76px);
+  background: radial-gradient(ellipse at 50% 30%, #1d5568 0, #123049 50%, #0a1c2e 100%);
+}
+/* the grade: sunset glow behind the logo, night-blue vignette, night-blue fade under the buttons */
+.screen.menu::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 34% at 50% 26%, rgba(255, 176, 84, 0.5) 0, rgba(240, 105, 79, 0.26) 42%, rgba(240, 105, 79, 0) 74%),
+    radial-gradient(ellipse 120% 90% at 50% 45%, rgba(8, 22, 38, 0) 45%, rgba(8, 22, 38, 0.72) 100%),
+    linear-gradient(to top, rgba(8, 22, 38, 0.95) 0, rgba(8, 22, 38, 0.7) 30%, rgba(8, 22, 38, 0) 58%);
+}
+.menu-drift {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  pointer-events: none;
+  /* tiles fade out as they pass behind the logo, so the wordmark stays clean */
+  -webkit-mask: radial-gradient(ellipse 66% 21% at 50% 24%, rgba(0, 0, 0, 0.12) 50%, #000 100%);
+  mask: radial-gradient(ellipse 66% 21% at 50% 24%, rgba(0, 0, 0, 0.12) 50%, #000 100%);
+}
+.menu-drift .tile {
+  position: absolute;
+  left: var(--x);
+  top: 104%;
+  opacity: var(--o);
+  filter: drop-shadow(0 8px 8px rgba(0, 0, 0, 0.4));
+  will-change: transform;
+  animation: menu-drift var(--d) linear var(--dl) infinite;
+}
+.menu-drift .tile.far {
+  filter: blur(1.2px) drop-shadow(0 4px 4px rgba(0, 0, 0, 0.35));
+}
+:root[data-quality='low'] .menu-drift .tile {
+  filter: none;
+}
+@keyframes menu-drift {
+  from {
+    transform: translate3d(0, 0, 0) rotate(var(--r0));
+  }
+  to {
+    transform: translate3d(var(--dx), calc(-100vh - 200px), 0) rotate(var(--r1));
+  }
+}
+/* Ajustes → Reducir animaciones: a still scatter */
+.reduce-motion .menu-drift .tile {
+  animation: none !important;
+  top: var(--sy);
+  transform: rotate(var(--r0));
+}
+.screen.menu .logo-word {
+  text-shadow:
+    0 3px 0 #9a3a2a,
+    0 6px 0 #4a1820,
+    0 14px 26px rgba(0, 0, 0, 0.45);
+}
+.screen.menu .logo-word .ku {
+  color: #ffd05a;
+}
+.screen.menu .tagline {
+  color: #ffe9c2;
+}
+
+/* top bar: profile chip on the left, Cómo jugar / Ajustes (and the APK) on the right; Acerca de lives in Ajustes → Juego */
+.menu-top {
+  position: absolute;
+  z-index: 2;
+  top: calc(var(--sat) + 12px);
+  left: calc(var(--sal) + 14px);
+  right: calc(var(--sar) + 14px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+}
+.menu-top > * {
+  pointer-events: auto;
+}
+.menu-top-icons {
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
+.menu-top-icons .btn.about-btn,
+.menu-profile {
+  border: 0;
+  background: linear-gradient(180deg, #1b425e, #0f2a41);
+  color: #fff6e6;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.34),
+    0 4px 0 #061624,
+    0 8px 14px rgba(0, 0, 0, 0.3);
+}
+.menu-top-icons .btn.about-btn {
+  width: 46px;
+  height: 46px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0;
+  border-radius: 50%;
+  text-decoration: none;
+}
+.menu-top-icons .btn.about-btn:active,
+.menu-profile:active {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.34),
+    0 1px 0 #061624,
+    0 3px 6px rgba(0, 0, 0, 0.3);
+}
+.menu-top-icons .about-btn-icon {
+  width: 22px;
+  height: 22px;
+}
+.menu-profile {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 55%;
+  min-height: 46px;
+  padding: 3px 14px 3px 3px;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 900;
+  font-size: 15px;
+  cursor: pointer;
+  transition:
+    transform 0.09s ease,
+    box-shadow 0.09s ease;
+}
+.menu-profile:focus-visible {
+  outline: 3px solid var(--mango);
+  outline-offset: 3px;
+}
+.menu-profile-face {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #123049;
+  box-shadow: inset 0 0 0 2px #2fd1bd;
+}
+.menu-profile-face > * {
+  width: 100%;
+  height: 100%;
+}
+.menu-profile-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* narrow phones with the APK icon too: slimmer icons, the name gives way first */
+@media (max-width: 400px) {
+  .menu-top-icons {
+    gap: 6px;
+  }
+  .menu-top-icons .btn.about-btn {
+    width: 42px;
+    height: 42px;
+    min-height: 42px;
+  }
+}
+
+/* the pill button family, everywhere (menu, Ajustes, dialogs, lobby): sunset primary with a cream rim,
+   night-blue secondaries with a turquoise rim */
+.btn.primary {
+  --bg: linear-gradient(180deg, #ffdc72 0, #ffa23f 52%, #f0694f 100%);
+  --edge: #8d2a22;
+  --fg: #3a1005;
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    0 0 0 2.5px #fff1d6,
+    0 6px 0 2px var(--edge),
+    0 12px 22px rgba(0, 0, 0, 0.35);
+}
+.btn.primary:active {
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.45),
+    0 0 0 2.5px #fff1d6,
+    0 2px 0 2px var(--edge),
+    0 4px 8px rgba(0, 0, 0, 0.3);
+}
+.btn.secondary {
+  --bg: linear-gradient(180deg, #20506f, #123049);
+  --edge: #061624;
+  --fg: #fff6e6;
+  text-shadow: none;
+  box-shadow:
+    inset 0 0 0 2px #2fd1bd,
+    0 5px 0 var(--edge),
+    0 10px 18px rgba(0, 0, 0, 0.3);
+}
+.btn.secondary:active {
+  box-shadow:
+    inset 0 0 0 2px #2fd1bd,
+    0 1px 0 var(--edge),
+    0 4px 8px rgba(0, 0, 0, 0.25);
+}
+.btn.secondary .btn-icon {
+  color: #5fe3d3;
+}
+
+/* menu tiles: [Continuar] / [▶ Partida rápida · last setup] / [Crear mesa | Multijugador] */
+.screen.menu .menu-actions {
+  gap: 16px;
+}
+.menu-actions .menu-tile {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  width: 100%;
+  min-height: 0;
+  padding: 10px 22px 12px;
+  border-radius: 999px;
+  text-align: left;
+  white-space: normal;
+}
+.menu-tile-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.1;
+}
+.menu-tile-label {
+  font-weight: 900;
+  font-size: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-tile-sub {
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 800;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-tile-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+}
+.menu-tile-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+.menu-tile-icon.accent {
+  color: #5fe3d3;
+}
+.menu-tile-icon.accent svg path[fill='none'],
+.menu-tile-icon.accent svg circle[fill='none'] {
+  fill: none;
+}
+.menu-actions .menu-tile.wide {
+  height: 88px;
+  padding-left: 16px;
+}
+.menu-tile.wide .menu-tile-label {
+  font-size: 25px;
+}
+.menu-tile.wide .menu-tile-sub {
+  font-size: 14px;
+}
+/* the play triangle in a night-blue disc with a cream rim */
+.menu-tile-icon.disc {
+  width: 56px;
+  height: 56px;
+  padding: 16px 15px 16px 17px;
+  border-radius: 50%;
+  background: #123049;
+  color: #ffd05a;
+  box-shadow: inset 0 0 0 2px #fff1d6;
+}
+.menu-actions .menu-tile.slim {
+  height: 62px;
+}
+.menu-tile-row {
+  display: flex;
+  gap: 12px;
+}
+.menu-actions .menu-tile.half {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 74px;
+  gap: 8px;
+  padding: 10px 12px 12px 14px;
+}
+.menu-tile.half .menu-tile-icon {
+  width: 22px;
+  height: 22px;
+}
+.menu-tile.half .menu-tile-text {
+  flex: 1 1 auto;
+}
+.menu-tile.half .menu-tile-label {
+  font-size: 15px;
+}
+.menu-tile.half .menu-tile-sub {
+  font-size: 11.5px;
+  line-height: 1.15;
+  white-space: normal;
+  color: #cfe6ee;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .screen.menu {
+    padding-top: calc(var(--sat) + 64px);
+    background: radial-gradient(ellipse at 30% 40%, #1d5568 0, #123049 50%, #0a1c2e 100%);
+  }
+  .screen.menu::after {
+    background:
+      radial-gradient(ellipse 40% 50% at 25% 50%, rgba(255, 176, 84, 0.45) 0, rgba(240, 105, 79, 0.22) 45%, rgba(240, 105, 79, 0) 75%),
+      radial-gradient(ellipse 120% 90% at 50% 45%, rgba(8, 22, 38, 0) 45%, rgba(8, 22, 38, 0.72) 100%),
+      linear-gradient(to left, rgba(8, 22, 38, 0.8) 0, rgba(8, 22, 38, 0) 55%);
+  }
+  .menu-drift {
+    -webkit-mask: radial-gradient(ellipse 30% 30% at 27% 50%, rgba(0, 0, 0, 0.12) 50%, #000 100%);
+    mask: radial-gradient(ellipse 30% 30% at 27% 50%, rgba(0, 0, 0, 0.12) 50%, #000 100%);
+  }
+  .menu-actions .menu-tile.wide {
+    height: 70px;
+  }
+  .menu-actions .menu-tile.half {
+    height: 62px;
+  }
+  .menu-actions .menu-tile.slim {
+    height: 52px;
+  }
+  .screen.menu .menu-actions {
+    gap: 12px;
+  }
+}
+
+/* Multijugador: a bottom sheet with the ways to play with others */
+.menu-sheet-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(5, 12, 20, 0.6);
+  animation: fade-in 0.18s ease both;
+}
+.menu-sheet {
+  width: min(100%, 460px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px calc(var(--sar) + 18px) calc(var(--sab) + 18px) calc(var(--sal) + 18px);
+  border-radius: 24px 24px 0 0;
+  background: linear-gradient(180deg, #1b425e, #0f2a41);
+  box-shadow:
+    inset 0 2px 0 #2fd1bd,
+    0 -10px 30px rgba(0, 0, 0, 0.45);
+  animation: fade-up 0.22s var(--ease-out) both;
+}
+.menu-sheet-title {
+  margin: 0 0 4px;
+  text-align: center;
+  color: var(--cream);
+  font-size: 20px;
+}
+.menu-sheet .btn {
+  border-radius: 999px;
+}
+.menu-sheet-opt {
+  flex-wrap: wrap;
+  row-gap: 0;
+  min-height: 66px;
+}
+.menu-sheet-opt .btn-sub {
+  flex-basis: 100%;
+  text-align: center;
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .menu-sheet-wrap {
+    align-items: center;
+  }
+  .menu-sheet {
+    border-radius: 24px;
+  }
+}
+
+/* ───────────────────────── Havana night: every screen follows the main menu ─────────────────────────
+   Night-blue grounds with a sunset glow, pill buttons, sunset for "selected/on", turquoise rims. */
+.btn,
+.btn.xl,
+.btn.lg,
+.btn.sm {
+  border-radius: 999px;
+}
+/* the plain button (Restablecer, Cancelar…): solid night-blue with a soft cream rim */
+.btn:where(:not(.primary, .secondary, .danger, .ghost)) {
+  --bg: linear-gradient(180deg, #1b425e, #0f2a41);
+  --edge: #061624;
+  --fg: #fff6e6;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.34),
+    0 5px 0 var(--edge),
+    0 10px 18px rgba(0, 0, 0, 0.28);
+}
+.btn:where(:not(.primary, .secondary, .danger, .ghost)):active {
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.34),
+    0 1px 0 var(--edge),
+    0 4px 8px rgba(0, 0, 0, 0.25);
+}
+.btn.ghost {
+  --bg: rgba(18, 48, 73, 0.6);
+  --edge: rgba(2, 10, 18, 0.55);
+  --fg: #fff6e6;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.22),
+    0 4px 0 var(--edge);
+}
+.btn.ghost:active {
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.22),
+    0 0 0 var(--edge);
+}
+.btn.danger {
+  --bg: linear-gradient(180deg, #ff8a7a, #e8505a);
+  --edge: #8d2a22;
+  --fg: #fff;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 2px #fff1d6,
+    0 5px 0 2px var(--edge),
+    0 10px 18px rgba(0, 0, 0, 0.3);
+}
+.btn.danger:active {
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.3),
+    0 0 0 2px #fff1d6,
+    0 1px 0 2px var(--edge),
+    0 4px 8px rgba(0, 0, 0, 0.25);
+}
+.icon-btn {
+  background: linear-gradient(180deg, #1b425e, #0f2a41);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.3),
+    0 3px 0 #061624;
+}
+
+/* screens: the menu's night-blue ground and sunset glow */
+.panel-screen {
+  background:
+    radial-gradient(ellipse 90% 38% at 50% -6%, rgba(255, 176, 84, 0.34) 0, rgba(240, 105, 79, 0.16) 45%, rgba(240, 105, 79, 0) 75%),
+    radial-gradient(ellipse 120% 90% at 50% 40%, rgba(8, 22, 38, 0) 50%, rgba(8, 22, 38, 0.6) 100%),
+    radial-gradient(ellipse at 50% 20%, #1d5568 0, #123049 45%, #0a1c2e 100%);
+}
+.screen-head,
+.set-tabs {
+  border-bottom-color: rgba(2, 10, 18, 0.35);
+}
+/* dialogs and sheets: opaque night-blue with a turquoise top rim (like the Multijugador sheet) */
+.modal-wrap.dim {
+  background: rgba(4, 12, 22, 0.62);
+}
+.modal-wrap > .card {
+  background:
+    radial-gradient(ellipse 90% 40% at 50% 0%, rgba(255, 176, 84, 0.16), transparent 70%),
+    linear-gradient(180deg, #1b425e, #0f2a41);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.12),
+    inset 0 2px 0 #2fd1bd,
+    0 6px 0 #061624,
+    0 24px 48px rgba(0, 0, 0, 0.5);
+}
+
+/* tabs, segments, chips, switches: sunset means "selected / on" */
+.set-tab {
+  background: rgba(4, 12, 22, 0.38);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 241, 214, 0.1);
+  border-radius: 999px;
+}
+.set-tab[aria-selected='true'],
+.seg-opt[aria-checked='true'],
+.preset-chip[aria-pressed='true'] {
+  background: linear-gradient(180deg, #ffdc72 0, #ffa23f 52%, #f0694f 100%);
+  color: #3a1005;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.5),
+    0 3px 0 #8d2a22;
+}
+.seg {
+  border-radius: 999px;
+  background: rgba(4, 12, 22, 0.42);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 241, 214, 0.08);
+}
+.seg-opt {
+  border-radius: 999px;
+}
+.preset-chip {
+  border-radius: 999px;
+  background: rgba(4, 12, 22, 0.42);
+}
+.switch {
+  background: rgba(4, 12, 22, 0.5);
+}
+.switch[aria-checked='true'] {
+  background: linear-gradient(180deg, #ffdc72 0, #ffa23f 52%, #f0694f 100%);
+}
+.knob {
+  box-shadow: 0 2px 0 rgba(141, 42, 34, 0.55);
+}
+.text-input {
+  border-radius: 999px;
+  background: rgba(4, 12, 22, 0.45);
+  box-shadow:
+    inset 0 2px 0 rgba(0, 0, 0, 0.3),
+    inset 0 0 0 1.5px rgba(255, 241, 214, 0.1);
+}
+
+/* dropdowns: the mode/profile one is a night-blue pill with a turquoise rim; the soft ones are quieter */
+.rsel-btn {
+  border-radius: 999px;
+  background: linear-gradient(180deg, #20506f, #123049);
+  color: #fff6e6;
+  box-shadow:
+    inset 0 0 0 2px #2fd1bd,
+    0 4px 0 #061624;
+}
+.rsel-btn:active {
+  box-shadow:
+    inset 0 0 0 2px #2fd1bd,
+    0 1px 0 #061624;
+}
+.ng-rsel .rsel-btn,
+.rsel.soft .rsel-btn {
+  border-radius: 999px;
+}
+.rsel.soft .rsel-btn {
+  background: rgba(4, 12, 22, 0.42);
+  box-shadow: inset 0 0 0 2px rgba(255, 241, 214, 0.14);
+}
+.rsel.soft.open .rsel-btn {
+  box-shadow: inset 0 0 0 2px rgba(47, 209, 189, 0.7);
+}
+.rsel-list {
+  border-radius: 18px;
+  background: linear-gradient(180deg, #1b425e, #0f2a41);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 2px rgba(47, 209, 189, 0.45);
+}
+.rsel-opt {
+  border-radius: 999px;
+}
+.rsel-opt[aria-selected='true'] {
+  color: #ffd05a;
+}
+
+/* the avatar editor's buttons in the same family: Aleatorio = sunset, Restablecer = night-blue */
+.face-editor .kua-btn,
+.face-editor .kua-btn-small {
+  border-radius: 999px;
+  background: linear-gradient(180deg, #1b425e, #0f2a41);
+  color: #fff6e6;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.34),
+    0 4px 0 #061624;
+}
+.face-editor .kua-btn:active {
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 241, 214, 0.34),
+    0 1px 0 #061624;
+}
+.face-editor .kua-btn-accent {
+  background: linear-gradient(180deg, #ffdc72 0, #ffa23f 52%, #f0694f 100%);
+  color: #3a1005;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.5),
+    0 0 0 2px #fff1d6,
+    0 4px 0 2px #8d2a22;
+}
+.face-editor .kua-btn-accent:active {
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.45),
+    0 0 0 2px #fff1d6,
+    0 1px 0 2px #8d2a22;
+}
+.face-editor .kua-chip {
+  border-radius: 999px;
 }
