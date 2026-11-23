@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- dark boot background matching the game (#0a1c2e) with the domino mark centred -->
+<!-- night-blue boot background (#0a1c2e) with the app icon centred, the same as the Android 12+ splash
+     (splash_icon.png: a 192dp round icon on a 288dp canvas, made by scripts/android-icons.mjs) -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/kudo_bg"/>
-    <item android:drawable="@drawable/ic_launcher_foreground" android:gravity="center" android:width="160dp" android:height="160dp"/>
+    <item android:drawable="@drawable/splash_icon" android:gravity="center" android:width="288dp" android:height="288dp"/>
 </layer-list>

@@ -3,6 +3,8 @@
 //   - mipmap-*/ic_launcher_round.png  legacy round icon: public/icon-maskable.svg clipped to a circle
 //   - mipmap-*/ic_launcher_background.png  adaptive layer (API 26+): public/icon-maskable.svg, full bleed;
 //     the foreground layer is transparent (mipmap-anydpi-v26/ic_launcher*.xml)
+//   - drawable-*/splash_icon.png      the loading screen's icon: public/icon-maskable.svg as a 192dp circle
+//     centred on the 288dp splash canvas (the size Android 12+ keeps; drawable/splash.xml uses it too)
 // The SVGs use gradients and blur filters, so they are drawn by a real browser: headless Edge or Chrome
 // (already on the machine, nothing installed). Its throwaway profile lives next to this repo, not on C:.
 //   node scripts/android-icons.mjs
@@ -16,6 +18,7 @@ const RES = join(ROOT, 'android', 'app', 'src', 'main', 'res');
 const TMP = join(ROOT, 'node_modules', '.cache', 'android-icons');
 const LEGACY = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
 const ADAPTIVE = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 };
+const SPLASH = { mdpi: 288, hdpi: 432, xhdpi: 576, xxhdpi: 864, xxxhdpi: 1152 };
 
 const BROWSERS = [
   process.env.CHROME_PATH,
@@ -31,13 +34,13 @@ if (!browser) throw new Error('No Edge/Chrome found: set CHROME_PATH');
 mkdirSync(TMP, { recursive: true });
 const svg = (name) => 'data:image/svg+xml;base64,' + readFileSync(join(ROOT, 'public', name)).toString('base64');
 
-/** draws `src` at size×size (optionally clipped to a circle) and writes the PNG to `out` */
-function render(src, size, out, round = false) {
+/** draws `src` at size×size (optionally clipped to a circle, inset by `pad` px) and writes the PNG to `out` */
+function render(src, size, out, round = false, pad = 0) {
   const page = join(TMP, 'icon.html');
   writeFileSync(
     page,
     `<!doctype html><html><head><style>html,body{margin:0;background:transparent;overflow:hidden}` +
-      `img{display:block;width:${size}px;height:${size}px;${round ? 'border-radius:50%;' : ''}}</style></head>` +
+      `img{display:block;margin:${pad}px;width:${size - 2 * pad}px;height:${size - 2 * pad}px;${round ? 'border-radius:50%;' : ''}}</style></head>` +
       `<body><img src="${src}"></body></html>`,
   );
   const shot = join(TMP, 'shot.png');
@@ -68,4 +71,8 @@ for (const [d, px] of Object.entries(LEGACY)) {
   render(full, px, join(RES, `mipmap-${d}`, 'ic_launcher_round.png'), true);
 }
 for (const [d, px] of Object.entries(ADAPTIVE)) render(full, px, join(RES, `mipmap-${d}`, 'ic_launcher_background.png'));
+for (const [d, px] of Object.entries(SPLASH)) {
+  mkdirSync(join(RES, `drawable-${d}`), { recursive: true });
+  render(full, px, join(RES, `drawable-${d}`, 'splash_icon.png'), true, px / 6);
+}
 console.log('android icons: written');
