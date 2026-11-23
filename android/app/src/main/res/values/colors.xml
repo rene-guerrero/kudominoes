@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="kudo_bg">#2A160D</color>
+    <color name="kudo_bg">#0A1C2E</color>
     <color name="colorPrimary">#2A160D</color>
     <color name="colorPrimaryDark">#2A160D</color>
     <color name="colorAccent">#FFB627</color>

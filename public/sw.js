@@ -7,7 +7,7 @@
  *   background, and older deploys' assets are dropped: repeat visits are instant and work offline.
  * Registered only in production web builds (never inside the Capacitor app).
  */
-const CACHE = 'kudominoes-v2';
+const CACHE = 'kudominoes-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-maskable.svg'];
 
 /**
