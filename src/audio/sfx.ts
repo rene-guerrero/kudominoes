@@ -6,6 +6,8 @@
 import type { SfxName } from '../contracts';
 import { startMusic, stopMusic } from './music';
 
+export { setMusicMode } from './music';
+
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let sfxBus: GainNode | null = null;

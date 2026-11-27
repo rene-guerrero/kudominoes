@@ -32,7 +32,7 @@ import { buildHandSummary, buildMatchEnd, buildStarterChooser } from '../ui/summ
 import { confirmDialog } from '../ui/overlay';
 import { h } from '../ui/dom';
 import { loc, t } from '../ui/i18n';
-import { hapticTick } from '../audio/sfx';
+import { hapticTick, setMusicMode } from '../audio/sfx';
 import { findTarget, rulesFor } from './settings';
 import { presetName } from '../ui/settings';
 import { allPresets, loadCustomModes } from './modes';
@@ -435,6 +435,7 @@ export class OnlineController {
     if (!this.room) return;
     if (this.mode === 'game') this.leaveGameUi();
     this.mode = 'lobby';
+    setMusicMode('menu'); // back from a match: the host's beginMatch sets 'game' again
     this.home = null;
     if (!this.lobby || !this.lobby.el.isConnected) {
       const s = this.host.settings();

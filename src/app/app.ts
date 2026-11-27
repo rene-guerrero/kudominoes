@@ -2,7 +2,7 @@ import type { AppSettings, Bonus, RuleSettings, DominoMode, EngineApi, FrameStat
 import { tileById, tileSetOf } from '../engine/tiles';
 import { staticFace, faceOfSeat } from '../ui/avatars';
 import { character, profileOf, randomLineup } from '../roster';
-import { hapticTick, playSfx, setAudioPrefs, setAudioSuspended } from '../audio/sfx';
+import { hapticTick, playSfx, setAudioPrefs, setAudioSuspended, setMusicMode } from '../audio/sfx';
 import { buildHowto } from '../ui/howto';
 import { Hud } from '../ui/hud';
 import { loc, setLang, t, type Key } from '../ui/i18n';
@@ -198,6 +198,7 @@ export class App {
 
   showMenu(): void {
     this.screen = 'menu';
+    setMusicMode('menu');
     this.hud.show(false);
     const s = loadSave();
     const save = s ? saveSummary(s) : null;
@@ -232,6 +233,7 @@ export class App {
     const ctl = await this.onlineLoading;
     this.stopSession();
     this.screen = 'online';
+    setMusicMode('menu'); // the lobby; beginMatch switches to the table music
     ctl.open(code, quiet, net);
   }
 
@@ -253,6 +255,7 @@ export class App {
       beginMatch: (o) => {
         this.stopSession();
         this.screen = 'online';
+        setMusicMode('game');
         this.onlineNames = o.names;
         this.mode = o.mode;
         this.seats = o.seats.slice();
@@ -553,6 +556,7 @@ export class App {
     this.overlay.closeAllModals();
     this.overlay.showScreen(null);
     this.screen = 'game';
+    setMusicMode('game');
     this.hud.reset();
     this.plates.clearBubbles();
     this.chatSend = null;
