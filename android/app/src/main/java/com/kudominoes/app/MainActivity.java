@@ -42,6 +42,19 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         enterImmersive();
+        notifyGame(true);
+    }
+
+    /** Minimized, locked or covered: the WebView keeps running, so tell the game to go quiet (music, sounds) and pause. */
+    @Override
+    public void onPause() {
+        notifyGame(false);
+        super.onPause();
+    }
+
+    private void notifyGame(boolean active) {
+        WebView wv = getBridge() != null ? getBridge().getWebView() : null;
+        if (wv != null) wv.evaluateJavascript("window.__kudoLife && window.__kudoLife(" + active + ")", null);
     }
 
     /** Fullscreen immersive: hide status + navigation bars; a swipe reveals them transiently. */

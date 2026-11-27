@@ -951,12 +951,16 @@ export class App {
   // ───────────────────────── global input ─────────────────────────
 
   private bindGlobal(): void {
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
-        setAudioSuspended(true);
-        this.pause();
-      } else setAudioSuspended(false);
-    });
+    // in the background (tab hidden, or the APK minimized / sent back by the Back key) nothing plays:
+    // the Android WebView keeps running there and does not always report it, so MainActivity's
+    // onPause/onResume call window.__kudoLife too
+    const background = (hidden: boolean) => {
+      setAudioSuspended(hidden);
+      if (hidden) this.pause();
+    };
+    document.addEventListener('visibilitychange', () => background(document.hidden));
+    window.addEventListener('pagehide', () => background(true));
+    (window as unknown as { __kudoLife: (active: boolean) => void }).__kudoLife = (active) => background(!active);
     window.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape' && e.key !== 'GoBack' && e.key !== 'BrowserBack') return;
       if (this.screen === 'online') {
